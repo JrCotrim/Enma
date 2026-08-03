@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Sancire.Api/Sancire.Api.csproj" />
+    <Project Path="src/Sancire.Application/Sancire.Application.csproj" />
+    <Project Path="src/Sancire.Domain/Sancire.Domain.csproj" />
+    <Project Path="src/Sancire.Infrastructure/Sancire.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Sancire.UnitTests/Sancire.UnitTests.csproj" />
+  </Folder>
+</Solution>
