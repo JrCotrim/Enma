@@ -1,7 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\Sancire.Domain\Sancire.Domain.csproj" />
+    <ProjectReference Include="..\Enma.Domain\Enma.Domain.csproj" />
+    <ProjectReference Include="..\Enma.Application\Enma.Application.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 
-namespace Sancire.Api.Controllers;
+namespace Enma.Api.Controllers;
 
 [ApiController]
 [Route("[controller]")]

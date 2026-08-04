@@ -1,14 +1,14 @@
-﻿# Sancire
+# ENMA
 
 SaaS de gestão, segurança e inteligência para a prática jurídica.
 
 ## Estrutura inicial
 
-- `Sancire.Api`: API HTTP e configuração da aplicação.
-- `Sancire.Application`: casos de uso do sistema.
-- `Sancire.Domain`: entidades e regras de negócio.
-- `Sancire.Infrastructure`: banco de dados e integrações externas.
-- `Sancire.UnitTests`: testes automatizados.
+- `Enma.Api`: API HTTP e configuração da aplicação.
+- `Enma.Application`: casos de uso do sistema.
+- `Enma.Domain`: entidades e regras de negócio.
+- `Enma.Infrastructure`: banco de dados e integrações externas.
+- `Enma.UnitTests`: testes automatizados.
 
 ## Tecnologias planejadas
 

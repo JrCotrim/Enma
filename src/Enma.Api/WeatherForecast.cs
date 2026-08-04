@@ -1,4 +1,4 @@
-namespace Sancire.Api;
+namespace Enma.Api;
 
 public class WeatherForecast
 {

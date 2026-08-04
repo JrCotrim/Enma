@@ -1,6 +1,6 @@
-﻿using Xunit;
+using Xunit;
 
-namespace Sancire.UnitTests;
+namespace Enma.UnitTests;
 
 public sealed class SolutionSmokeTests
 {

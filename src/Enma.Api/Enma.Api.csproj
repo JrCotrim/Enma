@@ -11,8 +11,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Sancire.Application\Sancire.Application.csproj" />
-    <ProjectReference Include="..\Sancire.Infrastructure\Sancire.Infrastructure.csproj" />
+    <ProjectReference Include="..\Enma.Application\Enma.Application.csproj" />
+    <ProjectReference Include="..\Enma.Infrastructure\Enma.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

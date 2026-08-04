@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -19,8 +19,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Sancire.Domain\Sancire.Domain.csproj" />
-    <ProjectReference Include="..\..\src\Sancire.Application\Sancire.Application.csproj" />
+    <ProjectReference Include="..\..\src\Enma.Domain\Enma.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Enma.Application\Enma.Application.csproj" />
   </ItemGroup>
 
 </Project>
