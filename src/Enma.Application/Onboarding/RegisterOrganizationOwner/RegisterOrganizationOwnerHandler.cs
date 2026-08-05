@@ -1,6 +1,7 @@
 using Enma.Application.Abstractions;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.Create;
+using Enma.Application.Security;
 using Enma.Application.Users;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
@@ -11,26 +12,38 @@ public sealed class RegisterOrganizationOwnerHandler
 {
     private readonly IOrganizationRepository organizationRepository;
     private readonly IUserRepository userRepository;
+    private readonly IUserCredentialRepository userCredentialRepository;
     private readonly IOrganizationMembershipRepository membershipRepository;
+    private readonly IPasswordPolicy passwordPolicy;
+    private readonly IPasswordHasher passwordHasher;
     private readonly IUnitOfWork unitOfWork;
     private readonly TimeProvider timeProvider;
 
     public RegisterOrganizationOwnerHandler(
         IOrganizationRepository organizationRepository,
         IUserRepository userRepository,
+        IUserCredentialRepository userCredentialRepository,
         IOrganizationMembershipRepository membershipRepository,
+        IPasswordPolicy passwordPolicy,
+        IPasswordHasher passwordHasher,
         IUnitOfWork unitOfWork,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(organizationRepository);
         ArgumentNullException.ThrowIfNull(userRepository);
+        ArgumentNullException.ThrowIfNull(userCredentialRepository);
         ArgumentNullException.ThrowIfNull(membershipRepository);
+        ArgumentNullException.ThrowIfNull(passwordPolicy);
+        ArgumentNullException.ThrowIfNull(passwordHasher);
         ArgumentNullException.ThrowIfNull(unitOfWork);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         this.organizationRepository = organizationRepository;
         this.userRepository = userRepository;
+        this.userCredentialRepository = userCredentialRepository;
         this.membershipRepository = membershipRepository;
+        this.passwordPolicy = passwordPolicy;
+        this.passwordHasher = passwordHasher;
         this.unitOfWork = unitOfWork;
         this.timeProvider = timeProvider;
     }
@@ -47,6 +60,8 @@ public sealed class RegisterOrganizationOwnerHandler
             command.OrganizationSlug,
             createdAt);
         var user = new User(command.OwnerName, command.OwnerEmail, createdAt);
+
+        passwordPolicy.Validate(command.Password);
 
         bool slugAlreadyExists = await organizationRepository.ExistsBySlugAsync(
             organization.Slug,
@@ -66,6 +81,10 @@ public sealed class RegisterOrganizationOwnerHandler
             throw new UserEmailAlreadyExistsException(user.Email);
         }
 
+        string passwordHash = passwordHasher.HashPassword(
+            user,
+            command.Password);
+        var credential = new UserCredential(user.Id, passwordHash, createdAt);
         var membership = new OrganizationMembership(
             organization.Id,
             user.Id,
@@ -74,6 +93,7 @@ public sealed class RegisterOrganizationOwnerHandler
 
         await organizationRepository.AddAsync(organization, cancellationToken);
         await userRepository.AddAsync(user, cancellationToken);
+        await userCredentialRepository.AddAsync(credential, cancellationToken);
         await membershipRepository.AddAsync(membership, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

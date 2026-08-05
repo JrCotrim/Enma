@@ -2,14 +2,20 @@ using Enma.Application.Abstractions;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.Create;
+using Enma.Application.Security;
 using Enma.Application.Users;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Repositories;
+using Enma.Infrastructure.Security;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Npgsql;
+using MicrosoftPasswordHasherOptions = Microsoft.AspNetCore.Identity.PasswordHasherOptions;
+using MicrosoftUserPasswordHasher =
+    Microsoft.AspNetCore.Identity.PasswordHasher<Enma.Domain.Users.User>;
 
 namespace Enma.IntegrationTests.Application.Onboarding;
 
@@ -17,6 +23,7 @@ namespace Enma.IntegrationTests.Application.Onboarding;
 public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture fixture)
     : IAsyncLifetime
 {
+    private const string SyntheticPassword = "Synthetic!Owner42";
     private const string SafeDuplicateEmailMessage =
         "A user with the provided email already exists.";
 
@@ -59,6 +66,9 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
             await verificationContext.OrganizationMemberships
                 .AsNoTracking()
                 .SingleAsync();
+        UserCredential credential = await verificationContext.UserCredentials
+            .AsNoTracking()
+            .SingleAsync();
 
         Assert.Equal(organization.Id, result.OrganizationId);
         Assert.Equal("Enma Legal", organization.Name);
@@ -76,6 +86,19 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.True(user.IsActive);
         Assert.Equal(CreatedAt, user.CreatedAt);
 
+        Assert.Equal(user.Id, credential.UserId);
+        Assert.Equal(CreatedAt, credential.CreatedAt);
+        Assert.Equal(CreatedAt, credential.PasswordChangedAt);
+        Assert.False(string.IsNullOrWhiteSpace(credential.PasswordHash));
+        Assert.NotEqual(SyntheticPassword, credential.PasswordHash);
+        IPasswordHasher passwordHasher = CreatePasswordHasher();
+        Assert.Equal(
+            PasswordVerificationResult.Success,
+            passwordHasher.VerifyHashedPassword(
+                user,
+                credential.PasswordHash,
+                SyntheticPassword));
+
         Assert.Equal(membership.Id, result.MembershipId);
         Assert.Equal(organization.Id, membership.OrganizationId);
         Assert.Equal(user.Id, membership.UserId);
@@ -84,6 +107,9 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.True(membership.IsActive);
         Assert.Equal(CreatedAt, membership.CreatedAt);
         Assert.Equal(membership.CreatedAt, result.CreatedAt);
+        Assert.DoesNotContain(
+            result.GetType().GetProperties(),
+            property => property.Name.Contains("Password", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -115,6 +141,8 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
             await verificationContext.OrganizationMemberships
                 .AsNoTracking()
                 .ToListAsync());
+        Assert.Empty(
+            await verificationContext.UserCredentials.AsNoTracking().ToListAsync());
     }
 
     [Fact]
@@ -148,6 +176,8 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
             await verificationContext.OrganizationMemberships
                 .AsNoTracking()
                 .ToListAsync());
+        Assert.Empty(
+            await verificationContext.UserCredentials.AsNoTracking().ToListAsync());
     }
 
     [Fact]
@@ -219,7 +249,8 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
             "  Enma Legal  ",
             "  ENMA-LEGAL  ",
             "  Ana Silva  ",
-            "  OWNER@EXAMPLE.COM  ");
+            "  OWNER@EXAMPLE.COM  ",
+            SyntheticPassword);
     }
 
     private static RegisterOrganizationOwnerHandler CreateHandler(
@@ -230,9 +261,20 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         return new RegisterOrganizationOwnerHandler(
             organizationRepository ?? new OrganizationRepository(dbContext),
             userRepository ?? new UserRepository(dbContext),
+            new UserCredentialRepository(dbContext),
             new OrganizationMembershipRepository(dbContext),
+            new DefaultPasswordPolicy(),
+            CreatePasswordHasher(),
             dbContext,
             new FixedTimeProvider(CreatedAt));
+    }
+
+    private static IPasswordHasher CreatePasswordHasher()
+    {
+        var microsoftHasher = new MicrosoftUserPasswordHasher(
+            Options.Create(new MicrosoftPasswordHasherOptions()));
+
+        return new AspNetCorePasswordHasher(microsoftHasher);
     }
 
     private async Task SeedAsync(object entity)
@@ -253,6 +295,7 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Empty(await dbContext.Users.AsNoTracking().ToListAsync());
         Assert.Empty(
             await dbContext.OrganizationMemberships.AsNoTracking().ToListAsync());
+        Assert.Empty(await dbContext.UserCredentials.AsNoTracking().ToListAsync());
     }
 
     private async Task AssertOnlySeededUserRemainsAsync(Guid userId)
@@ -266,6 +309,7 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Empty(await dbContext.Organizations.AsNoTracking().ToListAsync());
         Assert.Empty(
             await dbContext.OrganizationMemberships.AsNoTracking().ToListAsync());
+        Assert.Empty(await dbContext.UserCredentials.AsNoTracking().ToListAsync());
     }
 
     private sealed class StaleOrganizationRepository(
