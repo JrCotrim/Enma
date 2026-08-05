@@ -1,5 +1,6 @@
 using Enma.Application.Abstractions;
 using Enma.Application.Organizations;
+using Enma.Application.Users;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,10 @@ public static class DependencyInjection
         services.AddDbContext<EnmaDbContext>(
             options => options.UseNpgsql(connectionString));
         services.AddScoped<IOrganizationRepository, OrganizationRepository>();
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<
+            IOrganizationMembershipRepository,
+            OrganizationMembershipRepository>();
         services.AddScoped<IUnitOfWork>(
             serviceProvider => serviceProvider.GetRequiredService<EnmaDbContext>());
 

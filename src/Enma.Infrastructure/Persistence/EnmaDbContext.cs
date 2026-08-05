@@ -1,5 +1,6 @@
 using Enma.Application.Abstractions;
 using Enma.Application.Organizations.Create;
+using Enma.Application.Users;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -11,6 +12,7 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     : DbContext(options), IUnitOfWork
 {
     private const string OrganizationSlugUniqueConstraint = "ux_organizations_slug";
+    private const string UserEmailUniqueConstraint = "ux_users_email";
 
     public DbSet<Organization> Organizations => Set<Organization>();
 
@@ -25,18 +27,46 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
         {
             return await base.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException exception)
-        {
-            Organization? organization = GetOrganizationWithConflictingSlug(exception);
-
-            if (organization is null)
+        catch (DbUpdateException exception) when (
+            exception.InnerException is PostgresException
             {
-                throw;
-            }
+                SqlState: PostgresErrorCodes.UniqueViolation
+            })
+        {
+            var postgresException = (PostgresException)exception.InnerException;
 
-            throw new OrganizationSlugAlreadyExistsException(
-                organization.Slug,
-                exception);
+            switch (postgresException.ConstraintName)
+            {
+                case OrganizationSlugUniqueConstraint:
+                    Organization? organization = exception.Entries
+                        .Select(entry => entry.Entity)
+                        .OfType<Organization>()
+                        .FirstOrDefault();
+
+                    if (organization is null)
+                    {
+                        throw;
+                    }
+
+                    throw new OrganizationSlugAlreadyExistsException(
+                        organization.Slug,
+                        exception);
+
+                case UserEmailUniqueConstraint:
+                    User? user = GetSingleConflictingUser(exception);
+
+                    if (user is null)
+                    {
+                        throw;
+                    }
+
+                    throw new UserEmailAlreadyExistsException(
+                        user.Email,
+                        exception);
+
+                default:
+                    throw;
+            }
         }
     }
 
@@ -46,19 +76,15 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(EnmaDbContext).Assembly);
     }
 
-    private static Organization? GetOrganizationWithConflictingSlug(
+    private static User? GetSingleConflictingUser(
         DbUpdateException exception)
     {
-        if (exception.InnerException is not PostgresException postgresException ||
-            postgresException.SqlState != PostgresErrorCodes.UniqueViolation ||
-            postgresException.ConstraintName != OrganizationSlugUniqueConstraint)
-        {
-            return null;
-        }
-
-        return exception.Entries
+        User[] users = exception.Entries
             .Select(entry => entry.Entity)
-            .OfType<Organization>()
-            .FirstOrDefault();
+            .OfType<User>()
+            .Take(2)
+            .ToArray();
+
+        return users.Length == 1 ? users[0] : null;
     }
 }
