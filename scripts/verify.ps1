@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$SecurityAudit,
-    [switch]$SkipRestore
+    [switch]$SkipRestore,
+    [switch]$IntegrationTests
 )
 
 Set-StrictMode -Version Latest
@@ -36,6 +37,8 @@ function Invoke-CheckedCommand {
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $solutionPath = Join-Path $repositoryRoot "Enma.slnx"
+$unitTestProjectPath = Join-Path $repositoryRoot "tests\Enma.UnitTests\Enma.UnitTests.csproj"
+$integrationTestProjectPath = Join-Path $repositoryRoot "tests\Enma.IntegrationTests\Enma.IntegrationTests.csproj"
 $locationChanged = $false
 $scriptExitCode = 0
 
@@ -44,6 +47,15 @@ try {
 
     if (-not (Test-Path -LiteralPath $solutionPath -PathType Leaf)) {
         throw "Solution file was not found: $solutionPath"
+    }
+
+    if (-not (Test-Path -LiteralPath $unitTestProjectPath -PathType Leaf)) {
+        throw "Unit test project was not found: $unitTestProjectPath"
+    }
+
+    if ($IntegrationTests -and
+        -not (Test-Path -LiteralPath $integrationTestProjectPath -PathType Leaf)) {
+        throw "Integration test project was not found: $integrationTestProjectPath"
     }
 
     Push-Location -LiteralPath $repositoryRoot
@@ -76,11 +88,19 @@ try {
         "--no-restore"
     )
 
-    Invoke-CheckedCommand -Title "Tests" -Command "dotnet" -Arguments @(
+    Invoke-CheckedCommand -Title "Unit tests" -Command "dotnet" -Arguments @(
         "test",
-        ".\Enma.slnx",
+        ".\tests\Enma.UnitTests\Enma.UnitTests.csproj",
         "--no-build"
     )
+
+    if ($IntegrationTests) {
+        Invoke-CheckedCommand -Title "Integration tests" -Command "dotnet" -Arguments @(
+            "test",
+            ".\tests\Enma.IntegrationTests\Enma.IntegrationTests.csproj",
+            "--no-build"
+        )
+    }
 
     if ($SecurityAudit) {
         Invoke-CheckedCommand -Title "Package security audit" -Command "dotnet" -Arguments @(

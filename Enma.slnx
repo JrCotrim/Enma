@@ -6,6 +6,7 @@
     <Project Path="src/Enma.Infrastructure/Enma.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Enma.IntegrationTests/Enma.IntegrationTests.csproj" />
     <Project Path="tests/Enma.UnitTests/Enma.UnitTests.csproj" />
   </Folder>
 </Solution>

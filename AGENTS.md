@@ -62,6 +62,9 @@ The current projects are:
 - Name tests using the `Method_Scenario_ExpectedResult` pattern.
 - Do not remove, skip, or weaken tests to make the build pass.
 - Do not add trivial tests such as `Assert.True(true)`.
+- Tasks that change persistence, EF Core mappings, migrations, repositories, or database behavior must run `scripts/verify.ps1 -IntegrationTests`.
+- Tasks that change dependencies must additionally use `-SecurityAudit`.
+- Ordinary domain or application tasks do not require Docker-based integration tests unless they are relevant.
 - Run the complete validation before finishing the task.
 
 ## Security Rules
