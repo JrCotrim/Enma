@@ -167,8 +167,7 @@ public sealed class OrganizationPersistenceTests(PostgreSqlFixture fixture)
 
     private async Task<EnmaDbContext> CreateEmptyDbContextAsync()
     {
-        EnmaDbContext dbContext = fixture.CreateDbContext();
-        await dbContext.Organizations.ExecuteDeleteAsync();
-        return dbContext;
+        await fixture.ResetDatabaseAsync();
+        return fixture.CreateDbContext();
     }
 }

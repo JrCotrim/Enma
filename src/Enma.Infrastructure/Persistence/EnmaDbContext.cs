@@ -1,6 +1,7 @@
 using Enma.Application.Abstractions;
 using Enma.Application.Organizations.Create;
 using Enma.Domain.Organizations;
+using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -12,6 +13,11 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     private const string OrganizationSlugUniqueConstraint = "ux_organizations_slug";
 
     public DbSet<Organization> Organizations => Set<Organization>();
+
+    public DbSet<User> Users => Set<User>();
+
+    public DbSet<OrganizationMembership> OrganizationMemberships =>
+        Set<OrganizationMembership>();
 
     async Task<int> IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken)
     {

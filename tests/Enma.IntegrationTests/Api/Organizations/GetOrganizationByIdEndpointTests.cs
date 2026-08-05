@@ -41,8 +41,7 @@ public sealed class GetOrganizationByIdEndpointTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await using EnmaDbContext dbContext = fixture.CreateDbContext();
-        await dbContext.Organizations.ExecuteDeleteAsync();
+        await fixture.ResetDatabaseAsync();
     }
 
     public async Task DisposeAsync()

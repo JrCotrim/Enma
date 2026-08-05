@@ -39,6 +39,15 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         return new EnmaDbContext(options);
     }
 
+    public async Task ResetDatabaseAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using EnmaDbContext dbContext = CreateDbContext();
+        await dbContext.OrganizationMemberships.ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Users.ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Organizations.ExecuteDeleteAsync(cancellationToken);
+    }
+
     public async Task DisposeAsync()
     {
         await _container.DisposeAsync();
