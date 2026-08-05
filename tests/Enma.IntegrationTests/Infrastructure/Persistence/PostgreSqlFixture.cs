@@ -14,6 +14,11 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
 
     private DbContextOptions<EnmaDbContext>? _dbContextOptions;
 
+    public string ConnectionString => _dbContextOptions is null
+        ? throw new InvalidOperationException(
+            "The PostgreSQL fixture has not been initialized.")
+        : _container.GetConnectionString();
+
     public async Task InitializeAsync()
     {
         await _container.StartAsync();

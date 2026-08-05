@@ -1,3 +1,5 @@
+using Enma.Application.Abstractions;
+using Enma.Application.Organizations.Create;
 using Enma.Domain.Organizations;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Repositories;
@@ -73,6 +75,25 @@ public sealed class OrganizationPersistenceTests(PostgreSqlFixture fixture)
         await repository.AddAsync(secondOrganization);
 
         await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task SaveChangesAsync_ThroughUnitOfWork_WithDuplicateSlug_ThrowsOrganizationSlugAlreadyExistsException()
+    {
+        await using EnmaDbContext dbContext = await CreateEmptyDbContextAsync();
+        OrganizationRepository repository = new(dbContext);
+        Organization firstOrganization = new("First Legal", "shared-slug", CreatedAt);
+        Organization secondOrganization = new("Second Legal", "SHARED-SLUG", CreatedAt.AddMinutes(1));
+        await repository.AddAsync(firstOrganization);
+        await repository.AddAsync(secondOrganization);
+        IUnitOfWork unitOfWork = dbContext;
+
+        OrganizationSlugAlreadyExistsException exception =
+            await Assert.ThrowsAsync<OrganizationSlugAlreadyExistsException>(
+                () => unitOfWork.SaveChangesAsync());
+
+        Assert.Equal("shared-slug", exception.Slug);
+        Assert.IsType<DbUpdateException>(exception.InnerException);
     }
 
     [Fact]
