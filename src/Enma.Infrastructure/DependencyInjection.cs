@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddOptions<PasswordHasherOptions>();
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<User>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
+        services.AddSingleton<IPasswordPolicy, DefaultPasswordPolicy>();
         services.AddScoped<IOrganizationRepository, OrganizationRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserCredentialRepository, UserCredentialRepository>();

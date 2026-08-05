@@ -42,6 +42,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             .GetRequiredService<EnmaDbContext>();
         IPasswordHasher firstPasswordHasher = firstScope.ServiceProvider
             .GetRequiredService<IPasswordHasher>();
+        IPasswordPolicy firstPasswordPolicy = firstScope.ServiceProvider
+            .GetRequiredService<IPasswordPolicy>();
         MicrosoftPasswordHasher firstMicrosoftPasswordHasher = firstScope.ServiceProvider
             .GetRequiredService<MicrosoftPasswordHasher>();
 
@@ -50,6 +52,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.IsType<OrganizationMembershipRepository>(firstMembershipRepository);
         Assert.IsType<OrganizationRepository>(firstOrganizationRepository);
         Assert.IsType<AspNetCorePasswordHasher>(firstPasswordHasher);
+        Assert.IsType<DefaultPasswordPolicy>(firstPasswordPolicy);
         Assert.IsType<PasswordHasher<User>>(firstMicrosoftPasswordHasher);
         Assert.Same(
             firstUserRepository,
@@ -68,6 +71,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.Same(
             firstPasswordHasher,
             firstScope.ServiceProvider.GetRequiredService<IPasswordHasher>());
+        Assert.Same(
+            firstPasswordPolicy,
+            firstScope.ServiceProvider.GetRequiredService<IPasswordPolicy>());
         Assert.Same(
             firstMicrosoftPasswordHasher,
             firstScope.ServiceProvider.GetRequiredService<MicrosoftPasswordHasher>());
@@ -88,6 +94,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             .GetRequiredService<EnmaDbContext>();
         IPasswordHasher secondPasswordHasher = secondScope.ServiceProvider
             .GetRequiredService<IPasswordHasher>();
+        IPasswordPolicy secondPasswordPolicy = secondScope.ServiceProvider
+            .GetRequiredService<IPasswordPolicy>();
         MicrosoftPasswordHasher secondMicrosoftPasswordHasher = secondScope.ServiceProvider
             .GetRequiredService<MicrosoftPasswordHasher>();
 
@@ -99,6 +107,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.NotSame(firstOrganizationRepository, secondOrganizationRepository);
         Assert.NotSame(firstDbContext, secondDbContext);
         Assert.NotSame(firstPasswordHasher, secondPasswordHasher);
+        Assert.Same(firstPasswordPolicy, secondPasswordPolicy);
         Assert.NotSame(
             firstMicrosoftPasswordHasher,
             secondMicrosoftPasswordHasher);
