@@ -1,6 +1,7 @@
 using Enma.Api.Endpoints.Organizations;
 using Enma.Api.ExceptionHandling;
 using Enma.Application.Organizations.Create;
+using Enma.Application.Organizations.GetById;
 using Enma.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +21,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddScoped<CreateOrganizationHandler>();
+builder.Services.AddScoped<GetOrganizationByIdHandler>();
 builder.Services.AddInfrastructure(connectionString);
 
 var app = builder.Build();

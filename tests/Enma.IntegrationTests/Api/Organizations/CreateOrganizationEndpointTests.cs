@@ -70,9 +70,12 @@ public sealed class CreateOrganizationEndpointTests : IAsyncLifetime
         CreateOrganizationResponse? organization =
             await response.Content.ReadFromJsonAsync<CreateOrganizationResponse>();
         Assert.NotNull(organization);
-        Assert.Equal(
-            $"/api/organizations/{organization.Id}",
-            response.Headers.Location?.OriginalString);
+        Uri? location = response.Headers.Location;
+        Assert.NotNull(location);
+        string locationPath = location.IsAbsoluteUri
+            ? location.AbsolutePath
+            : location.OriginalString;
+        Assert.Equal($"/api/organizations/{organization.Id}", locationPath);
         Assert.NotEqual(Guid.Empty, organization.Id);
         Assert.Equal("Enma Legal", organization.Name);
         Assert.Equal("enma-legal", organization.Slug);
@@ -92,6 +95,22 @@ public sealed class CreateOrganizationEndpointTests : IAsyncLifetime
             (organization.CreatedAt - persistedOrganization.CreatedAt).Duration();
         Assert.InRange(
             createdAtDifference,
+            TimeSpan.Zero,
+            TimeSpan.FromTicks(9));
+
+        HttpResponseMessage getResponse = await client.GetAsync(location);
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        GetOrganizationResponse? retrievedOrganization =
+            await getResponse.Content.ReadFromJsonAsync<GetOrganizationResponse>();
+        Assert.NotNull(retrievedOrganization);
+        Assert.Equal(organization.Id, retrievedOrganization.Id);
+        Assert.Equal(organization.Name, retrievedOrganization.Name);
+        Assert.Equal(organization.Slug, retrievedOrganization.Slug);
+        Assert.Equal(organization.IsActive, retrievedOrganization.IsActive);
+        TimeSpan retrievedCreatedAtDifference =
+            (organization.CreatedAt - retrievedOrganization.CreatedAt).Duration();
+        Assert.InRange(
+            retrievedCreatedAtDifference,
             TimeSpan.Zero,
             TimeSpan.FromTicks(9));
     }

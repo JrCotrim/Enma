@@ -117,6 +117,54 @@ public sealed class OrganizationPersistenceTests(PostgreSqlFixture fixture)
         Assert.Equal(CreatedAt, persistedOrganization.CreatedAt);
     }
 
+    [Fact]
+    public async Task GetByIdAsync_WithExistingOrganization_ReturnsOrganization()
+    {
+        await using EnmaDbContext dbContext = await CreateEmptyDbContextAsync();
+        OrganizationRepository repository = new(dbContext);
+        Organization organization = new("Enma Legal", "enma-legal", CreatedAt);
+        await repository.AddAsync(organization);
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+
+        Organization? result = await repository.GetByIdAsync(organization.Id);
+
+        Assert.NotNull(result);
+        Assert.Equal(organization.Id, result.Id);
+        Assert.Equal("Enma Legal", result.Name);
+        Assert.Equal("enma-legal", result.Slug);
+        Assert.True(result.IsActive);
+        Assert.Equal(CreatedAt, result.CreatedAt);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithMissingOrganization_ReturnsNull()
+    {
+        await using EnmaDbContext dbContext = await CreateEmptyDbContextAsync();
+        OrganizationRepository repository = new(dbContext);
+        Guid organizationId = Guid.NewGuid();
+
+        Organization? result = await repository.GetByIdAsync(organizationId);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithExistingOrganization_DoesNotTrackEntity()
+    {
+        await using EnmaDbContext dbContext = await CreateEmptyDbContextAsync();
+        OrganizationRepository repository = new(dbContext);
+        Organization organization = new("Enma Legal", "enma-legal", CreatedAt);
+        await repository.AddAsync(organization);
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+
+        Organization? result = await repository.GetByIdAsync(organization.Id);
+
+        Assert.NotNull(result);
+        Assert.Empty(dbContext.ChangeTracker.Entries<Organization>());
+    }
+
     private async Task<EnmaDbContext> CreateEmptyDbContextAsync()
     {
         EnmaDbContext dbContext = fixture.CreateDbContext();

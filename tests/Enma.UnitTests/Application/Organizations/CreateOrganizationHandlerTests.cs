@@ -266,6 +266,14 @@ public sealed class CreateOrganizationHandlerTests
 
         public CancellationToken AddCancellationToken { get; private set; }
 
+        public Task<Organization?> GetByIdAsync(
+            Guid id,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException(
+                "GetByIdAsync must not be called by creation tests.");
+        }
+
         public Task<bool> ExistsBySlugAsync(
             string slug,
             CancellationToken cancellationToken = default)

@@ -1,5 +1,6 @@
 using Enma.Api.Contracts.Organizations;
 using Enma.Application.Organizations.Create;
+using Enma.Application.Organizations.GetById;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
@@ -18,7 +19,7 @@ public static class OrganizationEndpoints
 
         group.MapPost(
                 "",
-                async Task<Created<CreateOrganizationResponse>> (
+                async Task<CreatedAtRoute<CreateOrganizationResponse>> (
                     CreateOrganizationRequest request,
                     CreateOrganizationHandler handler,
                     CancellationToken cancellationToken) =>
@@ -36,9 +37,10 @@ public static class OrganizationEndpoints
                         result.IsActive,
                         result.CreatedAt);
 
-                    return TypedResults.Created(
-                        $"/api/organizations/{response.Id}",
-                        response);
+                    return TypedResults.CreatedAtRoute(
+                        response,
+                        "GetOrganizationById",
+                        new { id = response.Id });
                 })
             .WithName("CreateOrganization")
             .WithSummary("Creates an organization.")
@@ -51,6 +53,40 @@ public static class OrganizationEndpoints
                 "application/problem+json")
             .Produces<ProblemDetails>(
                 StatusCodes.Status409Conflict,
+                "application/problem+json")
+            .Produces<ProblemDetails>(
+                StatusCodes.Status500InternalServerError,
+                "application/problem+json");
+
+        group.MapGet(
+                "{id:guid}",
+                async Task<Ok<GetOrganizationResponse>> (
+                    Guid id,
+                    GetOrganizationByIdHandler handler,
+                    CancellationToken cancellationToken) =>
+                {
+                    GetOrganizationByIdResult result = await handler.HandleAsync(
+                        id,
+                        cancellationToken);
+                    GetOrganizationResponse response = new(
+                        result.Id,
+                        result.Name,
+                        result.Slug,
+                        result.IsActive,
+                        result.CreatedAt);
+
+                    return TypedResults.Ok(response);
+                })
+            .WithName("GetOrganizationById")
+            .WithSummary("Gets an organization by its identifier.")
+            .Produces<GetOrganizationResponse>(
+                StatusCodes.Status200OK,
+                "application/json")
+            .Produces<ProblemDetails>(
+                StatusCodes.Status400BadRequest,
+                "application/problem+json")
+            .Produces<ProblemDetails>(
+                StatusCodes.Status404NotFound,
                 "application/problem+json")
             .Produces<ProblemDetails>(
                 StatusCodes.Status500InternalServerError,

@@ -14,6 +14,17 @@ public sealed class OrganizationRepository : IOrganizationRepository
         _dbContext = dbContext;
     }
 
+    public Task<Organization?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        return _dbContext.Organizations
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                organization => organization.Id == id,
+                cancellationToken);
+    }
+
     public Task<bool> ExistsBySlugAsync(
         string slug,
         CancellationToken cancellationToken = default)

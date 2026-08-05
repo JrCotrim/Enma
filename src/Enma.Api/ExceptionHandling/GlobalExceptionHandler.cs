@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Enma.Application.Organizations.Create;
+using Enma.Application.Organizations.GetById;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
@@ -34,6 +35,10 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
 
         (int statusCode, string title, string detail) = exception switch
         {
+            OrganizationNotFoundException => (
+                StatusCodes.Status404NotFound,
+                "Organization not found",
+                exception.Message),
             OrganizationSlugAlreadyExistsException => (
                 StatusCodes.Status409Conflict,
                 "Organization slug conflict",
