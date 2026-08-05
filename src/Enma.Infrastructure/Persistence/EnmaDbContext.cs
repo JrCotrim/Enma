@@ -18,6 +18,8 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
 
     public DbSet<User> Users => Set<User>();
 
+    public DbSet<UserCredential> UserCredentials => Set<UserCredential>();
+
     public DbSet<OrganizationMembership> OrganizationMemberships =>
         Set<OrganizationMembership>();
 
