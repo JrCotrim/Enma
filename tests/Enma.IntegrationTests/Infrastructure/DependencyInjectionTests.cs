@@ -18,6 +18,71 @@ namespace Enma.IntegrationTests.Infrastructure;
 public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 {
     [Fact]
+    public async Task AddInfrastructure_RegistersCompromisedPasswordCheckerAsTypedHttpClient()
+    {
+        var services = new ServiceCollection();
+        services.AddInfrastructure(fixture.ConnectionString);
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider();
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+
+        ICompromisedPasswordChecker firstChecker = firstScope.ServiceProvider
+            .GetRequiredService<ICompromisedPasswordChecker>();
+        ICompromisedPasswordChecker secondChecker = firstScope.ServiceProvider
+            .GetRequiredService<ICompromisedPasswordChecker>();
+        EnmaDbContext dbContext = firstScope.ServiceProvider
+            .GetRequiredService<EnmaDbContext>();
+        IUnitOfWork unitOfWork = firstScope.ServiceProvider
+            .GetRequiredService<IUnitOfWork>();
+        IOrganizationRepository organizationRepository = firstScope.ServiceProvider
+            .GetRequiredService<IOrganizationRepository>();
+        IUserRepository userRepository = firstScope.ServiceProvider
+            .GetRequiredService<IUserRepository>();
+        IUserCredentialRepository userCredentialRepository = firstScope.ServiceProvider
+            .GetRequiredService<IUserCredentialRepository>();
+        IOrganizationMembershipRepository membershipRepository = firstScope
+            .ServiceProvider
+            .GetRequiredService<IOrganizationMembershipRepository>();
+        IPasswordHasher passwordHasher = firstScope.ServiceProvider
+            .GetRequiredService<IPasswordHasher>();
+        IPasswordPolicy passwordPolicy = firstScope.ServiceProvider
+            .GetRequiredService<IPasswordPolicy>();
+
+        Assert.IsType<PwnedPasswordsCompromisedPasswordChecker>(firstChecker);
+        Assert.IsType<PwnedPasswordsCompromisedPasswordChecker>(secondChecker);
+        Assert.NotSame(firstChecker, secondChecker);
+        Assert.Same(dbContext, unitOfWork);
+        Assert.Same(
+            organizationRepository,
+            firstScope.ServiceProvider.GetRequiredService<IOrganizationRepository>());
+        Assert.Same(
+            userRepository,
+            firstScope.ServiceProvider.GetRequiredService<IUserRepository>());
+        Assert.Same(
+            userCredentialRepository,
+            firstScope.ServiceProvider.GetRequiredService<IUserCredentialRepository>());
+        Assert.Same(
+            membershipRepository,
+            firstScope.ServiceProvider
+                .GetRequiredService<IOrganizationMembershipRepository>());
+        Assert.Same(
+            passwordHasher,
+            firstScope.ServiceProvider.GetRequiredService<IPasswordHasher>());
+        Assert.Same(
+            passwordPolicy,
+            firstScope.ServiceProvider.GetRequiredService<IPasswordPolicy>());
+
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+
+        Assert.NotSame(
+            passwordHasher,
+            secondScope.ServiceProvider.GetRequiredService<IPasswordHasher>());
+        Assert.Same(
+            passwordPolicy,
+            secondScope.ServiceProvider.GetRequiredService<IPasswordPolicy>());
+    }
+
+    [Fact]
     public async Task AddInfrastructure_RegistersRepositoriesAndSharedScopedUnitOfWork()
     {
         var services = new ServiceCollection();

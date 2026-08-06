@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using Enma.Application.Abstractions;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
@@ -34,6 +35,22 @@ public static class DependencyInjection
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<User>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<IPasswordPolicy, DefaultPasswordPolicy>();
+        services
+            .AddHttpClient<
+                ICompromisedPasswordChecker,
+                PwnedPasswordsCompromisedPasswordChecker>(httpClient =>
+            {
+                httpClient.BaseAddress = new Uri("https://api.pwnedpasswords.com/");
+                httpClient.Timeout = TimeSpan.FromSeconds(5);
+                httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("ENMA/1.0");
+                httpClient.DefaultRequestHeaders.Add("Add-Padding", "true");
+                httpClient.DefaultRequestHeaders.Accept.Add(
+                    new MediaTypeWithQualityHeaderValue("text/plain"));
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+            {
+                AllowAutoRedirect = false
+            });
         services.AddScoped<IOrganizationRepository, OrganizationRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserCredentialRepository, UserCredentialRepository>();
