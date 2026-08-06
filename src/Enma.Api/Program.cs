@@ -1,5 +1,7 @@
+using Enma.Api.Endpoints.Onboarding;
 using Enma.Api.Endpoints.Organizations;
 using Enma.Api.ExceptionHandling;
+using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Organizations.GetById;
 using Enma.Infrastructure;
@@ -20,6 +22,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
+builder.Services.AddScoped<RegisterOrganizationOwnerHandler>();
 builder.Services.AddScoped<CreateOrganizationHandler>();
 builder.Services.AddScoped<GetOrganizationByIdHandler>();
 builder.Services.AddInfrastructure(connectionString);
@@ -34,6 +37,7 @@ if (app.Environment.IsDevelopment())
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 
+app.MapRegisterOrganizationOwnerEndpoint();
 app.MapOrganizationEndpoints();
 
 app.Run();
