@@ -9,6 +9,7 @@ public sealed class UserCredentialTests
     private static readonly DateTimeOffset ChangedAt = new(2026, 8, 6, 15, 45, 0, TimeSpan.Zero);
     private const string InitialHash = "$opaque$AbC123+/=_-.:~SyntheticValue";
     private const string ChangedHash = "$opaque$XyZ789+/=_-.:~ChangedSyntheticValue";
+    private const string SecondChangedHash = "$opaque$MnO456+/=_-.:~SecondChangedSyntheticValue";
 
     [Fact]
     public void Constructor_WithValidData_StoresUserId()
@@ -154,6 +155,42 @@ public sealed class UserCredentialTests
         Assert.Contains(UserCredentialErrors.PasswordChangedBeforeCreation, exception.Message);
         Assert.Equal(InitialHash, credential.PasswordHash);
         Assert.Equal(CreatedAt, credential.PasswordChangedAt);
+    }
+
+    [Fact]
+    public void ChangePasswordHash_WithTimestampBeforeCurrentPasswordChangedAt_ThrowsAndPreservesState()
+    {
+        UserCredential credential = CreateCredential();
+        credential.ChangePasswordHash(ChangedHash, ChangedAt);
+        string storedPasswordHash = credential.PasswordHash;
+        DateTimeOffset storedPasswordChangedAt = credential.PasswordChangedAt;
+        DateTimeOffset earlierChangedAt = CreatedAt.AddHours(1);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            credential.ChangePasswordHash(SecondChangedHash, earlierChangedAt));
+
+        Assert.Equal("changedAt", exception.ParamName);
+        Assert.Contains(
+            UserCredentialErrors.PasswordChangedAtCannotMoveBackward,
+            exception.Message);
+        Assert.Equal(storedPasswordHash, credential.PasswordHash);
+        Assert.Equal(storedPasswordChangedAt, credential.PasswordChangedAt);
+        Assert.Equal(CreatedAt, credential.CreatedAt);
+        Assert.Equal(UserId, credential.UserId);
+    }
+
+    [Fact]
+    public void ChangePasswordHash_WithTimestampEqualToCurrentPasswordChangedAt_Succeeds()
+    {
+        UserCredential credential = CreateCredential();
+        credential.ChangePasswordHash(ChangedHash, ChangedAt);
+
+        credential.ChangePasswordHash(SecondChangedHash, ChangedAt);
+
+        Assert.Equal(SecondChangedHash, credential.PasswordHash);
+        Assert.Equal(ChangedAt, credential.PasswordChangedAt);
+        Assert.Equal(CreatedAt, credential.CreatedAt);
+        Assert.Equal(UserId, credential.UserId);
     }
 
     private static UserCredential CreateCredential()

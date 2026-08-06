@@ -57,6 +57,13 @@ public sealed class UserCredential
                 UserCredentialErrors.PasswordChangedBeforeCreation);
         }
 
+        if (changedAt < PasswordChangedAt)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(changedAt),
+                UserCredentialErrors.PasswordChangedAtCannotMoveBackward);
+        }
+
         PasswordHash = validatedPasswordHash;
         PasswordChangedAt = changedAt;
     }

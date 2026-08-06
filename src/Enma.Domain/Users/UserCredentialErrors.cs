@@ -9,4 +9,6 @@ public static class UserCredentialErrors
     public const string PasswordChangedAtInvalid = "Password change date must be a valid value.";
     public const string PasswordChangedBeforeCreation =
         "Password change date cannot be earlier than the credential creation date.";
+    public const string PasswordChangedAtCannotMoveBackward =
+        "Password changed timestamp cannot move backward.";
 }
