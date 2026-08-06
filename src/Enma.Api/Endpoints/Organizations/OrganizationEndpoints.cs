@@ -1,5 +1,4 @@
 using Enma.Api.Contracts.Organizations;
-using Enma.Application.Organizations.Create;
 using Enma.Application.Organizations.GetById;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -16,47 +15,6 @@ public static class OrganizationEndpoints
         RouteGroupBuilder group = endpoints
             .MapGroup("/api/organizations")
             .WithTags("Organizations");
-
-        group.MapPost(
-                "",
-                async Task<CreatedAtRoute<CreateOrganizationResponse>> (
-                    CreateOrganizationRequest request,
-                    CreateOrganizationHandler handler,
-                    CancellationToken cancellationToken) =>
-                {
-                    CreateOrganizationCommand command = new(
-                        request.Name,
-                        request.Slug);
-                    CreateOrganizationResult result = await handler.HandleAsync(
-                        command,
-                        cancellationToken);
-                    CreateOrganizationResponse response = new(
-                        result.Id,
-                        result.Name,
-                        result.Slug,
-                        result.IsActive,
-                        result.CreatedAt);
-
-                    return TypedResults.CreatedAtRoute(
-                        response,
-                        "GetOrganizationById",
-                        new { id = response.Id });
-                })
-            .WithName("CreateOrganization")
-            .WithSummary("Creates an organization.")
-            .Accepts<CreateOrganizationRequest>("application/json")
-            .Produces<CreateOrganizationResponse>(
-                StatusCodes.Status201Created,
-                "application/json")
-            .Produces<ProblemDetails>(
-                StatusCodes.Status400BadRequest,
-                "application/problem+json")
-            .Produces<ProblemDetails>(
-                StatusCodes.Status409Conflict,
-                "application/problem+json")
-            .Produces<ProblemDetails>(
-                StatusCodes.Status500InternalServerError,
-                "application/problem+json");
 
         group.MapGet(
                 "{id:guid}",
