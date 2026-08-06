@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<User>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<IPasswordPolicy, DefaultPasswordPolicy>();
+        services.AddTransient<PwnedPasswordsTelemetryHandler>();
         services
             .AddHttpClient<
                 ICompromisedPasswordChecker,
@@ -47,6 +48,8 @@ public static class DependencyInjection
                 httpClient.DefaultRequestHeaders.Accept.Add(
                     new MediaTypeWithQualityHeaderValue("text/plain"));
             })
+            .RemoveAllLoggers()
+            .AddHttpMessageHandler<PwnedPasswordsTelemetryHandler>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 AllowAutoRedirect = false
