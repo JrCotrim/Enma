@@ -2,7 +2,7 @@ namespace Enma.Application.Security;
 
 public sealed class DefaultPasswordPolicy : IPasswordPolicy
 {
-    private const int MinimumPasswordLength = 12;
+    private const int MinimumPasswordLength = 15;
     private const int MaximumPasswordLength = 128;
 
     public void Validate(string password)

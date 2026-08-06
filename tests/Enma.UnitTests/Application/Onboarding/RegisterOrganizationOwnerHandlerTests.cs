@@ -11,7 +11,7 @@ namespace Enma.UnitTests.Application.Onboarding;
 
 public sealed class RegisterOrganizationOwnerHandlerTests
 {
-    private const string ValidPassword = "Synthetic!42";
+    private const string ValidPassword = "Synthetic!Owner42";
     private const string OpaquePasswordHash = "opaque-test-password-hash";
 
     private static readonly DateTimeOffset FixedUtcNow =
@@ -471,7 +471,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
     [Fact]
     public void Command_ToString_DoesNotExposePassword()
     {
-        const string distinctivePassword = "Distinctive!42";
+        const string distinctivePassword = "Distinctive!Owner42";
         var command = new RegisterOrganizationOwnerCommand(
             "Distinctive Organization",
             "distinctive-organization",
