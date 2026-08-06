@@ -11,9 +11,15 @@ public sealed class UserCredentialConfiguration
     {
         builder.ToTable(
             "user_credentials",
-            tableBuilder => tableBuilder.HasCheckConstraint(
-                "ck_user_credentials_password_changed_at",
-                "password_changed_at >= created_at"));
+            tableBuilder =>
+            {
+                tableBuilder.HasCheckConstraint(
+                    "ck_user_credentials_password_changed_at",
+                    "password_changed_at >= created_at");
+                tableBuilder.HasCheckConstraint(
+                    "ck_user_credentials_credential_version",
+                    "credential_version > 0");
+            });
 
         builder.HasKey(credential => credential.UserId)
             .HasName("pk_user_credentials");
@@ -39,6 +45,13 @@ public sealed class UserCredentialConfiguration
             .HasColumnName("password_changed_at")
             .HasColumnType("timestamp with time zone")
             .IsRequired();
+
+        builder.Property(credential => credential.CredentialVersion)
+            .HasColumnName("credential_version")
+            .HasColumnType("bigint")
+            .IsRequired()
+            .IsConcurrencyToken()
+            .ValueGeneratedNever();
 
         builder.HasOne<User>()
             .WithOne()

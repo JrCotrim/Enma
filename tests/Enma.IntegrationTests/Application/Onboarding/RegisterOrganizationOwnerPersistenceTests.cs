@@ -96,6 +96,7 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Equal(user.Id, credential.UserId);
         Assert.Equal(CreatedAt, credential.CreatedAt);
         Assert.Equal(CreatedAt, credential.PasswordChangedAt);
+        Assert.Equal(1, credential.CredentialVersion);
         Assert.False(string.IsNullOrWhiteSpace(credential.PasswordHash));
         Assert.NotEqual(SyntheticPassword, credential.PasswordHash);
         IPasswordHasher passwordHasher = CreatePasswordHasher();

@@ -44,6 +44,14 @@ public sealed class UserCredentialTests
     }
 
     [Fact]
+    public void Constructor_WithValidData_StartsAtCredentialVersionOne()
+    {
+        UserCredential credential = CreateCredential();
+
+        Assert.Equal(1, credential.CredentialVersion);
+    }
+
+    [Fact]
     public void Constructor_WithEmptyUserId_ThrowsArgumentException()
     {
         var exception = Assert.Throws<ArgumentException>(() =>
@@ -104,6 +112,18 @@ public sealed class UserCredentialTests
     }
 
     [Fact]
+    public void ChangePasswordHash_WithValidData_IncrementsCredentialVersion()
+    {
+        UserCredential credential = CreateCredential();
+
+        credential.ChangePasswordHash(ChangedHash, ChangedAt);
+
+        Assert.Equal(ChangedHash, credential.PasswordHash);
+        Assert.Equal(ChangedAt, credential.PasswordChangedAt);
+        Assert.Equal(2, credential.CredentialVersion);
+    }
+
+    [Fact]
     public void ChangePasswordHash_WithTimestampEqualToCreatedAt_Succeeds()
     {
         UserCredential credential = CreateCredential();
@@ -126,6 +146,7 @@ public sealed class UserCredentialTests
         Assert.Contains(UserCredentialErrors.PasswordHashRequired, exception.Message);
         Assert.Equal(InitialHash, credential.PasswordHash);
         Assert.Equal(CreatedAt, credential.PasswordChangedAt);
+        Assert.Equal(1, credential.CredentialVersion);
     }
 
     [Fact]
@@ -140,6 +161,7 @@ public sealed class UserCredentialTests
         Assert.Contains(UserCredentialErrors.PasswordChangedAtInvalid, exception.Message);
         Assert.Equal(InitialHash, credential.PasswordHash);
         Assert.Equal(CreatedAt, credential.PasswordChangedAt);
+        Assert.Equal(1, credential.CredentialVersion);
     }
 
     [Fact]
@@ -155,6 +177,7 @@ public sealed class UserCredentialTests
         Assert.Contains(UserCredentialErrors.PasswordChangedBeforeCreation, exception.Message);
         Assert.Equal(InitialHash, credential.PasswordHash);
         Assert.Equal(CreatedAt, credential.PasswordChangedAt);
+        Assert.Equal(1, credential.CredentialVersion);
     }
 
     [Fact]
@@ -164,6 +187,7 @@ public sealed class UserCredentialTests
         credential.ChangePasswordHash(ChangedHash, ChangedAt);
         string storedPasswordHash = credential.PasswordHash;
         DateTimeOffset storedPasswordChangedAt = credential.PasswordChangedAt;
+        long storedCredentialVersion = credential.CredentialVersion;
         DateTimeOffset earlierChangedAt = CreatedAt.AddHours(1);
 
         var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
@@ -175,6 +199,7 @@ public sealed class UserCredentialTests
             exception.Message);
         Assert.Equal(storedPasswordHash, credential.PasswordHash);
         Assert.Equal(storedPasswordChangedAt, credential.PasswordChangedAt);
+        Assert.Equal(storedCredentialVersion, credential.CredentialVersion);
         Assert.Equal(CreatedAt, credential.CreatedAt);
         Assert.Equal(UserId, credential.UserId);
     }
@@ -191,6 +216,68 @@ public sealed class UserCredentialTests
         Assert.Equal(ChangedAt, credential.PasswordChangedAt);
         Assert.Equal(CreatedAt, credential.CreatedAt);
         Assert.Equal(UserId, credential.UserId);
+    }
+
+    [Fact]
+    public void ChangePasswordHash_WithEqualTimestamp_IncrementsCredentialVersion()
+    {
+        UserCredential credential = CreateCredential();
+        DateTimeOffset originalPasswordChangedAt = credential.PasswordChangedAt;
+
+        credential.ChangePasswordHash(ChangedHash, originalPasswordChangedAt);
+
+        Assert.Equal(ChangedHash, credential.PasswordHash);
+        Assert.Equal(originalPasswordChangedAt, credential.PasswordChangedAt);
+        Assert.Equal(2, credential.CredentialVersion);
+    }
+
+    [Fact]
+    public void ChangePasswordHash_CalledTwice_IncrementsCredentialVersionForEachChange()
+    {
+        UserCredential credential = CreateCredential();
+
+        credential.ChangePasswordHash(ChangedHash, ChangedAt);
+
+        Assert.Equal(2, credential.CredentialVersion);
+
+        DateTimeOffset secondChangedAt = ChangedAt.AddHours(1);
+        credential.ChangePasswordHash(SecondChangedHash, secondChangedAt);
+
+        Assert.Equal(3, credential.CredentialVersion);
+        Assert.Equal(SecondChangedHash, credential.PasswordHash);
+        Assert.Equal(secondChangedAt, credential.PasswordChangedAt);
+    }
+
+    [Fact]
+    public void UpgradePasswordHash_WithValidHash_ChangesOnlyPasswordHash()
+    {
+        UserCredential credential = CreateCredential();
+        DateTimeOffset originalPasswordChangedAt = credential.PasswordChangedAt;
+        long originalCredentialVersion = credential.CredentialVersion;
+
+        credential.UpgradePasswordHash(ChangedHash);
+
+        Assert.Equal(ChangedHash, credential.PasswordHash);
+        Assert.Equal(originalPasswordChangedAt, credential.PasswordChangedAt);
+        Assert.Equal(originalCredentialVersion, credential.CredentialVersion);
+    }
+
+    [Fact]
+    public void UpgradePasswordHash_WithInvalidHash_ThrowsAndPreservesState()
+    {
+        UserCredential credential = CreateCredential();
+        string originalPasswordHash = credential.PasswordHash;
+        DateTimeOffset originalPasswordChangedAt = credential.PasswordChangedAt;
+        long originalCredentialVersion = credential.CredentialVersion;
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            credential.UpgradePasswordHash("   "));
+
+        Assert.Equal("passwordHash", exception.ParamName);
+        Assert.Contains(UserCredentialErrors.PasswordHashRequired, exception.Message);
+        Assert.Equal(originalPasswordHash, credential.PasswordHash);
+        Assert.Equal(originalPasswordChangedAt, credential.PasswordChangedAt);
+        Assert.Equal(originalCredentialVersion, credential.CredentialVersion);
     }
 
     private static UserCredential CreateCredential()

@@ -59,6 +59,86 @@ public sealed class UserCredentialPersistenceTests(PostgreSqlFixture fixture)
         Assert.Equal(InitialSyntheticHash, persistedCredential.PasswordHash);
         Assert.Equal(CreatedAt, persistedCredential.CreatedAt);
         Assert.Equal(CreatedAt, persistedCredential.PasswordChangedAt);
+        Assert.Equal(1, persistedCredential.CredentialVersion);
+    }
+
+    [Fact]
+    public async Task ChangePasswordHash_ThenSave_PersistsIncrementedCredentialVersion()
+    {
+        User user = CreateUser();
+
+        await using (EnmaDbContext setupContext = fixture.CreateDbContext())
+        {
+            setupContext.Users.Add(user);
+            await setupContext.SaveChangesAsync();
+
+            UserCredential credential = new(
+                user.Id,
+                InitialSyntheticHash,
+                CreatedAt);
+            setupContext.UserCredentials.Add(credential);
+            await setupContext.SaveChangesAsync();
+
+            credential.ChangePasswordHash(
+                UpdatedSyntheticHash,
+                PasswordChangedAt);
+            await setupContext.SaveChangesAsync();
+        }
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        UserCredential persistedCredential = await verificationContext.UserCredentials
+            .AsNoTracking()
+            .SingleAsync(credential => credential.UserId == user.Id);
+
+        Assert.Equal(UpdatedSyntheticHash, persistedCredential.PasswordHash);
+        Assert.Equal(PasswordChangedAt, persistedCredential.PasswordChangedAt);
+        Assert.Equal(2, persistedCredential.CredentialVersion);
+    }
+
+    [Fact]
+    public async Task UpgradePasswordHash_ThenSave_PreservesPasswordChangedAtAndCredentialVersion()
+    {
+        User user = CreateUser();
+        DateTimeOffset originalPasswordChangedAt;
+        long originalCredentialVersion;
+
+        await using (EnmaDbContext setupContext = fixture.CreateDbContext())
+        {
+            setupContext.Users.Add(user);
+            await setupContext.SaveChangesAsync();
+
+            UserCredential credential = new(
+                user.Id,
+                InitialSyntheticHash,
+                CreatedAt);
+            setupContext.UserCredentials.Add(credential);
+            await setupContext.SaveChangesAsync();
+
+            originalPasswordChangedAt = credential.PasswordChangedAt;
+            originalCredentialVersion = credential.CredentialVersion;
+        }
+
+        await using (EnmaDbContext updateContext = fixture.CreateDbContext())
+        {
+            UserCredential credential = await updateContext.UserCredentials
+                .SingleAsync(candidate => candidate.UserId == user.Id);
+
+            credential.UpgradePasswordHash(UpdatedSyntheticHash);
+            await updateContext.SaveChangesAsync();
+        }
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        UserCredential persistedCredential = await verificationContext.UserCredentials
+            .AsNoTracking()
+            .SingleAsync(credential => credential.UserId == user.Id);
+
+        Assert.Equal(UpdatedSyntheticHash, persistedCredential.PasswordHash);
+        Assert.Equal(
+            originalPasswordChangedAt,
+            persistedCredential.PasswordChangedAt);
+        Assert.Equal(
+            originalCredentialVersion,
+            persistedCredential.CredentialVersion);
     }
 
     [Fact]
@@ -196,9 +276,9 @@ public sealed class UserCredentialPersistenceTests(PostgreSqlFixture fixture)
             async () => await dbContext.Database.ExecuteSqlInterpolatedAsync(
                 $"""
                 INSERT INTO user_credentials
-                    (user_id, password_hash, created_at, password_changed_at)
+                    (user_id, password_hash, created_at, password_changed_at, credential_version)
                 VALUES
-                    ({user.Id}, {InitialSyntheticHash}, {CreatedAt}, {passwordChangedBeforeCreation})
+                    ({user.Id}, {InitialSyntheticHash}, {CreatedAt}, {passwordChangedBeforeCreation}, {1L})
                 """));
 
         Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
@@ -262,6 +342,144 @@ public sealed class UserCredentialPersistenceTests(PostgreSqlFixture fixture)
             PasswordChangedAt,
             persistedCredential.PasswordChangedAt);
         Assert.Equal(CreatedAt, persistedCredential.CreatedAt);
+    }
+
+    [Fact]
+    public async Task DatabaseConstraint_RejectsNonPositiveCredentialVersion()
+    {
+        User user = CreateUser();
+
+        await using (EnmaDbContext setupContext = fixture.CreateDbContext())
+        {
+            setupContext.Users.Add(user);
+            await setupContext.SaveChangesAsync();
+
+            UserCredential credential = new(
+                user.Id,
+                InitialSyntheticHash,
+                CreatedAt);
+            setupContext.UserCredentials.Add(credential);
+            await setupContext.SaveChangesAsync();
+        }
+
+        await using (EnmaDbContext updateContext = fixture.CreateDbContext())
+        {
+            PostgresException exception = await Assert.ThrowsAsync<PostgresException>(
+                async () => await updateContext.Database.ExecuteSqlInterpolatedAsync(
+                    $"""
+                    UPDATE user_credentials
+                    SET credential_version = {0L}
+                    WHERE user_id = {user.Id}
+                    """));
+
+            Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
+            Assert.Equal(
+                "ck_user_credentials_credential_version",
+                exception.ConstraintName);
+        }
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        UserCredential persistedCredential = await verificationContext.UserCredentials
+            .AsNoTracking()
+            .SingleAsync(credential => credential.UserId == user.Id);
+
+        Assert.Equal(1, persistedCredential.CredentialVersion);
+    }
+
+    [Fact]
+    public async Task DatabaseTrigger_RejectsCredentialVersionRegression()
+    {
+        User user = CreateUser();
+
+        await using (EnmaDbContext setupContext = fixture.CreateDbContext())
+        {
+            setupContext.Users.Add(user);
+            await setupContext.SaveChangesAsync();
+
+            UserCredential credential = new(
+                user.Id,
+                InitialSyntheticHash,
+                CreatedAt);
+            setupContext.UserCredentials.Add(credential);
+            await setupContext.SaveChangesAsync();
+
+            credential.ChangePasswordHash(
+                UpdatedSyntheticHash,
+                PasswordChangedAt);
+            await setupContext.SaveChangesAsync();
+        }
+
+        await using (EnmaDbContext updateContext = fixture.CreateDbContext())
+        {
+            PostgresException exception = await Assert.ThrowsAsync<PostgresException>(
+                async () => await updateContext.Database.ExecuteSqlInterpolatedAsync(
+                    $"""
+                    UPDATE user_credentials
+                    SET credential_version = {1L}
+                    WHERE user_id = {user.Id}
+                    """));
+
+            Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
+            Assert.Equal(
+                "ck_user_credentials_credential_version_monotonic",
+                exception.ConstraintName);
+        }
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        UserCredential persistedCredential = await verificationContext.UserCredentials
+            .AsNoTracking()
+            .SingleAsync(credential => credential.UserId == user.Id);
+
+        Assert.Equal(UpdatedSyntheticHash, persistedCredential.PasswordHash);
+        Assert.Equal(PasswordChangedAt, persistedCredential.PasswordChangedAt);
+        Assert.Equal(2, persistedCredential.CredentialVersion);
+    }
+
+    [Fact]
+    public async Task ConcurrentPasswordChanges_RejectStaleCredentialUpdate()
+    {
+        User user = CreateUser();
+
+        await using (EnmaDbContext setupContext = fixture.CreateDbContext())
+        {
+            setupContext.Users.Add(user);
+            await setupContext.SaveChangesAsync();
+
+            UserCredential credential = new(
+                user.Id,
+                InitialSyntheticHash,
+                CreatedAt);
+            setupContext.UserCredentials.Add(credential);
+            await setupContext.SaveChangesAsync();
+        }
+
+        await using EnmaDbContext firstContext = fixture.CreateDbContext();
+        await using EnmaDbContext secondContext = fixture.CreateDbContext();
+        UserCredential firstCredential = await firstContext.UserCredentials
+            .SingleAsync(credential => credential.UserId == user.Id);
+        UserCredential secondCredential = await secondContext.UserCredentials
+            .SingleAsync(credential => credential.UserId == user.Id);
+
+        firstCredential.ChangePasswordHash(
+            UpdatedSyntheticHash,
+            PasswordChangedAt);
+        secondCredential.ChangePasswordHash(
+            RegressedSyntheticHash,
+            PasswordChangedAt);
+
+        await firstContext.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(
+            () => secondContext.SaveChangesAsync());
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        UserCredential persistedCredential = await verificationContext.UserCredentials
+            .AsNoTracking()
+            .SingleAsync(credential => credential.UserId == user.Id);
+
+        Assert.Equal(UpdatedSyntheticHash, persistedCredential.PasswordHash);
+        Assert.Equal(PasswordChangedAt, persistedCredential.PasswordChangedAt);
+        Assert.Equal(2, persistedCredential.CredentialVersion);
     }
 
     private static User CreateUser()

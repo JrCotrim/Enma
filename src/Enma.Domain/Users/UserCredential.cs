@@ -27,6 +27,7 @@ public sealed class UserCredential
         PasswordHash = validatedPasswordHash;
         CreatedAt = createdAt;
         PasswordChangedAt = createdAt;
+        CredentialVersion = 1;
     }
 
     public Guid UserId { get; private set; }
@@ -36,6 +37,8 @@ public sealed class UserCredential
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset PasswordChangedAt { get; private set; }
+
+    public long CredentialVersion { get; private set; }
 
     public void ChangePasswordHash(
         string passwordHash,
@@ -64,8 +67,18 @@ public sealed class UserCredential
                 UserCredentialErrors.PasswordChangedAtCannotMoveBackward);
         }
 
+        long nextCredentialVersion = checked(CredentialVersion + 1);
+
         PasswordHash = validatedPasswordHash;
         PasswordChangedAt = changedAt;
+        CredentialVersion = nextCredentialVersion;
+    }
+
+    public void UpgradePasswordHash(string passwordHash)
+    {
+        string validatedPasswordHash = ValidatePasswordHash(passwordHash);
+
+        PasswordHash = validatedPasswordHash;
     }
 
     private static string ValidatePasswordHash(string passwordHash)
