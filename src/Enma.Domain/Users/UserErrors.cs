@@ -8,4 +8,6 @@ public static class UserErrors
     public const string EmailTooLong = "User email cannot exceed 254 characters.";
     public const string EmailInvalidFormat = "User email format is invalid.";
     public const string CreatedAtInvalid = "User creation date must be a valid value.";
+    public const string EmailVerifiedAtInvalid =
+        "Email verification date cannot be earlier than user creation date.";
 }

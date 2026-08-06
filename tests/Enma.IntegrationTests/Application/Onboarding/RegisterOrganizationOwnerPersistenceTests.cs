@@ -90,6 +90,7 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Equal(user.Name, result.UserName);
         Assert.Equal(user.Email, result.UserEmail);
         Assert.True(user.IsActive);
+        Assert.Null(user.EmailVerifiedAt);
         Assert.Equal(CreatedAt, user.CreatedAt);
 
         Assert.Equal(user.Id, credential.UserId);

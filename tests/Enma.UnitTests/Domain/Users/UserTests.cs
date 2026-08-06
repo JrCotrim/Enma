@@ -39,6 +39,14 @@ public sealed class UserTests
     }
 
     [Fact]
+    public void Constructor_WithValidData_StartsWithUnverifiedEmail()
+    {
+        User user = CreateUser();
+
+        Assert.Null(user.EmailVerifiedAt);
+    }
+
+    [Fact]
     public void Constructor_WithValidData_StoresCreatedAt()
     {
         User user = CreateUser();
@@ -173,12 +181,95 @@ public sealed class UserTests
     public void ChangeEmail_WithInvalidEmail_ThrowsArgumentException()
     {
         User user = CreateUser();
+        user.VerifyEmail(CreatedAt);
 
         var exception = Assert.Throws<ArgumentException>(() => user.ChangeEmail("maria.silva.example.com"));
 
         Assert.Equal("email", exception.ParamName);
         Assert.Contains(UserErrors.EmailInvalidFormat, exception.Message);
         Assert.Equal("maria.silva@example.com", user.Email);
+        Assert.Equal(CreatedAt, user.EmailVerifiedAt);
+    }
+
+    [Fact]
+    public void VerifyEmail_WithCreatedAtTimestamp_SetsEmailVerifiedAt()
+    {
+        User user = CreateUser();
+
+        user.VerifyEmail(CreatedAt);
+
+        Assert.Equal(CreatedAt, user.EmailVerifiedAt);
+    }
+
+    [Fact]
+    public void VerifyEmail_WithTimestampAfterCreatedAt_SetsEmailVerifiedAt()
+    {
+        User user = CreateUser();
+        DateTimeOffset verifiedAt = CreatedAt.AddMinutes(1);
+
+        user.VerifyEmail(verifiedAt);
+
+        Assert.Equal(verifiedAt, user.EmailVerifiedAt);
+    }
+
+    [Fact]
+    public void VerifyEmail_WithTimestampBeforeCreatedAt_ThrowsAndPreservesUnverifiedState()
+    {
+        User user = CreateUser();
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            user.VerifyEmail(CreatedAt.AddTicks(-1)));
+
+        Assert.Equal("verifiedAt", exception.ParamName);
+        Assert.Contains(UserErrors.EmailVerifiedAtInvalid, exception.Message);
+        Assert.Null(user.EmailVerifiedAt);
+    }
+
+    [Fact]
+    public void VerifyEmail_WhenAlreadyVerified_PreservesOriginalTimestamp()
+    {
+        User user = CreateUser();
+        DateTimeOffset firstVerifiedAt = CreatedAt.AddMinutes(1);
+        DateTimeOffset laterVerifiedAt = CreatedAt.AddMinutes(2);
+        user.VerifyEmail(firstVerifiedAt);
+
+        Exception? repeatedVerificationException = Record.Exception(() =>
+            user.VerifyEmail(laterVerifiedAt));
+
+        Assert.Null(repeatedVerificationException);
+        Assert.Equal(firstVerifiedAt, user.EmailVerifiedAt);
+
+        var invalidTimestampException = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            user.VerifyEmail(CreatedAt.AddTicks(-1)));
+        Assert.Equal("verifiedAt", invalidTimestampException.ParamName);
+        Assert.Contains(
+            UserErrors.EmailVerifiedAtInvalid,
+            invalidTimestampException.Message);
+        Assert.Equal(firstVerifiedAt, user.EmailVerifiedAt);
+    }
+
+    [Fact]
+    public void ChangeEmail_WhenNormalizedEmailChanges_ClearsEmailVerification()
+    {
+        User user = CreateUser();
+        user.VerifyEmail(CreatedAt);
+
+        user.ChangeEmail("  MARIA.SOUZA@EXAMPLE.COM  ");
+
+        Assert.Equal("maria.souza@example.com", user.Email);
+        Assert.Null(user.EmailVerifiedAt);
+    }
+
+    [Fact]
+    public void ChangeEmail_WithEquivalentNormalizedEmail_PreservesEmailVerification()
+    {
+        User user = CreateUser();
+        user.VerifyEmail(CreatedAt);
+
+        user.ChangeEmail("  MARIA.SILVA@EXAMPLE.COM  ");
+
+        Assert.Equal("maria.silva@example.com", user.Email);
+        Assert.Equal(CreatedAt, user.EmailVerifiedAt);
     }
 
     [Fact]

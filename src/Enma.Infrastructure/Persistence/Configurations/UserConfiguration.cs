@@ -8,7 +8,11 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.ToTable("users");
+        builder.ToTable(
+            "users",
+            tableBuilder => tableBuilder.HasCheckConstraint(
+                "ck_users_email_verified_at",
+                "email_verified_at IS NULL OR email_verified_at >= created_at"));
 
         builder.HasKey(user => user.Id)
             .HasName("pk_users");
@@ -30,6 +34,11 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
             .HasMaxLength(254)
             .HasColumnType("character varying(254)")
             .IsRequired();
+
+        builder.Property(user => user.EmailVerifiedAt)
+            .HasColumnName("email_verified_at")
+            .HasColumnType("timestamp with time zone")
+            .IsRequired(false);
 
         builder.Property(user => user.IsActive)
             .HasColumnName("is_active")

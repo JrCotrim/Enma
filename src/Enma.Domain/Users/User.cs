@@ -17,6 +17,7 @@ public sealed class User
         Email = NormalizeEmail(email);
         IsActive = true;
         CreatedAt = createdAt;
+        EmailVerifiedAt = null;
     }
 
     public Guid Id { get; private set; }
@@ -24,6 +25,8 @@ public sealed class User
     public string Name { get; private set; }
 
     public string Email { get; private set; }
+
+    public DateTimeOffset? EmailVerifiedAt { get; private set; }
 
     public bool IsActive { get; private set; }
 
@@ -36,7 +39,27 @@ public sealed class User
 
     public void ChangeEmail(string email)
     {
-        Email = NormalizeEmail(email);
+        string normalizedEmail = NormalizeEmail(email);
+
+        if (string.Equals(normalizedEmail, Email, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        Email = normalizedEmail;
+        EmailVerifiedAt = null;
+    }
+
+    public void VerifyEmail(DateTimeOffset verifiedAt)
+    {
+        if (verifiedAt < CreatedAt)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(verifiedAt),
+                UserErrors.EmailVerifiedAtInvalid);
+        }
+
+        EmailVerifiedAt ??= verifiedAt;
     }
 
     public void Activate()

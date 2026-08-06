@@ -44,8 +44,91 @@ public sealed class UserPersistenceTests(PostgreSqlFixture fixture) : IAsyncLife
         Assert.NotEqual(Guid.Empty, persistedUser.Id);
         Assert.Equal("Enma User", persistedUser.Name);
         Assert.Equal("user@example.com", persistedUser.Email);
+        Assert.Null(persistedUser.EmailVerifiedAt);
         Assert.True(persistedUser.IsActive);
         Assert.Equal(CreatedAt, persistedUser.CreatedAt);
+    }
+
+    [Fact]
+    public async Task VerifyEmail_ThenSave_PersistsEmailVerifiedAt()
+    {
+        User user = new("Enma User", "user@example.com", CreatedAt);
+        user.VerifyEmail(user.CreatedAt);
+
+        await using (EnmaDbContext dbContext = fixture.CreateDbContext())
+        {
+            dbContext.Users.Add(user);
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        User persistedUser = await verificationContext.Users
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == user.Id);
+
+        Assert.Equal(user.CreatedAt, persistedUser.EmailVerifiedAt);
+    }
+
+    [Fact]
+    public async Task ChangeEmail_AfterVerification_ClearsPersistedEmailVerifiedAt()
+    {
+        User user = new("Enma User", "user@example.com", CreatedAt);
+        user.VerifyEmail(CreatedAt);
+
+        await using (EnmaDbContext createContext = fixture.CreateDbContext())
+        {
+            createContext.Users.Add(user);
+            await createContext.SaveChangesAsync();
+        }
+
+        await using (EnmaDbContext updateContext = fixture.CreateDbContext())
+        {
+            User persistedUser = await updateContext.Users
+                .SingleAsync(candidate => candidate.Id == user.Id);
+            persistedUser.ChangeEmail("  UPDATED@EXAMPLE.COM  ");
+            await updateContext.SaveChangesAsync();
+        }
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        User updatedUser = await verificationContext.Users
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == user.Id);
+
+        Assert.Equal("updated@example.com", updatedUser.Email);
+        Assert.Null(updatedUser.EmailVerifiedAt);
+    }
+
+    [Fact]
+    public async Task DatabaseConstraint_RejectsEmailVerifiedAtBeforeCreatedAt()
+    {
+        User user = new("Enma User", "user@example.com", CreatedAt);
+
+        await using (EnmaDbContext createContext = fixture.CreateDbContext())
+        {
+            createContext.Users.Add(user);
+            await createContext.SaveChangesAsync();
+        }
+
+        await using (EnmaDbContext sqlContext = fixture.CreateDbContext())
+        {
+            PostgresException exception = await Assert.ThrowsAsync<PostgresException>(() =>
+                sqlContext.Database.ExecuteSqlInterpolatedAsync(
+                    $"""
+                    UPDATE users
+                    SET email_verified_at = created_at - INTERVAL '1 second'
+                    WHERE id = {user.Id}
+                    """));
+
+            Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
+            Assert.Equal("ck_users_email_verified_at", exception.ConstraintName);
+        }
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        User persistedUser = await verificationContext.Users
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == user.Id);
+
+        Assert.Null(persistedUser.EmailVerifiedAt);
     }
 
     [Fact]
