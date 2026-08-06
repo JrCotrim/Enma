@@ -15,6 +15,24 @@ public sealed class UserTests
     }
 
     [Fact]
+    public void NormalizeEmail_WithValidInput_ReturnsCanonicalEmail()
+    {
+        string normalizedEmail = User.NormalizeEmail("  LOGIN@EXAMPLE.TEST  ");
+
+        Assert.Equal("login@example.test", normalizedEmail);
+    }
+
+    [Fact]
+    public void NormalizeEmail_WithInvalidInput_ThrowsExistingValidationException()
+    {
+        var exception = Assert.Throws<ArgumentException>(() =>
+            User.NormalizeEmail("invalid-email"));
+
+        Assert.Equal("email", exception.ParamName);
+        Assert.Contains(UserErrors.EmailInvalidFormat, exception.Message);
+    }
+
+    [Fact]
     public void Constructor_WithValidData_StoresNormalizedName()
     {
         var user = new User("  Maria Silva  ", "maria.silva@example.com", CreatedAt);

@@ -1,10 +1,12 @@
 using System.Net.Http.Headers;
 using Enma.Application.Abstractions;
+using Enma.Application.Authentication;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
 using Enma.Application.Users;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
+using Enma.Infrastructure.Persistence.Queries;
 using Enma.Infrastructure.Persistence.Repositories;
 using Enma.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
@@ -57,6 +59,7 @@ public static class DependencyInjection
         services.AddScoped<IOrganizationRepository, OrganizationRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserCredentialRepository, UserCredentialRepository>();
+        services.AddScoped<IAuthenticationIdentityLookup, AuthenticationIdentityLookup>();
         services.AddScoped<
             IOrganizationMembershipRepository,
             OrganizationMembershipRepository>();

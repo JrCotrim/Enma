@@ -1,10 +1,12 @@
 using Enma.Application.Abstractions;
+using Enma.Application.Authentication;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
 using Enma.Application.Users;
 using Enma.Domain.Users;
 using Enma.Infrastructure;
 using Enma.Infrastructure.Persistence;
+using Enma.Infrastructure.Persistence.Queries;
 using Enma.Infrastructure.Persistence.Repositories;
 using Enma.Infrastructure.Security;
 using Enma.IntegrationTests.Infrastructure.Persistence;
@@ -96,6 +98,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IUserCredentialRepository firstUserCredentialRepository =
             firstScope.ServiceProvider
                 .GetRequiredService<IUserCredentialRepository>();
+        IAuthenticationIdentityLookup firstAuthenticationIdentityLookup =
+            firstScope.ServiceProvider
+                .GetRequiredService<IAuthenticationIdentityLookup>();
         IOrganizationMembershipRepository firstMembershipRepository =
             firstScope.ServiceProvider
                 .GetRequiredService<IOrganizationMembershipRepository>();
@@ -114,6 +119,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 
         Assert.IsType<UserRepository>(firstUserRepository);
         Assert.IsType<UserCredentialRepository>(firstUserCredentialRepository);
+        Assert.IsType<AuthenticationIdentityLookup>(firstAuthenticationIdentityLookup);
         Assert.IsType<OrganizationMembershipRepository>(firstMembershipRepository);
         Assert.IsType<OrganizationRepository>(firstOrganizationRepository);
         Assert.IsType<AspNetCorePasswordHasher>(firstPasswordHasher);
@@ -126,6 +132,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstUserCredentialRepository,
             firstScope.ServiceProvider
                 .GetRequiredService<IUserCredentialRepository>());
+        Assert.Same(
+            firstAuthenticationIdentityLookup,
+            firstScope.ServiceProvider
+                .GetRequiredService<IAuthenticationIdentityLookup>());
         Assert.Same(
             firstMembershipRepository,
             firstScope.ServiceProvider
@@ -150,6 +160,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IUserCredentialRepository secondUserCredentialRepository =
             secondScope.ServiceProvider
                 .GetRequiredService<IUserCredentialRepository>();
+        IAuthenticationIdentityLookup secondAuthenticationIdentityLookup =
+            secondScope.ServiceProvider
+                .GetRequiredService<IAuthenticationIdentityLookup>();
         IOrganizationMembershipRepository secondMembershipRepository =
             secondScope.ServiceProvider
                 .GetRequiredService<IOrganizationMembershipRepository>();
@@ -168,6 +181,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.NotSame(
             firstUserCredentialRepository,
             secondUserCredentialRepository);
+        Assert.NotSame(
+            firstAuthenticationIdentityLookup,
+            secondAuthenticationIdentityLookup);
         Assert.NotSame(firstMembershipRepository, secondMembershipRepository);
         Assert.NotSame(firstOrganizationRepository, secondOrganizationRepository);
         Assert.NotSame(firstDbContext, secondDbContext);

@@ -89,7 +89,7 @@ public sealed class User
         return normalizedName;
     }
 
-    private static string NormalizeEmail(string email)
+    public static string NormalizeEmail(string email)
     {
         if (string.IsNullOrWhiteSpace(email))
         {
