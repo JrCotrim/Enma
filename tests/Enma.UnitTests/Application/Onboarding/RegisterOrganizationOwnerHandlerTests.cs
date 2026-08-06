@@ -135,6 +135,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 "password-policy",
                 "organization-exists",
                 "user-exists",
+                "password-screen",
                 "password-hash",
                 "organization-add",
                 "user-add",
@@ -157,6 +158,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         Assert.Equal(cancellationToken, dependencies.OrganizationRepository.ExistsCancellationToken);
         Assert.Equal(cancellationToken, dependencies.UserRepository.ExistsCancellationToken);
+        Assert.Equal(cancellationToken, dependencies.CompromisedPasswordChecker.CancellationToken);
         Assert.Equal(cancellationToken, dependencies.OrganizationRepository.AddCancellationToken);
         Assert.Equal(cancellationToken, dependencies.UserRepository.AddCancellationToken);
         Assert.Equal(cancellationToken, dependencies.UserCredentialRepository.AddCancellationToken);
@@ -176,6 +178,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         Assert.Empty(dependencies.Operations);
         Assert.Equal(0, dependencies.PasswordPolicy.CallCount);
+        Assert.Equal(0, dependencies.CompromisedPasswordChecker.CallCount);
     }
 
     [Fact]
@@ -190,6 +193,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         Assert.Empty(dependencies.Operations);
         Assert.Equal(0, dependencies.PasswordPolicy.CallCount);
+        Assert.Equal(0, dependencies.CompromisedPasswordChecker.CallCount);
     }
 
     [Fact]
@@ -203,6 +207,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         Assert.Empty(dependencies.Operations);
         Assert.Equal(0, dependencies.PasswordPolicy.CallCount);
+        Assert.Equal(0, dependencies.CompromisedPasswordChecker.CallCount);
     }
 
     [Fact]
@@ -217,6 +222,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         Assert.Empty(dependencies.Operations);
         Assert.Equal(0, dependencies.PasswordPolicy.CallCount);
+        Assert.Equal(0, dependencies.CompromisedPasswordChecker.CallCount);
     }
 
     [Fact]
@@ -237,6 +243,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.Equal(0, dependencies.UserRepository.AddCallCount);
         Assert.Equal(0, dependencies.UserCredentialRepository.AddCallCount);
         Assert.Equal(0, dependencies.MembershipRepository.AddCallCount);
+        Assert.Equal(0, dependencies.CompromisedPasswordChecker.CallCount);
         Assert.Equal(0, dependencies.PasswordHasher.CallCount);
         Assert.Equal(0, dependencies.UnitOfWork.SaveChangesCallCount);
         Assert.Equal(
@@ -262,6 +269,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.Equal(0, dependencies.UserRepository.AddCallCount);
         Assert.Equal(0, dependencies.UserCredentialRepository.AddCallCount);
         Assert.Equal(0, dependencies.MembershipRepository.AddCallCount);
+        Assert.Equal(0, dependencies.CompromisedPasswordChecker.CallCount);
         Assert.Equal(0, dependencies.PasswordHasher.CallCount);
         Assert.Equal(0, dependencies.UnitOfWork.SaveChangesCallCount);
         Assert.Equal(
@@ -313,6 +321,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
                 dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
@@ -323,6 +332,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
                 dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
@@ -333,6 +343,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 null!,
                 dependencies.MembershipRepository,
                 dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
@@ -343,6 +354,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserCredentialRepository,
                 null!,
                 dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
@@ -365,6 +377,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
                 dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
                 null!,
                 dependencies.TimeProvider));
@@ -374,6 +387,18 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserRepository,
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
+                null!,
+                dependencies.CompromisedPasswordChecker,
+                dependencies.PasswordHasher,
+                dependencies.UnitOfWork,
+                dependencies.TimeProvider));
+        var compromisedPasswordCheckerException = Assert.Throws<ArgumentNullException>(
+            () => new RegisterOrganizationOwnerHandler(
+                dependencies.OrganizationRepository,
+                dependencies.UserRepository,
+                dependencies.UserCredentialRepository,
+                dependencies.MembershipRepository,
+                dependencies.PasswordPolicy,
                 null!,
                 dependencies.PasswordHasher,
                 dependencies.UnitOfWork,
@@ -385,6 +410,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
                 dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
                 null!,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
@@ -395,18 +421,22 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
                 dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
                 dependencies.UnitOfWork,
                 null!));
 
         Assert.Equal("passwordPolicy", passwordPolicyException.ParamName);
+        Assert.Equal(
+            "compromisedPasswordChecker",
+            compromisedPasswordCheckerException.ParamName);
         Assert.Equal("passwordHasher", passwordHasherException.ParamName);
         Assert.Equal("unitOfWork", unitOfWorkException.ParamName);
         Assert.Equal("timeProvider", timeProviderException.ParamName);
     }
 
     [Fact]
-    public async Task HandleAsync_WithValidCommand_ValidatesAndHashesPasswordOnce()
+    public async Task HandleAsync_WithValidCommand_ValidatesScreensAndHashesPasswordOnce()
     {
         var dependencies = new TestDependencies();
         var handler = dependencies.CreateHandler();
@@ -415,6 +445,8 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         Assert.Equal(1, dependencies.PasswordPolicy.CallCount);
         Assert.True(dependencies.PasswordPolicy.ReceivedExpectedPassword);
+        Assert.Equal(1, dependencies.CompromisedPasswordChecker.CallCount);
+        Assert.True(dependencies.CompromisedPasswordChecker.ReceivedExpectedPassword);
         Assert.Equal(1, dependencies.PasswordHasher.CallCount);
         Assert.True(dependencies.PasswordHasher.ReceivedExpectedPassword);
         Assert.Same(
@@ -459,6 +491,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.Equal(1, dependencies.PasswordPolicy.CallCount);
         Assert.Equal(0, dependencies.OrganizationRepository.ExistsCallCount);
         Assert.Equal(0, dependencies.UserRepository.ExistsCallCount);
+        Assert.Equal(0, dependencies.CompromisedPasswordChecker.CallCount);
         Assert.Equal(0, dependencies.PasswordHasher.CallCount);
         Assert.Equal(0, dependencies.OrganizationRepository.AddCallCount);
         Assert.Equal(0, dependencies.UserRepository.AddCallCount);
@@ -466,6 +499,73 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.Equal(0, dependencies.MembershipRepository.AddCallCount);
         Assert.Equal(0, dependencies.UnitOfWork.SaveChangesCallCount);
         Assert.Equal(new[] { "password-policy" }, dependencies.Operations);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithCompromisedPassword_ThrowsBeforeHashingOrPersistence()
+    {
+        var dependencies = new TestDependencies();
+        dependencies.CompromisedPasswordChecker.IsCompromised = true;
+        var handler = dependencies.CreateHandler();
+
+        CompromisedPasswordException exception =
+            await Assert.ThrowsAsync<CompromisedPasswordException>(
+                () => handler.HandleAsync(CreateValidCommand()));
+
+        Assert.Equal(
+            "The provided password has appeared in a known data breach and cannot be used.",
+            exception.Message);
+        Assert.DoesNotContain(ValidPassword, exception.Message, StringComparison.Ordinal);
+        Assert.Equal(1, dependencies.PasswordPolicy.CallCount);
+        Assert.Equal(1, dependencies.OrganizationRepository.ExistsCallCount);
+        Assert.Equal(1, dependencies.UserRepository.ExistsCallCount);
+        Assert.Equal(1, dependencies.CompromisedPasswordChecker.CallCount);
+        Assert.Equal(0, dependencies.PasswordHasher.CallCount);
+        Assert.Equal(0, dependencies.OrganizationRepository.AddCallCount);
+        Assert.Equal(0, dependencies.UserRepository.AddCallCount);
+        Assert.Equal(0, dependencies.UserCredentialRepository.AddCallCount);
+        Assert.Equal(0, dependencies.MembershipRepository.AddCallCount);
+        Assert.Equal(0, dependencies.UnitOfWork.SaveChangesCallCount);
+        Assert.Equal(
+            new[]
+            {
+                "password-policy",
+                "organization-exists",
+                "user-exists",
+                "password-screen"
+            },
+            dependencies.Operations);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenCompromisedPasswordCheckIsUnavailable_PropagatesAndDoesNotWrite()
+    {
+        var dependencies = new TestDependencies();
+        var expectedException = new CompromisedPasswordCheckUnavailableException();
+        dependencies.CompromisedPasswordChecker.ExceptionToThrow = expectedException;
+        var handler = dependencies.CreateHandler();
+
+        CompromisedPasswordCheckUnavailableException exception =
+            await Assert.ThrowsAsync<CompromisedPasswordCheckUnavailableException>(
+                () => handler.HandleAsync(CreateValidCommand()));
+
+        Assert.Same(expectedException, exception);
+        Assert.Equal(1, dependencies.CompromisedPasswordChecker.CallCount);
+        Assert.Equal(0, dependencies.PasswordHasher.CallCount);
+        Assert.Equal(0, dependencies.OrganizationRepository.AddCallCount);
+        Assert.Equal(0, dependencies.UserRepository.AddCallCount);
+        Assert.Equal(0, dependencies.UserCredentialRepository.AddCallCount);
+        Assert.Equal(0, dependencies.MembershipRepository.AddCallCount);
+        Assert.Equal(0, dependencies.UnitOfWork.SaveChangesCallCount);
+        Assert.Equal(
+            new[]
+            {
+                "password-policy",
+                "organization-exists",
+                "user-exists",
+                "password-screen"
+            },
+            dependencies.Operations);
     }
 
     [Fact]
@@ -511,6 +611,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
             UserCredentialRepository = new FakeUserCredentialRepository(Operations);
             MembershipRepository = new FakeOrganizationMembershipRepository(Operations);
             PasswordPolicy = new FakePasswordPolicy(Operations);
+            CompromisedPasswordChecker = new FakeCompromisedPasswordChecker(Operations);
             PasswordHasher = new FakePasswordHasher(Operations);
             UnitOfWork = new FakeUnitOfWork(Operations);
             TimeProvider = new FixedTimeProvider(FixedUtcNow);
@@ -528,6 +629,8 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         public FakePasswordPolicy PasswordPolicy { get; }
 
+        public FakeCompromisedPasswordChecker CompromisedPasswordChecker { get; }
+
         public FakePasswordHasher PasswordHasher { get; }
 
         public FakeUnitOfWork UnitOfWork { get; }
@@ -542,6 +645,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 UserCredentialRepository,
                 MembershipRepository,
                 PasswordPolicy,
+                CompromisedPasswordChecker,
                 PasswordHasher,
                 UnitOfWork,
                 TimeProvider);
@@ -597,6 +701,38 @@ public sealed class RegisterOrganizationOwnerHandlerTests
             {
                 throw ExceptionToThrow;
             }
+        }
+    }
+
+    private sealed class FakeCompromisedPasswordChecker(List<string> operations)
+        : ICompromisedPasswordChecker
+    {
+        public int CallCount { get; private set; }
+
+        public CancellationToken CancellationToken { get; private set; }
+
+        public bool ReceivedExpectedPassword { get; private set; }
+
+        public bool IsCompromised { get; set; }
+
+        public Exception? ExceptionToThrow { get; set; }
+
+        public Task<bool> IsCompromisedAsync(
+            string password,
+            CancellationToken cancellationToken = default)
+        {
+            operations.Add("password-screen");
+            CallCount++;
+            CancellationToken = cancellationToken;
+            ReceivedExpectedPassword = password == ValidPassword;
+            Assert.True(ReceivedExpectedPassword);
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
+            }
+
+            return Task.FromResult(IsCompromised);
         }
     }
 

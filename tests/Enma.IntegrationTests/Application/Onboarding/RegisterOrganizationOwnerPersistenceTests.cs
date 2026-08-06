@@ -50,10 +50,16 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
     public async Task HandleAsync_WithValidCommand_PersistsOrganizationUserAndOwnerMembership()
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
-        RegisterOrganizationOwnerHandler handler = CreateHandler(dbContext);
+        var compromisedPasswordChecker = new TestCompromisedPasswordChecker();
+        RegisterOrganizationOwnerHandler handler = CreateHandler(
+            dbContext,
+            compromisedPasswordChecker);
+        using var cancellationTokenSource = new CancellationTokenSource();
+        CancellationToken cancellationToken = cancellationTokenSource.Token;
 
         RegisterOrganizationOwnerResult result = await handler.HandleAsync(
-            CreateCommand());
+            CreateCommand(),
+            cancellationToken);
 
         await using EnmaDbContext verificationContext = fixture.CreateDbContext();
         Organization organization = await verificationContext.Organizations
@@ -110,6 +116,9 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.DoesNotContain(
             result.GetType().GetProperties(),
             property => property.Name.Contains("Password", StringComparison.Ordinal));
+        Assert.Equal(1, compromisedPasswordChecker.CallCount);
+        Assert.True(compromisedPasswordChecker.ReceivedExpectedPassword);
+        Assert.Equal(cancellationToken, compromisedPasswordChecker.CancellationToken);
     }
 
     [Fact]
@@ -122,7 +131,10 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         await SeedAsync(seededOrganization);
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
-        RegisterOrganizationOwnerHandler handler = CreateHandler(dbContext);
+        var compromisedPasswordChecker = new TestCompromisedPasswordChecker();
+        RegisterOrganizationOwnerHandler handler = CreateHandler(
+            dbContext,
+            compromisedPasswordChecker);
 
         OrganizationSlugAlreadyExistsException exception =
             await Assert.ThrowsAsync<OrganizationSlugAlreadyExistsException>(
@@ -143,6 +155,7 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
                 .ToListAsync());
         Assert.Empty(
             await verificationContext.UserCredentials.AsNoTracking().ToListAsync());
+        Assert.Equal(0, compromisedPasswordChecker.CallCount);
     }
 
     [Fact]
@@ -155,7 +168,10 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         await SeedAsync(seededUser);
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
-        RegisterOrganizationOwnerHandler handler = CreateHandler(dbContext);
+        var compromisedPasswordChecker = new TestCompromisedPasswordChecker();
+        RegisterOrganizationOwnerHandler handler = CreateHandler(
+            dbContext,
+            compromisedPasswordChecker);
 
         UserEmailAlreadyExistsException exception =
             await Assert.ThrowsAsync<UserEmailAlreadyExistsException>(
@@ -178,6 +194,52 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
                 .ToListAsync());
         Assert.Empty(
             await verificationContext.UserCredentials.AsNoTracking().ToListAsync());
+        Assert.Equal(0, compromisedPasswordChecker.CallCount);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithCompromisedPassword_DoesNotPersistAnyOnboardingEntity()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var compromisedPasswordChecker = new TestCompromisedPasswordChecker
+        {
+            IsCompromised = true
+        };
+        RegisterOrganizationOwnerHandler handler = CreateHandler(
+            dbContext,
+            compromisedPasswordChecker);
+
+        CompromisedPasswordException exception =
+            await Assert.ThrowsAsync<CompromisedPasswordException>(
+                () => handler.HandleAsync(CreateCommand()));
+
+        Assert.Equal(
+            "The provided password has appeared in a known data breach and cannot be used.",
+            exception.Message);
+        Assert.Equal(1, compromisedPasswordChecker.CallCount);
+        await AssertAllOnboardingTablesEmptyAsync();
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenPasswordScreeningIsUnavailable_DoesNotPersistAnyOnboardingEntity()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var expectedException = new CompromisedPasswordCheckUnavailableException();
+        var compromisedPasswordChecker = new TestCompromisedPasswordChecker
+        {
+            ExceptionToThrow = expectedException
+        };
+        RegisterOrganizationOwnerHandler handler = CreateHandler(
+            dbContext,
+            compromisedPasswordChecker);
+
+        CompromisedPasswordCheckUnavailableException exception =
+            await Assert.ThrowsAsync<CompromisedPasswordCheckUnavailableException>(
+                () => handler.HandleAsync(CreateCommand()));
+
+        Assert.Same(expectedException, exception);
+        Assert.Equal(1, compromisedPasswordChecker.CallCount);
+        await AssertAllOnboardingTablesEmptyAsync();
     }
 
     [Fact]
@@ -255,6 +317,7 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
 
     private static RegisterOrganizationOwnerHandler CreateHandler(
         EnmaDbContext dbContext,
+        TestCompromisedPasswordChecker? compromisedPasswordChecker = null,
         IOrganizationRepository? organizationRepository = null,
         IUserRepository? userRepository = null)
     {
@@ -264,6 +327,7 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
             new UserCredentialRepository(dbContext),
             new OrganizationMembershipRepository(dbContext),
             new DefaultPasswordPolicy(),
+            compromisedPasswordChecker ?? new TestCompromisedPasswordChecker(),
             CreatePasswordHasher(),
             dbContext,
             new FixedTimeProvider(CreatedAt));
@@ -282,6 +346,16 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         dbContext.Add(entity);
         await dbContext.SaveChangesAsync();
+    }
+
+    private async Task AssertAllOnboardingTablesEmptyAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Empty(await dbContext.Organizations.AsNoTracking().ToListAsync());
+        Assert.Empty(await dbContext.Users.AsNoTracking().ToListAsync());
+        Assert.Empty(await dbContext.UserCredentials.AsNoTracking().ToListAsync());
+        Assert.Empty(
+            await dbContext.OrganizationMemberships.AsNoTracking().ToListAsync());
     }
 
     private async Task AssertOnlySeededOrganizationRemainsAsync(Guid organizationId)
@@ -353,6 +427,37 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
             CancellationToken cancellationToken = default)
         {
             return repository.AddAsync(user, cancellationToken);
+        }
+    }
+
+    private sealed class TestCompromisedPasswordChecker
+        : ICompromisedPasswordChecker
+    {
+        public int CallCount { get; private set; }
+
+        public CancellationToken CancellationToken { get; private set; }
+
+        public bool ReceivedExpectedPassword { get; private set; }
+
+        public bool IsCompromised { get; set; }
+
+        public CompromisedPasswordCheckUnavailableException? ExceptionToThrow { get; set; }
+
+        public Task<bool> IsCompromisedAsync(
+            string password,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            CancellationToken = cancellationToken;
+            ReceivedExpectedPassword = password == SyntheticPassword;
+            Assert.True(ReceivedExpectedPassword);
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
+            }
+
+            return Task.FromResult(IsCompromised);
         }
     }
 

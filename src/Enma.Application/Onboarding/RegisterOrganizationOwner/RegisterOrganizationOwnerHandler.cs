@@ -15,6 +15,7 @@ public sealed class RegisterOrganizationOwnerHandler
     private readonly IUserCredentialRepository userCredentialRepository;
     private readonly IOrganizationMembershipRepository membershipRepository;
     private readonly IPasswordPolicy passwordPolicy;
+    private readonly ICompromisedPasswordChecker compromisedPasswordChecker;
     private readonly IPasswordHasher passwordHasher;
     private readonly IUnitOfWork unitOfWork;
     private readonly TimeProvider timeProvider;
@@ -25,6 +26,7 @@ public sealed class RegisterOrganizationOwnerHandler
         IUserCredentialRepository userCredentialRepository,
         IOrganizationMembershipRepository membershipRepository,
         IPasswordPolicy passwordPolicy,
+        ICompromisedPasswordChecker compromisedPasswordChecker,
         IPasswordHasher passwordHasher,
         IUnitOfWork unitOfWork,
         TimeProvider timeProvider)
@@ -34,6 +36,7 @@ public sealed class RegisterOrganizationOwnerHandler
         ArgumentNullException.ThrowIfNull(userCredentialRepository);
         ArgumentNullException.ThrowIfNull(membershipRepository);
         ArgumentNullException.ThrowIfNull(passwordPolicy);
+        ArgumentNullException.ThrowIfNull(compromisedPasswordChecker);
         ArgumentNullException.ThrowIfNull(passwordHasher);
         ArgumentNullException.ThrowIfNull(unitOfWork);
         ArgumentNullException.ThrowIfNull(timeProvider);
@@ -43,6 +46,7 @@ public sealed class RegisterOrganizationOwnerHandler
         this.userCredentialRepository = userCredentialRepository;
         this.membershipRepository = membershipRepository;
         this.passwordPolicy = passwordPolicy;
+        this.compromisedPasswordChecker = compromisedPasswordChecker;
         this.passwordHasher = passwordHasher;
         this.unitOfWork = unitOfWork;
         this.timeProvider = timeProvider;
@@ -79,6 +83,15 @@ public sealed class RegisterOrganizationOwnerHandler
         if (emailAlreadyExists)
         {
             throw new UserEmailAlreadyExistsException(user.Email);
+        }
+
+        bool isCompromised = await compromisedPasswordChecker.IsCompromisedAsync(
+            command.Password,
+            cancellationToken);
+
+        if (isCompromised)
+        {
+            throw new CompromisedPasswordException();
         }
 
         string passwordHash = passwordHasher.HashPassword(

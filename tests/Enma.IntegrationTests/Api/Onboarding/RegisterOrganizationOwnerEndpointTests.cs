@@ -12,8 +12,10 @@ using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Enma.IntegrationTests.Api.Onboarding;
 
@@ -37,6 +39,8 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
 
     private readonly PostgreSqlFixture fixture;
     private readonly EnmaApiFactory factory;
+    private readonly WebApplicationFactory<Program> testFactory;
+    private readonly TestCompromisedPasswordChecker compromisedPasswordChecker;
     private readonly HttpClient client;
 
     public RegisterOrganizationOwnerEndpointTests(PostgreSqlFixture fixture)
@@ -44,8 +48,18 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         ArgumentNullException.ThrowIfNull(fixture);
 
         this.fixture = fixture;
+        compromisedPasswordChecker = new TestCompromisedPasswordChecker();
         factory = new EnmaApiFactory(fixture);
-        client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        testFactory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<ICompromisedPasswordChecker>();
+                services.AddSingleton<ICompromisedPasswordChecker>(
+                    compromisedPasswordChecker);
+            });
+        });
+        client = testFactory.CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("https://localhost")
         });
@@ -53,12 +67,14 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
 
     public Task InitializeAsync()
     {
+        compromisedPasswordChecker.Reset();
         return fixture.ResetDatabaseAsync();
     }
 
     public async Task DisposeAsync()
     {
         client.Dispose();
+        await testFactory.DisposeAsync();
         await factory.DisposeAsync();
     }
 
@@ -115,6 +131,8 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(onboarding.OrganizationId, organization.Id);
         Assert.Equal(onboarding.OrganizationName, organization.Name);
         Assert.Equal(onboarding.OrganizationSlug, organization.Slug);
+        Assert.Equal(1, compromisedPasswordChecker.CallCount);
+        Assert.True(compromisedPasswordChecker.ReceivedExpectedPassword);
     }
 
     [Fact]
@@ -164,7 +182,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(credential.PasswordHash));
         Assert.NotEqual(request.Password, credential.PasswordHash);
 
-        using IServiceScope scope = factory.Services.CreateScope();
+        using IServiceScope scope = testFactory.Services.CreateScope();
         IPasswordHasher passwordHasher =
             scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
         Assert.Equal(
@@ -173,6 +191,8 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
                 user,
                 credential.PasswordHash,
                 request.Password));
+        Assert.Equal(1, compromisedPasswordChecker.CallCount);
+        Assert.True(compromisedPasswordChecker.ReceivedExpectedPassword);
     }
 
     [Fact]
@@ -189,6 +209,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             response,
             HttpStatusCode.BadRequest,
             "Invalid onboarding request");
+        Assert.Equal(0, compromisedPasswordChecker.CallCount);
         await AssertAllTablesEmptyAsync();
     }
 
@@ -206,6 +227,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             response,
             HttpStatusCode.BadRequest,
             "Invalid onboarding request");
+        Assert.Equal(0, compromisedPasswordChecker.CallCount);
         await AssertAllTablesEmptyAsync();
     }
 
@@ -229,6 +251,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             request.Password,
             rawResponse,
             StringComparison.Ordinal);
+        Assert.Equal(0, compromisedPasswordChecker.CallCount);
         await AssertAllTablesEmptyAsync();
     }
 
@@ -250,6 +273,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             response,
             HttpStatusCode.Conflict,
             "Onboarding conflict");
+        Assert.Equal(0, compromisedPasswordChecker.CallCount);
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         Organization organization = await dbContext.Organizations
@@ -287,6 +311,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             request.OwnerEmail,
             rawResponse,
             StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, compromisedPasswordChecker.CallCount);
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         User user = await dbContext.Users.AsNoTracking().SingleAsync();
@@ -341,6 +366,127 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             request.OrganizationName,
             requestDescription,
             StringComparison.Ordinal);
+        Assert.Equal(1, compromisedPasswordChecker.CallCount);
+        Assert.True(compromisedPasswordChecker.ReceivedExpectedPassword);
+    }
+
+    [Fact]
+    public async Task Post_WithCompromisedPassword_ReturnsBadRequestWithoutWritesOrPasswordExposure()
+    {
+        compromisedPasswordChecker.IsCompromised = true;
+        RegisterOrganizationOwnerRequest request = CreateValidRequest();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            RequestPath,
+            request);
+
+        (ProblemDetails problemDetails, string rawResponse) =
+            await AssertProblemAsync(
+                response,
+                HttpStatusCode.BadRequest,
+                "Invalid onboarding request");
+        Assert.Equal(
+            "The provided password has appeared in a known data breach and cannot be used.",
+            problemDetails.Detail);
+        Assert.Equal(1, compromisedPasswordChecker.CallCount);
+        Assert.DoesNotContain(request.Password, rawResponse, StringComparison.Ordinal);
+        Assert.DoesNotContain("passwordHash", rawResponse, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("credential", rawResponse, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SHA-1", rawResponse, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "Pwned Passwords",
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "api.pwnedpasswords.com",
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        await AssertAllTablesEmptyAsync();
+    }
+
+    [Fact]
+    public async Task Post_WhenPasswordScreeningIsUnavailable_ReturnsServiceUnavailableWithoutWritesOrSensitiveDetails()
+    {
+        const string syntheticLookupPrefix = "A1B2C";
+        const string syntheticLookupSuffix =
+            "0123456789ABCDEF0123456789ABCDEFABC";
+        const string syntheticProviderResponseDetail =
+            "synthetic-provider-response-detail-9f4c";
+        const string syntheticInternalDiagnosticMarker =
+            "synthetic-internal-diagnostic-marker-7e2a";
+        string syntheticProviderUri =
+            $"https://synthetic-password-screening.invalid/range/{syntheticLookupPrefix}";
+        string syntheticCompleteHash =
+            syntheticLookupPrefix + syntheticLookupSuffix;
+        string syntheticDiagnosticMessage =
+            $"ProviderUri={syntheticProviderUri}; " +
+            $"LookupPrefix={syntheticLookupPrefix}; " +
+            $"LookupSuffix={syntheticLookupSuffix}; " +
+            $"CompleteHash={syntheticCompleteHash}; " +
+            $"ProviderResponse={syntheticProviderResponseDetail}; " +
+            $"InternalDiagnostic={syntheticInternalDiagnosticMarker}";
+        compromisedPasswordChecker.ExceptionToThrow =
+            new CompromisedPasswordCheckUnavailableException(
+                new InvalidOperationException(syntheticDiagnosticMessage));
+        RegisterOrganizationOwnerRequest request = CreateValidRequest();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            RequestPath,
+            request);
+
+        (ProblemDetails problemDetails, string rawResponse) =
+            await AssertProblemAsync(
+                response,
+                HttpStatusCode.ServiceUnavailable,
+                "Password screening unavailable");
+        Assert.Equal(
+            "Password compromise screening is temporarily unavailable.",
+            problemDetails.Detail);
+        Assert.Equal(1, compromisedPasswordChecker.CallCount);
+        Assert.DoesNotContain(request.Password, rawResponse, StringComparison.Ordinal);
+        Assert.DoesNotContain("HIBP", rawResponse, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "Pwned Passwords",
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "api.pwnedpasswords.com",
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SHA-1", rawResponse, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            syntheticProviderUri,
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            syntheticLookupPrefix,
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            syntheticLookupSuffix,
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            syntheticCompleteHash,
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            syntheticProviderResponseDetail,
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            syntheticInternalDiagnosticMarker,
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            nameof(InvalidOperationException),
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "System.InvalidOperationException",
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        await AssertAllTablesEmptyAsync();
     }
 
     private static RegisterOrganizationOwnerRequest CreateValidRequest(
@@ -398,5 +544,41 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         dbContext.Add(entity);
         await dbContext.SaveChangesAsync();
+    }
+
+    private sealed class TestCompromisedPasswordChecker
+        : ICompromisedPasswordChecker
+    {
+        public int CallCount { get; private set; }
+
+        public bool ReceivedExpectedPassword { get; private set; }
+
+        public bool IsCompromised { get; set; }
+
+        public CompromisedPasswordCheckUnavailableException? ExceptionToThrow { get; set; }
+
+        public Task<bool> IsCompromisedAsync(
+            string password,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ReceivedExpectedPassword = password == SyntheticPassword;
+            Assert.True(ReceivedExpectedPassword);
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
+            }
+
+            return Task.FromResult(IsCompromised);
+        }
+
+        public void Reset()
+        {
+            CallCount = 0;
+            ReceivedExpectedPassword = false;
+            IsCompromised = false;
+            ExceptionToThrow = null;
+        }
     }
 }

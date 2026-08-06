@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Enma.Api.Contracts.Onboarding;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations.Create;
+using Enma.Application.Security;
 using Enma.Application.Users;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -67,6 +68,22 @@ public static class RegisterOrganizationOwnerEndpoint
                             "Onboarding conflict",
                             exception.Message);
                     }
+                    catch (CompromisedPasswordException exception)
+                    {
+                        return CreateProblem(
+                            httpContext,
+                            StatusCodes.Status400BadRequest,
+                            "Invalid onboarding request",
+                            exception.Message);
+                    }
+                    catch (CompromisedPasswordCheckUnavailableException exception)
+                    {
+                        return CreateProblem(
+                            httpContext,
+                            StatusCodes.Status503ServiceUnavailable,
+                            "Password screening unavailable",
+                            exception.Message);
+                    }
                     catch (ArgumentException exception)
                     {
                         return CreateProblem(
@@ -85,6 +102,7 @@ public static class RegisterOrganizationOwnerEndpoint
                 "application/json")
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return endpoints;
