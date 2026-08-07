@@ -15,7 +15,7 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using MicrosoftPasswordHasherOptions = Microsoft.AspNetCore.Identity.PasswordHasherOptions;
 using MicrosoftUserPasswordHasher =
-    Microsoft.AspNetCore.Identity.PasswordHasher<Enma.Domain.Users.User>;
+    Microsoft.AspNetCore.Identity.PasswordHasher<object>;
 
 namespace Enma.IntegrationTests.Application.Onboarding;
 
@@ -103,7 +103,6 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Equal(
             PasswordVerificationResult.Success,
             passwordHasher.VerifyHashedPassword(
-                user,
                 credential.PasswordHash,
                 SyntheticPassword));
 

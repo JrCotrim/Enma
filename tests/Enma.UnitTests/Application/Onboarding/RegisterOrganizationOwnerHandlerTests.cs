@@ -449,9 +449,6 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.True(dependencies.CompromisedPasswordChecker.ReceivedExpectedPassword);
         Assert.Equal(1, dependencies.PasswordHasher.CallCount);
         Assert.True(dependencies.PasswordHasher.ReceivedExpectedPassword);
-        Assert.Same(
-            dependencies.UserRepository.AddedUser,
-            dependencies.PasswordHasher.HashedUser);
     }
 
     [Fact]
@@ -742,13 +739,10 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         public bool ReceivedExpectedPassword { get; private set; }
 
-        public User? HashedUser { get; private set; }
-
-        public string HashPassword(User user, string password)
+        public string HashPassword(string password)
         {
             operations.Add("password-hash");
             CallCount++;
-            HashedUser = user;
             ReceivedExpectedPassword = password == ValidPassword;
             Assert.True(ReceivedExpectedPassword);
 
@@ -756,7 +750,6 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         }
 
         public PasswordVerificationResult VerifyHashedPassword(
-            User user,
             string passwordHash,
             string providedPassword)
         {

@@ -1,12 +1,13 @@
 using Enma.Application.Security;
-using Enma.Domain.Users;
-using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<Enma.Domain.Users.User>;
+using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<object>;
 using MicrosoftPasswordVerificationResult = Microsoft.AspNetCore.Identity.PasswordVerificationResult;
 
 namespace Enma.Infrastructure.Security;
 
 public sealed class AspNetCorePasswordHasher : IPasswordHasher
 {
+    private static readonly object ProviderUser = new();
+
     private readonly MicrosoftPasswordHasher microsoftHasher;
 
     public AspNetCorePasswordHasher(MicrosoftPasswordHasher microsoftHasher)
@@ -16,28 +17,23 @@ public sealed class AspNetCorePasswordHasher : IPasswordHasher
         this.microsoftHasher = microsoftHasher;
     }
 
-    public string HashPassword(
-        User user,
-        string password)
+    public string HashPassword(string password)
     {
-        ArgumentNullException.ThrowIfNull(user);
         ArgumentNullException.ThrowIfNull(password);
 
-        return microsoftHasher.HashPassword(user, password);
+        return microsoftHasher.HashPassword(ProviderUser, password);
     }
 
     public PasswordVerificationResult VerifyHashedPassword(
-        User user,
         string passwordHash,
         string providedPassword)
     {
-        ArgumentNullException.ThrowIfNull(user);
         ArgumentNullException.ThrowIfNull(passwordHash);
         ArgumentNullException.ThrowIfNull(providedPassword);
 
         MicrosoftPasswordVerificationResult result =
             microsoftHasher.VerifyHashedPassword(
-                user,
+                ProviderUser,
                 passwordHash,
                 providedPassword);
 

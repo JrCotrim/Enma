@@ -4,7 +4,6 @@ using Enma.Application.Authentication;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
 using Enma.Application.Users;
-using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Enma.Infrastructure.Persistence.Repositories;
@@ -12,7 +11,7 @@ using Enma.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<Enma.Domain.Users.User>;
+using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<object>;
 
 namespace Enma.Infrastructure;
 
@@ -34,7 +33,7 @@ public static class DependencyInjection
         services.AddDbContext<EnmaDbContext>(
             options => options.UseNpgsql(connectionString));
         services.AddOptions<PasswordHasherOptions>();
-        services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<User>>();
+        services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<object>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<IPasswordPolicy, DefaultPasswordPolicy>();
         services.AddTransient<PwnedPasswordsTelemetryHandler>();

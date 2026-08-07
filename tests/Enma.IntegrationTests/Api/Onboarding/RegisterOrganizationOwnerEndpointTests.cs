@@ -188,7 +188,6 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(
             PasswordVerificationResult.Success,
             passwordHasher.VerifyHashedPassword(
-                user,
                 credential.PasswordHash,
                 request.Password));
         Assert.Equal(1, compromisedPasswordChecker.CallCount);

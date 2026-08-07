@@ -1,11 +1,12 @@
 using Enma.Application.Security;
-using Enma.Domain.Users;
 using Enma.Infrastructure.Security;
 using Microsoft.Extensions.Options;
-using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<Enma.Domain.Users.User>;
+using LegacyMicrosoftUserPasswordHasher =
+    Microsoft.AspNetCore.Identity.PasswordHasher<Enma.Domain.Users.User>;
+using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<object>;
 using MicrosoftPasswordHasherOptions = Microsoft.AspNetCore.Identity.PasswordHasherOptions;
 using MicrosoftPasswordVerificationResult = Microsoft.AspNetCore.Identity.PasswordVerificationResult;
-using MicrosoftUserPasswordHasher = Microsoft.AspNetCore.Identity.PasswordHasher<Enma.Domain.Users.User>;
+using MicrosoftUserPasswordHasher = Microsoft.AspNetCore.Identity.PasswordHasher<object>;
 
 namespace Enma.IntegrationTests.Infrastructure.Security;
 
@@ -15,20 +16,6 @@ public sealed class AspNetCorePasswordHasherTests
     private const string DifferentSyntheticPassword =
         "Different-Synthetic-Test-Password-Only!";
     private const string SyntheticHash = "synthetic-hash-not-a-real-credential";
-
-    private static readonly DateTimeOffset CreatedAt = new(
-        2025,
-        1,
-        1,
-        0,
-        0,
-        0,
-        TimeSpan.Zero);
-
-    private static readonly User SyntheticUser = new(
-        "Synthetic User",
-        "synthetic.user@example.test",
-        CreatedAt);
 
     [Fact]
     public void Constructor_WithNullMicrosoftHasher_ThrowsArgumentNullException()
@@ -40,14 +27,30 @@ public sealed class AspNetCorePasswordHasherTests
     }
 
     [Fact]
-    public void HashPassword_WithNullUser_ThrowsArgumentNullException()
+    public void IPasswordHasher_WithPublicMethods_HasUserIndependentSignatures()
     {
-        AspNetCorePasswordHasher passwordHasher = CreatePasswordHasher();
+        var hashMethod = typeof(IPasswordHasher).GetMethod(
+            nameof(IPasswordHasher.HashPassword),
+            [typeof(string)]);
+        var verifyMethod = typeof(IPasswordHasher).GetMethod(
+            nameof(IPasswordHasher.VerifyHashedPassword),
+            [typeof(string), typeof(string)]);
 
-        ArgumentNullException exception = Assert.Throws<ArgumentNullException>(
-            () => passwordHasher.HashPassword(null!, SyntheticPassword));
-
-        Assert.Equal("user", exception.ParamName);
+        Assert.NotNull(hashMethod);
+        Assert.Equal(typeof(string), hashMethod.ReturnType);
+        Assert.Equal(
+            new[] { typeof(string) },
+            hashMethod.GetParameters().Select(parameter => parameter.ParameterType));
+        Assert.NotNull(verifyMethod);
+        Assert.Equal(typeof(PasswordVerificationResult), verifyMethod.ReturnType);
+        Assert.Equal(
+            new[] { typeof(string), typeof(string) },
+            verifyMethod.GetParameters().Select(parameter => parameter.ParameterType));
+        Assert.DoesNotContain(
+            typeof(IPasswordHasher)
+                .GetMethods()
+                .SelectMany(method => method.GetParameters()),
+            parameter => parameter.ParameterType == typeof(Enma.Domain.Users.User));
     }
 
     [Fact]
@@ -56,23 +59,29 @@ public sealed class AspNetCorePasswordHasherTests
         AspNetCorePasswordHasher passwordHasher = CreatePasswordHasher();
 
         ArgumentNullException exception = Assert.Throws<ArgumentNullException>(
-            () => passwordHasher.HashPassword(SyntheticUser, null!));
+            () => passwordHasher.HashPassword(null!));
 
         Assert.Equal("password", exception.ParamName);
     }
 
     [Fact]
-    public void VerifyHashedPassword_WithNullUser_ThrowsArgumentNullException()
+    public void HashAndVerify_WithoutCallerUser_UseSameNonNullProviderMarker()
     {
-        AspNetCorePasswordHasher passwordHasher = CreatePasswordHasher();
+        var microsoftHasher = new FakeMicrosoftPasswordHasher(
+            MicrosoftPasswordVerificationResult.Success);
+        var passwordHasher = new AspNetCorePasswordHasher(microsoftHasher);
 
-        ArgumentNullException exception = Assert.Throws<ArgumentNullException>(
-            () => passwordHasher.VerifyHashedPassword(
-                null!,
-                SyntheticHash,
-                SyntheticPassword));
+        string passwordHash = passwordHasher.HashPassword(SyntheticPassword);
+        PasswordVerificationResult result = passwordHasher.VerifyHashedPassword(
+            passwordHash,
+            SyntheticPassword);
 
-        Assert.Equal("user", exception.ParamName);
+        Assert.Equal(SyntheticHash, passwordHash);
+        Assert.Equal(PasswordVerificationResult.Success, result);
+        Assert.NotNull(microsoftHasher.HashProviderUser);
+        Assert.Same(
+            microsoftHasher.HashProviderUser,
+            microsoftHasher.VerificationProviderUser);
     }
 
     [Fact]
@@ -82,7 +91,6 @@ public sealed class AspNetCorePasswordHasherTests
 
         ArgumentNullException exception = Assert.Throws<ArgumentNullException>(
             () => passwordHasher.VerifyHashedPassword(
-                SyntheticUser,
                 null!,
                 SyntheticPassword));
 
@@ -96,7 +104,6 @@ public sealed class AspNetCorePasswordHasherTests
 
         ArgumentNullException exception = Assert.Throws<ArgumentNullException>(
             () => passwordHasher.VerifyHashedPassword(
-                SyntheticUser,
                 SyntheticHash,
                 null!));
 
@@ -108,9 +115,7 @@ public sealed class AspNetCorePasswordHasherTests
     {
         AspNetCorePasswordHasher passwordHasher = CreatePasswordHasher();
 
-        string passwordHash = passwordHasher.HashPassword(
-            SyntheticUser,
-            SyntheticPassword);
+        string passwordHash = passwordHasher.HashPassword(SyntheticPassword);
 
         Assert.NotNull(passwordHash);
         Assert.False(string.IsNullOrWhiteSpace(passwordHash));
@@ -118,16 +123,12 @@ public sealed class AspNetCorePasswordHasherTests
     }
 
     [Fact]
-    public void HashPassword_CalledTwiceForSameUserAndPassword_ProducesDifferentHashes()
+    public void HashPassword_CalledTwiceForSamePassword_ProducesDifferentHashes()
     {
         AspNetCorePasswordHasher passwordHasher = CreatePasswordHasher();
 
-        string firstPasswordHash = passwordHasher.HashPassword(
-            SyntheticUser,
-            SyntheticPassword);
-        string secondPasswordHash = passwordHasher.HashPassword(
-            SyntheticUser,
-            SyntheticPassword);
+        string firstPasswordHash = passwordHasher.HashPassword(SyntheticPassword);
+        string secondPasswordHash = passwordHasher.HashPassword(SyntheticPassword);
 
         Assert.False(string.IsNullOrWhiteSpace(firstPasswordHash));
         Assert.False(string.IsNullOrWhiteSpace(secondPasswordHash));
@@ -138,13 +139,31 @@ public sealed class AspNetCorePasswordHasherTests
     public void VerifyHashedPassword_WithMatchingPassword_ReturnsSuccess()
     {
         AspNetCorePasswordHasher passwordHasher = CreatePasswordHasher();
-        string passwordHash = passwordHasher.HashPassword(
-            SyntheticUser,
-            SyntheticPassword);
+        string passwordHash = passwordHasher.HashPassword(SyntheticPassword);
 
         PasswordVerificationResult result = passwordHasher.VerifyHashedPassword(
-            SyntheticUser,
             passwordHash,
+            SyntheticPassword);
+
+        Assert.Equal(PasswordVerificationResult.Success, result);
+    }
+
+    [Fact]
+    public void VerifyHashedPassword_WithHashProducedByPreviousUserGenericProvider_ReturnsSuccess()
+    {
+        var legacyProvider = new LegacyMicrosoftUserPasswordHasher(
+            Options.Create(new MicrosoftPasswordHasherOptions()));
+        var legacyProviderUser = new Enma.Domain.Users.User(
+            "Synthetic Legacy Provider User",
+            "synthetic.legacy.provider@example.test",
+            new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        string legacyHash = legacyProvider.HashPassword(
+            legacyProviderUser,
+            SyntheticPassword);
+        AspNetCorePasswordHasher passwordHasher = CreatePasswordHasher();
+
+        PasswordVerificationResult result = passwordHasher.VerifyHashedPassword(
+            legacyHash,
             SyntheticPassword);
 
         Assert.Equal(PasswordVerificationResult.Success, result);
@@ -154,12 +173,9 @@ public sealed class AspNetCorePasswordHasherTests
     public void VerifyHashedPassword_WithDifferentPassword_ReturnsFailed()
     {
         AspNetCorePasswordHasher passwordHasher = CreatePasswordHasher();
-        string passwordHash = passwordHasher.HashPassword(
-            SyntheticUser,
-            SyntheticPassword);
+        string passwordHash = passwordHasher.HashPassword(SyntheticPassword);
 
         PasswordVerificationResult result = passwordHasher.VerifyHashedPassword(
-            SyntheticUser,
             passwordHash,
             DifferentSyntheticPassword);
 
@@ -174,7 +190,6 @@ public sealed class AspNetCorePasswordHasherTests
         var passwordHasher = new AspNetCorePasswordHasher(microsoftHasher);
 
         PasswordVerificationResult result = passwordHasher.VerifyHashedPassword(
-            SyntheticUser,
             SyntheticHash,
             SyntheticPassword);
 
@@ -190,7 +205,6 @@ public sealed class AspNetCorePasswordHasherTests
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
             () => passwordHasher.VerifyHashedPassword(
-                SyntheticUser,
                 SyntheticHash,
                 SyntheticPassword));
 
@@ -199,8 +213,6 @@ public sealed class AspNetCorePasswordHasherTests
             exception.Message);
         Assert.DoesNotContain(SyntheticPassword, exception.Message);
         Assert.DoesNotContain(SyntheticHash, exception.Message);
-        Assert.DoesNotContain(SyntheticUser.Email, exception.Message);
-        Assert.DoesNotContain(SyntheticUser.Id.ToString(), exception.Message);
     }
 
     private static AspNetCorePasswordHasher CreatePasswordHasher()
@@ -214,17 +226,24 @@ public sealed class AspNetCorePasswordHasherTests
     private sealed class FakeMicrosoftPasswordHasher(
         MicrosoftPasswordVerificationResult result) : MicrosoftPasswordHasher
     {
-        public string HashPassword(User user, string password)
+        public object? HashProviderUser { get; private set; }
+
+        public object? VerificationProviderUser { get; private set; }
+
+        public string HashPassword(object user, string password)
         {
-            throw new InvalidOperationException(
-                "HashPassword was not expected to be called.");
+            HashProviderUser = user;
+
+            return SyntheticHash;
         }
 
         public MicrosoftPasswordVerificationResult VerifyHashedPassword(
-            User user,
+            object user,
             string hashedPassword,
             string providedPassword)
         {
+            VerificationProviderUser = user;
+
             return result;
         }
     }

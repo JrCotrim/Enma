@@ -94,9 +94,7 @@ public sealed class RegisterOrganizationOwnerHandler
             throw new CompromisedPasswordException();
         }
 
-        string passwordHash = passwordHasher.HashPassword(
-            user,
-            command.Password);
+        string passwordHash = passwordHasher.HashPassword(command.Password);
         var credential = new UserCredential(user.Id, passwordHash, createdAt);
         var membership = new OrganizationMembership(
             organization.Id,

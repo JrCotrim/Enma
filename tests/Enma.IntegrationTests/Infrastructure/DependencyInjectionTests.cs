@@ -3,7 +3,6 @@ using Enma.Application.Authentication;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
 using Enma.Application.Users;
-using Enma.Domain.Users;
 using Enma.Infrastructure;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
@@ -12,7 +11,7 @@ using Enma.Infrastructure.Security;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
-using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<Enma.Domain.Users.User>;
+using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<object>;
 
 namespace Enma.IntegrationTests.Infrastructure;
 
@@ -129,7 +128,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.IsType<OrganizationRepository>(firstOrganizationRepository);
         Assert.IsType<AspNetCorePasswordHasher>(firstPasswordHasher);
         Assert.IsType<DefaultPasswordPolicy>(firstPasswordPolicy);
-        Assert.IsType<PasswordHasher<User>>(firstMicrosoftPasswordHasher);
+        Assert.IsType<PasswordHasher<object>>(firstMicrosoftPasswordHasher);
         Assert.Same(
             firstUserRepository,
             firstScope.ServiceProvider.GetRequiredService<IUserRepository>());
