@@ -36,6 +36,9 @@ public static class DependencyInjection
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<object>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<IPasswordPolicy, DefaultPasswordPolicy>();
+        services.AddSingleton<
+            IAuthenticationSessionHandleService,
+            CryptographicAuthenticationSessionHandleService>();
         services.AddTransient<PwnedPasswordsTelemetryHandler>();
         services
             .AddHttpClient<

@@ -24,6 +24,17 @@ public sealed class AuthenticationSessionRepository
             cancellationToken);
     }
 
+    public Task<AuthenticationSession?> GetBySecretHashAsync(
+        AuthenticationSessionSecretHash secretHash,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(secretHash);
+
+        return _dbContext.AuthenticationSessions.SingleOrDefaultAsync(
+            session => session.SecretHash == secretHash,
+            cancellationToken);
+    }
+
     public async Task AddAsync(
         AuthenticationSession session,
         CancellationToken cancellationToken = default)
