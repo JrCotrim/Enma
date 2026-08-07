@@ -43,6 +43,7 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         CancellationToken cancellationToken = default)
     {
         await using EnmaDbContext dbContext = CreateDbContext();
+        await dbContext.AuthenticationSessions.ExecuteDeleteAsync(cancellationToken);
         await dbContext.UserCredentials.ExecuteDeleteAsync(cancellationToken);
         await dbContext.OrganizationMemberships.ExecuteDeleteAsync(cancellationToken);
         await dbContext.Users.ExecuteDeleteAsync(cancellationToken);

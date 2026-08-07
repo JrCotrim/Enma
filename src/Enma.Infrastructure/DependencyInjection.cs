@@ -61,6 +61,9 @@ public static class DependencyInjection
         services.AddScoped<IUserCredentialRepository, UserCredentialRepository>();
         services.AddScoped<IAuthenticationIdentityLookup, AuthenticationIdentityLookup>();
         services.AddScoped<
+            IAuthenticationSessionRepository,
+            AuthenticationSessionRepository>();
+        services.AddScoped<
             IOrganizationMembershipRepository,
             OrganizationMembershipRepository>();
         services.AddScoped<IUnitOfWork>(

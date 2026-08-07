@@ -1,6 +1,7 @@
 using Enma.Application.Abstractions;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Users;
+using Enma.Domain.Authentication;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +20,9 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     public DbSet<User> Users => Set<User>();
 
     public DbSet<UserCredential> UserCredentials => Set<UserCredential>();
+
+    public DbSet<AuthenticationSession> AuthenticationSessions =>
+        Set<AuthenticationSession>();
 
     public DbSet<OrganizationMembership> OrganizationMemberships =>
         Set<OrganizationMembership>();
