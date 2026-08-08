@@ -72,6 +72,9 @@ public static class DependencyInjection
             IAuthenticationSessionIssuancePersistence,
             AuthenticationSessionIssuancePersistence>();
         services.AddScoped<
+            IEmailVerificationChallengePersistence,
+            EmailVerificationChallengePersistence>();
+        services.AddScoped<
             IOrganizationMembershipRepository,
             OrganizationMembershipRepository>();
         services.AddScoped<IUnitOfWork>(

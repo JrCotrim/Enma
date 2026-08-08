@@ -87,6 +87,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
     public async Task AddInfrastructure_RegistersRepositoriesAndSharedScopedUnitOfWork()
     {
         var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
         services.AddInfrastructure(fixture.ConnectionString);
 
         await using ServiceProvider serviceProvider = services.BuildServiceProvider();
@@ -106,6 +107,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IAuthenticationSessionIssuancePersistence
             firstAuthenticationSessionIssuancePersistence = firstScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionIssuancePersistence>();
+        IEmailVerificationChallengePersistence
+            firstEmailVerificationChallengePersistence = firstScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationChallengePersistence>();
         IAuthenticationSessionHandleService firstAuthenticationSessionHandleService =
             firstScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionHandleService>();
@@ -135,6 +139,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstAuthenticationSessionRepository);
         Assert.IsType<AuthenticationSessionIssuancePersistence>(
             firstAuthenticationSessionIssuancePersistence);
+        Assert.IsType<EmailVerificationChallengePersistence>(
+            firstEmailVerificationChallengePersistence);
         Assert.IsType<CryptographicAuthenticationSessionHandleService>(
             firstAuthenticationSessionHandleService);
         Assert.IsType<CryptographicEmailVerificationTokenService>(
@@ -163,6 +169,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstAuthenticationSessionIssuancePersistence,
             firstScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionIssuancePersistence>());
+        Assert.Same(
+            firstEmailVerificationChallengePersistence,
+            firstScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationChallengePersistence>());
         Assert.Same(
             firstAuthenticationSessionHandleService,
             firstScope.ServiceProvider
@@ -204,6 +214,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IAuthenticationSessionIssuancePersistence
             secondAuthenticationSessionIssuancePersistence = secondScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionIssuancePersistence>();
+        IEmailVerificationChallengePersistence
+            secondEmailVerificationChallengePersistence = secondScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationChallengePersistence>();
         IAuthenticationSessionHandleService secondAuthenticationSessionHandleService =
             secondScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionHandleService>();
@@ -237,6 +250,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.NotSame(
             firstAuthenticationSessionIssuancePersistence,
             secondAuthenticationSessionIssuancePersistence);
+        Assert.NotSame(
+            firstEmailVerificationChallengePersistence,
+            secondEmailVerificationChallengePersistence);
         Assert.Same(
             firstAuthenticationSessionHandleService,
             secondAuthenticationSessionHandleService);
@@ -245,6 +261,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             secondEmailVerificationTokenService);
         Assert.NotSame(firstDbContext, firstAuthenticationSessionHandleService);
         Assert.NotSame(firstDbContext, firstEmailVerificationTokenService);
+        Assert.NotSame(firstDbContext, firstEmailVerificationChallengePersistence);
         Assert.NotSame(firstMembershipRepository, secondMembershipRepository);
         Assert.NotSame(firstOrganizationRepository, secondOrganizationRepository);
         Assert.NotSame(firstDbContext, secondDbContext);
