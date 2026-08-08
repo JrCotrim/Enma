@@ -39,6 +39,9 @@ public static class DependencyInjection
         services.AddSingleton<
             IAuthenticationSessionHandleService,
             CryptographicAuthenticationSessionHandleService>();
+        services.AddSingleton<
+            IEmailVerificationTokenService,
+            CryptographicEmailVerificationTokenService>();
         services.AddTransient<PwnedPasswordsTelemetryHandler>();
         services
             .AddHttpClient<

@@ -109,6 +109,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IAuthenticationSessionHandleService firstAuthenticationSessionHandleService =
             firstScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionHandleService>();
+        IEmailVerificationTokenService firstEmailVerificationTokenService =
+            firstScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationTokenService>();
         IOrganizationMembershipRepository firstMembershipRepository =
             firstScope.ServiceProvider
                 .GetRequiredService<IOrganizationMembershipRepository>();
@@ -134,6 +137,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstAuthenticationSessionIssuancePersistence);
         Assert.IsType<CryptographicAuthenticationSessionHandleService>(
             firstAuthenticationSessionHandleService);
+        Assert.IsType<CryptographicEmailVerificationTokenService>(
+            firstEmailVerificationTokenService);
         Assert.IsType<OrganizationMembershipRepository>(firstMembershipRepository);
         Assert.IsType<OrganizationRepository>(firstOrganizationRepository);
         Assert.IsType<AspNetCorePasswordHasher>(firstPasswordHasher);
@@ -162,6 +167,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstAuthenticationSessionHandleService,
             firstScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionHandleService>());
+        Assert.Same(
+            firstEmailVerificationTokenService,
+            firstScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationTokenService>());
         Assert.Same(
             firstMembershipRepository,
             firstScope.ServiceProvider
@@ -198,6 +207,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IAuthenticationSessionHandleService secondAuthenticationSessionHandleService =
             secondScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionHandleService>();
+        IEmailVerificationTokenService secondEmailVerificationTokenService =
+            secondScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationTokenService>();
         IOrganizationMembershipRepository secondMembershipRepository =
             secondScope.ServiceProvider
                 .GetRequiredService<IOrganizationMembershipRepository>();
@@ -228,7 +240,11 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.Same(
             firstAuthenticationSessionHandleService,
             secondAuthenticationSessionHandleService);
+        Assert.Same(
+            firstEmailVerificationTokenService,
+            secondEmailVerificationTokenService);
         Assert.NotSame(firstDbContext, firstAuthenticationSessionHandleService);
+        Assert.NotSame(firstDbContext, firstEmailVerificationTokenService);
         Assert.NotSame(firstMembershipRepository, secondMembershipRepository);
         Assert.NotSame(firstOrganizationRepository, secondOrganizationRepository);
         Assert.NotSame(firstDbContext, secondDbContext);
