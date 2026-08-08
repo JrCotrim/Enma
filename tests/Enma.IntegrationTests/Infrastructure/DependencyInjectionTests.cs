@@ -101,6 +101,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IAuthenticationIdentityLookup firstAuthenticationIdentityLookup =
             firstScope.ServiceProvider
                 .GetRequiredService<IAuthenticationIdentityLookup>();
+        IEmailVerificationUserLookup firstEmailVerificationUserLookup =
+            firstScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationUserLookup>();
         IAuthenticationSessionRepository firstAuthenticationSessionRepository =
             firstScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionRepository>();
@@ -135,6 +138,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.IsType<UserRepository>(firstUserRepository);
         Assert.IsType<UserCredentialRepository>(firstUserCredentialRepository);
         Assert.IsType<AuthenticationIdentityLookup>(firstAuthenticationIdentityLookup);
+        Assert.IsType<EmailVerificationUserLookup>(firstEmailVerificationUserLookup);
         Assert.IsType<AuthenticationSessionRepository>(
             firstAuthenticationSessionRepository);
         Assert.IsType<AuthenticationSessionIssuancePersistence>(
@@ -161,6 +165,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstAuthenticationIdentityLookup,
             firstScope.ServiceProvider
                 .GetRequiredService<IAuthenticationIdentityLookup>());
+        Assert.Same(
+            firstEmailVerificationUserLookup,
+            firstScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationUserLookup>());
         Assert.Same(
             firstAuthenticationSessionRepository,
             firstScope.ServiceProvider
@@ -198,6 +206,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstMicrosoftPasswordHasher,
             firstScope.ServiceProvider.GetRequiredService<MicrosoftPasswordHasher>());
         Assert.Same(firstDbContext, firstUnitOfWork);
+        Assert.Null(
+            firstScope.ServiceProvider.GetService<IEmailVerificationDelivery>());
 
         await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
         IUserRepository secondUserRepository = secondScope.ServiceProvider
@@ -208,6 +218,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IAuthenticationIdentityLookup secondAuthenticationIdentityLookup =
             secondScope.ServiceProvider
                 .GetRequiredService<IAuthenticationIdentityLookup>();
+        IEmailVerificationUserLookup secondEmailVerificationUserLookup =
+            secondScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationUserLookup>();
         IAuthenticationSessionRepository secondAuthenticationSessionRepository =
             secondScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionRepository>();
@@ -245,6 +258,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstAuthenticationIdentityLookup,
             secondAuthenticationIdentityLookup);
         Assert.NotSame(
+            firstEmailVerificationUserLookup,
+            secondEmailVerificationUserLookup);
+        Assert.NotSame(
             firstAuthenticationSessionRepository,
             secondAuthenticationSessionRepository);
         Assert.NotSame(
@@ -262,6 +278,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.NotSame(firstDbContext, firstAuthenticationSessionHandleService);
         Assert.NotSame(firstDbContext, firstEmailVerificationTokenService);
         Assert.NotSame(firstDbContext, firstEmailVerificationChallengePersistence);
+        Assert.NotSame(firstDbContext, firstEmailVerificationUserLookup);
         Assert.NotSame(firstMembershipRepository, secondMembershipRepository);
         Assert.NotSame(firstOrganizationRepository, secondOrganizationRepository);
         Assert.NotSame(firstDbContext, secondDbContext);
