@@ -4,13 +4,17 @@ using Enma.Application.Organizations;
 using Enma.Application.Security;
 using Enma.Application.Users;
 using Enma.Infrastructure;
+using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Enma.Infrastructure.Persistence.Repositories;
 using Enma.Infrastructure.Security;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using MailKit.Security;
 using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<object>;
 
 namespace Enma.IntegrationTests.Infrastructure;
@@ -22,7 +26,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
     public async Task AddInfrastructure_RegistersCompromisedPasswordCheckerAsTypedHttpClient()
     {
         var services = new ServiceCollection();
-        services.AddInfrastructure(fixture.ConnectionString);
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
 
         await using ServiceProvider serviceProvider = services.BuildServiceProvider();
         await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
@@ -88,7 +92,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
     {
         var services = new ServiceCollection();
         services.AddSingleton<TimeProvider>(TimeProvider.System);
-        services.AddInfrastructure(fixture.ConnectionString);
+        services.AddLogging();
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
 
         await using ServiceProvider serviceProvider = services.BuildServiceProvider();
         await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
@@ -119,6 +124,16 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IEmailVerificationTokenService firstEmailVerificationTokenService =
             firstScope.ServiceProvider
                 .GetRequiredService<IEmailVerificationTokenService>();
+        IEmailVerificationDelivery firstEmailVerificationDelivery =
+            firstScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationDelivery>();
+        EmailVerificationLinkBuilder firstEmailVerificationLinkBuilder =
+            firstScope.ServiceProvider
+                .GetRequiredService<EmailVerificationLinkBuilder>();
+        RequestEmailVerificationUseCase firstRequestUseCase = firstScope.ServiceProvider
+            .GetRequiredService<RequestEmailVerificationUseCase>();
+        VerifyEmailUseCase firstVerifyUseCase = firstScope.ServiceProvider
+            .GetRequiredService<VerifyEmailUseCase>();
         IOrganizationMembershipRepository firstMembershipRepository =
             firstScope.ServiceProvider
                 .GetRequiredService<IOrganizationMembershipRepository>();
@@ -149,6 +164,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstAuthenticationSessionHandleService);
         Assert.IsType<CryptographicEmailVerificationTokenService>(
             firstEmailVerificationTokenService);
+        Assert.IsType<MailKitEmailVerificationDelivery>(
+            firstEmailVerificationDelivery);
         Assert.IsType<OrganizationMembershipRepository>(firstMembershipRepository);
         Assert.IsType<OrganizationRepository>(firstOrganizationRepository);
         Assert.IsType<AspNetCorePasswordHasher>(firstPasswordHasher);
@@ -206,8 +223,18 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstMicrosoftPasswordHasher,
             firstScope.ServiceProvider.GetRequiredService<MicrosoftPasswordHasher>());
         Assert.Same(firstDbContext, firstUnitOfWork);
-        Assert.Null(
-            firstScope.ServiceProvider.GetService<IEmailVerificationDelivery>());
+        Assert.Same(
+            firstEmailVerificationDelivery,
+            firstScope.ServiceProvider.GetRequiredService<IEmailVerificationDelivery>());
+        Assert.Same(
+            firstEmailVerificationLinkBuilder,
+            firstScope.ServiceProvider.GetRequiredService<EmailVerificationLinkBuilder>());
+        Assert.Same(
+            firstRequestUseCase,
+            firstScope.ServiceProvider.GetRequiredService<RequestEmailVerificationUseCase>());
+        Assert.Same(
+            firstVerifyUseCase,
+            firstScope.ServiceProvider.GetRequiredService<VerifyEmailUseCase>());
 
         await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
         IUserRepository secondUserRepository = secondScope.ServiceProvider
@@ -236,6 +263,16 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IEmailVerificationTokenService secondEmailVerificationTokenService =
             secondScope.ServiceProvider
                 .GetRequiredService<IEmailVerificationTokenService>();
+        IEmailVerificationDelivery secondEmailVerificationDelivery =
+            secondScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationDelivery>();
+        EmailVerificationLinkBuilder secondEmailVerificationLinkBuilder =
+            secondScope.ServiceProvider
+                .GetRequiredService<EmailVerificationLinkBuilder>();
+        RequestEmailVerificationUseCase secondRequestUseCase = secondScope.ServiceProvider
+            .GetRequiredService<RequestEmailVerificationUseCase>();
+        VerifyEmailUseCase secondVerifyUseCase = secondScope.ServiceProvider
+            .GetRequiredService<VerifyEmailUseCase>();
         IOrganizationMembershipRepository secondMembershipRepository =
             secondScope.ServiceProvider
                 .GetRequiredService<IOrganizationMembershipRepository>();
@@ -275,6 +312,14 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.Same(
             firstEmailVerificationTokenService,
             secondEmailVerificationTokenService);
+        Assert.Same(
+            firstEmailVerificationDelivery,
+            secondEmailVerificationDelivery);
+        Assert.Same(
+            firstEmailVerificationLinkBuilder,
+            secondEmailVerificationLinkBuilder);
+        Assert.NotSame(firstRequestUseCase, secondRequestUseCase);
+        Assert.NotSame(firstVerifyUseCase, secondVerifyUseCase);
         Assert.NotSame(firstDbContext, firstAuthenticationSessionHandleService);
         Assert.NotSame(firstDbContext, firstEmailVerificationTokenService);
         Assert.NotSame(firstDbContext, firstEmailVerificationChallengePersistence);
@@ -290,5 +335,79 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.Same(
             secondDbContext,
             secondScope.ServiceProvider.GetRequiredService<IUnitOfWork>());
+    }
+
+    [Fact]
+    public async Task AddInfrastructure_InsecureSmtpConfiguration_RejectsDeliveryWithoutSecretDisclosure()
+    {
+        const string syntheticPassword = "synthetic-smtp-password";
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddInfrastructure(
+            fixture.ConnectionString,
+            CreateConfiguration(
+                SecureSocketOptions.None,
+                syntheticPassword));
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider();
+
+        OptionsValidationException exception = Assert.Throws<OptionsValidationException>(
+            () => serviceProvider.GetRequiredService<IEmailVerificationDelivery>());
+
+        Assert.Contains(
+            exception.Failures,
+            failure => failure.Contains("SmtpSecurity", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            syntheticPassword,
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "smtp-user",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AddInfrastructure_InMemoryDeliverySection_BindsExactOptions()
+    {
+        var services = new ServiceCollection();
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider();
+        EmailVerificationDeliveryOptions options = serviceProvider
+            .GetRequiredService<IOptions<EmailVerificationDeliveryOptions>>()
+            .Value;
+
+        Assert.Equal("https://app.example/verify-email", options.VerificationPageUrl);
+        Assert.Equal("ENMA", options.SenderName);
+        Assert.Equal("no-reply@example.test", options.SenderAddress);
+        Assert.Equal("smtp.example.test", options.SmtpHost);
+        Assert.Equal(587, options.SmtpPort);
+        Assert.Equal(SecureSocketOptions.StartTls, options.SmtpSecurity);
+        Assert.Equal("smtp-user", options.SmtpUsername);
+        Assert.Equal("synthetic-smtp-password", options.SmtpPassword);
+    }
+
+    private static IConfiguration CreateConfiguration(
+        SecureSocketOptions smtpSecurity = SecureSocketOptions.StartTls,
+        string smtpPassword = "synthetic-smtp-password")
+    {
+        string section = EmailVerificationDeliveryOptions.SectionName;
+        var values = new Dictionary<string, string?>
+        {
+            [$"{section}:VerificationPageUrl"] =
+                "https://app.example/verify-email",
+            [$"{section}:SenderName"] = "ENMA",
+            [$"{section}:SenderAddress"] = "no-reply@example.test",
+            [$"{section}:SmtpHost"] = "smtp.example.test",
+            [$"{section}:SmtpPort"] = "587",
+            [$"{section}:SmtpSecurity"] = smtpSecurity.ToString(),
+            [$"{section}:SmtpUsername"] = "smtp-user",
+            [$"{section}:SmtpPassword"] = smtpPassword
+        };
+
+        return new ConfigurationBuilder()
+            .AddInMemoryCollection(values)
+            .Build();
     }
 }

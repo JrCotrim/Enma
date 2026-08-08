@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Enma.Application.Security;
 using Enma.Infrastructure;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
@@ -197,7 +198,9 @@ public sealed class PwnedPasswordsHttpClientLoggingTests
             logging.SetMinimumLevel(LogLevel.Trace);
             logging.AddProvider(loggerProvider);
         });
-        services.AddInfrastructure(nameof(PwnedPasswordsHttpClientLoggingTests));
+        services.AddInfrastructure(
+            nameof(PwnedPasswordsHttpClientLoggingTests),
+            new ConfigurationBuilder().Build());
         services.AddSingleton<IHttpMessageHandlerBuilderFilter>(
             new PrimaryHandlerReplacementFilter(primaryHandler));
 

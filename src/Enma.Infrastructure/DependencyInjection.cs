@@ -4,13 +4,16 @@ using Enma.Application.Authentication;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
 using Enma.Application.Users;
+using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Enma.Infrastructure.Persistence.Repositories;
 using Enma.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<object>;
 
 namespace Enma.Infrastructure;
@@ -19,9 +22,11 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
-        string connectionString)
+        string connectionString,
+        IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
 
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -33,6 +38,13 @@ public static class DependencyInjection
         services.AddDbContext<EnmaDbContext>(
             options => options.UseNpgsql(connectionString));
         services.AddOptions<PasswordHasherOptions>();
+        services
+            .AddOptions<EmailVerificationDeliveryOptions>()
+            .Bind(configuration.GetSection(
+                EmailVerificationDeliveryOptions.SectionName));
+        services.AddSingleton<
+            IValidateOptions<EmailVerificationDeliveryOptions>,
+            EmailVerificationDeliveryOptionsValidator>();
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<object>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<IPasswordPolicy, DefaultPasswordPolicy>();
@@ -42,6 +54,10 @@ public static class DependencyInjection
         services.AddSingleton<
             IEmailVerificationTokenService,
             CryptographicEmailVerificationTokenService>();
+        services.AddSingleton<EmailVerificationLinkBuilder>();
+        services.AddSingleton<
+            IEmailVerificationDelivery,
+            MailKitEmailVerificationDelivery>();
         services.AddTransient<PwnedPasswordsTelemetryHandler>();
         services
             .AddHttpClient<
@@ -82,6 +98,8 @@ public static class DependencyInjection
             OrganizationMembershipRepository>();
         services.AddScoped<IUnitOfWork>(
             serviceProvider => serviceProvider.GetRequiredService<EnmaDbContext>());
+        services.AddScoped<RequestEmailVerificationUseCase>();
+        services.AddScoped<VerifyEmailUseCase>();
 
         return services;
     }
