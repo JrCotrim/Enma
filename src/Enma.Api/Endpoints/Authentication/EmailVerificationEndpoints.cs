@@ -3,11 +3,15 @@ using Enma.Api.Contracts.Authentication;
 using Enma.Application.Authentication;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Enma.Api.Endpoints.Authentication;
 
 public static class EmailVerificationEndpoints
 {
+    internal const string ResendRateLimitPolicy = "EmailVerificationResend";
+    internal const string VerifyRateLimitPolicy = "EmailVerificationVerify";
+
     private const string InvalidVerificationCode =
         "email_verification_invalid";
 
@@ -39,7 +43,8 @@ public static class EmailVerificationEndpoints
             .WithSummary("Requests an email verification message.")
             .Accepts<RequestEmailVerificationRequest>("application/json")
             .Produces(StatusCodes.Status202Accepted)
-            .ProducesProblem(StatusCodes.Status500InternalServerError);
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireRateLimiting(ResendRateLimitPolicy);
 
         group.MapPost(
                 "/verify",
@@ -66,7 +71,8 @@ public static class EmailVerificationEndpoints
             .Accepts<VerifyEmailRequest>("application/json")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status500InternalServerError);
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireRateLimiting(VerifyRateLimitPolicy);
 
         return endpoints;
     }

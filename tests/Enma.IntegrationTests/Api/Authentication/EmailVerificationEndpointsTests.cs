@@ -117,6 +117,29 @@ public sealed class EmailVerificationEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task PostResend_SixRequestsFromSameClient_RateLimitsSixthRequest()
+    {
+        for (int requestNumber = 1; requestNumber <= 5; requestNumber++)
+        {
+            using HttpResponseMessage admittedResponse = await client.PostAsJsonAsync(
+                ResendPath,
+                new { Email = "not-an-email" });
+
+            Assert.Equal(HttpStatusCode.Accepted, admittedResponse.StatusCode);
+        }
+
+        using HttpResponseMessage rejectedResponse = await client.PostAsJsonAsync(
+            ResendPath,
+            new { Email = "not-an-email" });
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, rejectedResponse.StatusCode);
+        Assert.True(rejectedResponse.Headers.CacheControl?.NoStore);
+        Assert.Equal(
+            string.Empty,
+            await rejectedResponse.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task PostVerify_MalformedToken_ReturnsGenericInvalidProblem()
     {
         using HttpResponseMessage response = await client.PostAsJsonAsync(
@@ -156,6 +179,48 @@ public sealed class EmailVerificationEndpointsTests : IDisposable
         Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
         Assert.True(response.Headers.CacheControl?.NoStore);
         Assert.Null(response.Headers.Location);
+    }
+
+    [Fact]
+    public async Task PostVerify_TwentyOneRequestsFromSameClient_RateLimitsLastRequest()
+    {
+        for (int requestNumber = 1; requestNumber <= 20; requestNumber++)
+        {
+            using HttpResponseMessage admittedResponse = await client.PostAsJsonAsync(
+                VerifyPath,
+                new { Token = RawToken });
+
+            await AssertInvalidProblemAsync(admittedResponse);
+        }
+
+        using HttpResponseMessage rejectedResponse = await client.PostAsJsonAsync(
+            VerifyPath,
+            new { Token = RawToken });
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, rejectedResponse.StatusCode);
+        Assert.True(rejectedResponse.Headers.CacheControl?.NoStore);
+        string rawResponse = await rejectedResponse.Content.ReadAsStringAsync();
+        Assert.Equal(string.Empty, rawResponse);
+        Assert.DoesNotContain(RawToken, rawResponse, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PostEmailVerification_ExhaustedResendBudget_VerifyRemainsAdmitted()
+    {
+        for (int requestNumber = 1; requestNumber <= 5; requestNumber++)
+        {
+            using HttpResponseMessage resendResponse = await client.PostAsJsonAsync(
+                ResendPath,
+                new { Email = "not-an-email" });
+
+            Assert.Equal(HttpStatusCode.Accepted, resendResponse.StatusCode);
+        }
+
+        using HttpResponseMessage verifyResponse = await client.PostAsJsonAsync(
+            VerifyPath,
+            new { Token = "malformed" });
+
+        await AssertInvalidProblemAsync(verifyResponse);
     }
 
     private static async Task<string> AssertInvalidProblemAsync(
