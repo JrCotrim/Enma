@@ -11,6 +11,7 @@ The current projects are:
 - `Enma.Domain`
 - `Enma.Infrastructure`
 - `Enma.UnitTests`
+- `Enma.Web`
 
 ## Architecture Boundaries
 
@@ -101,6 +102,17 @@ The current projects are:
 11. Do not create a commit.
 
 If `scripts/verify.ps1` cannot be run, execute the equivalent commands manually. Do not hide out-of-scope failures. Stop and report when a requirement would cause a change outside the authorized scope.
+
+## Frontend Workflow
+
+For changes under `src/Enma.Web`, run the following commands from that directory:
+
+1. `npm ci`
+2. `npm run typecheck`
+3. `npm run lint`
+4. `npm run test:run`
+5. `npm run build`
+6. `npm audit`
 
 ## Required Final Report
 
