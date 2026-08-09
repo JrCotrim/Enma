@@ -1,8 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
-import { router } from './app/router'
+import { createAppRouter } from './app/router'
+import { captureEmailVerificationHandoff } from './features/email-verification/emailVerificationHandoff'
+import { createEmailVerificationFlow } from './features/email-verification/emailVerificationService'
 import './styles.css'
+
+const emailVerificationFlow = createEmailVerificationFlow(
+  captureEmailVerificationHandoff(window.location, window.history).token,
+)
+const router = createAppRouter(emailVerificationFlow)
 
 const rootElement = document.getElementById('root')
 

@@ -1,12 +1,16 @@
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { appRoutes } from './router'
+import { createEmailVerificationFlow } from '../features/email-verification/emailVerificationService'
+import { createAppRoutes } from './router'
 
 function renderRoute(path: string) {
-  const testRouter = createMemoryRouter(appRoutes, {
+  const testRouter = createMemoryRouter(
+    createAppRoutes(createEmailVerificationFlow(undefined)),
+    {
     initialEntries: [path],
-  })
+    },
+  )
 
   render(<RouterProvider router={testRouter} />)
 }
