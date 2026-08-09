@@ -27,6 +27,9 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     public DbSet<EmailVerificationChallenge> EmailVerificationChallenges =>
         Set<EmailVerificationChallenge>();
 
+    public DbSet<EmailVerificationSendBudget> EmailVerificationSendBudgets =>
+        Set<EmailVerificationSendBudget>();
+
     public DbSet<OrganizationMembership> OrganizationMemberships =>
         Set<OrganizationMembership>();
 

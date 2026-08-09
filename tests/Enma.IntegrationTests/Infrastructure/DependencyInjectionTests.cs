@@ -164,7 +164,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstAuthenticationSessionHandleService);
         Assert.IsType<CryptographicEmailVerificationTokenService>(
             firstEmailVerificationTokenService);
-        Assert.IsType<MailKitEmailVerificationDelivery>(
+        Assert.IsType<BudgetedEmailVerificationDelivery>(
             firstEmailVerificationDelivery);
         Assert.IsType<OrganizationMembershipRepository>(firstMembershipRepository);
         Assert.IsType<OrganizationRepository>(firstOrganizationRepository);
@@ -312,7 +312,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.Same(
             firstEmailVerificationTokenService,
             secondEmailVerificationTokenService);
-        Assert.Same(
+        Assert.NotSame(
             firstEmailVerificationDelivery,
             secondEmailVerificationDelivery);
         Assert.Same(
@@ -386,11 +386,73 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.Equal(SecureSocketOptions.StartTls, options.SmtpSecurity);
         Assert.Equal("smtp-user", options.SmtpUsername);
         Assert.Equal("synthetic-smtp-password", options.SmtpPassword);
+
+        EmailVerificationSendBudgetOptions budgetOptions = serviceProvider
+            .GetRequiredService<IOptions<EmailVerificationSendBudgetOptions>>()
+            .Value;
+        Assert.Equal(321, budgetOptions.GlobalHourlyLimit);
+        Assert.Equal(9, budgetOptions.DestinationDailyLimit);
+    }
+
+    [Fact]
+    public async Task AddInfrastructure_EmailDeliveryGraph_UsesSafeLifetimes()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddLogging();
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+
+        IEmailVerificationDelivery firstDelivery = firstScope.ServiceProvider
+            .GetRequiredService<IEmailVerificationDelivery>();
+        IEmailVerificationSendBudget firstBudget = firstScope.ServiceProvider
+            .GetRequiredService<IEmailVerificationSendBudget>();
+        MailKitEmailVerificationDelivery firstSmtp = firstScope.ServiceProvider
+            .GetRequiredService<MailKitEmailVerificationDelivery>();
+        RequestEmailVerificationUseCase firstUseCase = firstScope.ServiceProvider
+            .GetRequiredService<RequestEmailVerificationUseCase>();
+
+        Assert.IsType<BudgetedEmailVerificationDelivery>(firstDelivery);
+        Assert.IsType<PostgreSqlEmailVerificationSendBudget>(firstBudget);
+        Assert.NotNull(firstSmtp);
+        Assert.NotNull(firstUseCase);
+        Assert.Same(
+            firstDelivery,
+            firstScope.ServiceProvider.GetRequiredService<IEmailVerificationDelivery>());
+        Assert.Same(
+            firstBudget,
+            firstScope.ServiceProvider.GetRequiredService<IEmailVerificationSendBudget>());
+
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+
+        Assert.NotSame(
+            firstDelivery,
+            secondScope.ServiceProvider.GetRequiredService<IEmailVerificationDelivery>());
+        Assert.NotSame(
+            firstBudget,
+            secondScope.ServiceProvider.GetRequiredService<IEmailVerificationSendBudget>());
+        Assert.Same(
+            firstSmtp,
+            secondScope.ServiceProvider
+                .GetRequiredService<MailKitEmailVerificationDelivery>());
+        Assert.NotSame(
+            firstUseCase,
+            secondScope.ServiceProvider
+                .GetRequiredService<RequestEmailVerificationUseCase>());
     }
 
     private static IConfiguration CreateConfiguration(
         SecureSocketOptions smtpSecurity = SecureSocketOptions.StartTls,
-        string smtpPassword = "synthetic-smtp-password")
+        string smtpPassword = "synthetic-smtp-password",
+        int globalHourlyLimit = 321,
+        int destinationDailyLimit = 9)
     {
         string section = EmailVerificationDeliveryOptions.SectionName;
         var values = new Dictionary<string, string?>
@@ -403,7 +465,11 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             [$"{section}:SmtpPort"] = "587",
             [$"{section}:SmtpSecurity"] = smtpSecurity.ToString(),
             [$"{section}:SmtpUsername"] = "smtp-user",
-            [$"{section}:SmtpPassword"] = smtpPassword
+            [$"{section}:SmtpPassword"] = smtpPassword,
+            [$"{EmailVerificationSendBudgetOptions.SectionName}:GlobalHourlyLimit"] =
+                globalHourlyLimit.ToString(),
+            [$"{EmailVerificationSendBudgetOptions.SectionName}:DestinationDailyLimit"] =
+                destinationDailyLimit.ToString()
         };
 
         return new ConfigurationBuilder()

@@ -42,9 +42,16 @@ public static class DependencyInjection
             .AddOptions<EmailVerificationDeliveryOptions>()
             .Bind(configuration.GetSection(
                 EmailVerificationDeliveryOptions.SectionName));
+        services
+            .AddOptions<EmailVerificationSendBudgetOptions>()
+            .Bind(configuration.GetSection(
+                EmailVerificationSendBudgetOptions.SectionName));
         services.AddSingleton<
             IValidateOptions<EmailVerificationDeliveryOptions>,
             EmailVerificationDeliveryOptionsValidator>();
+        services.AddSingleton<
+            IValidateOptions<EmailVerificationSendBudgetOptions>,
+            EmailVerificationSendBudgetOptionsValidator>();
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<object>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<IPasswordPolicy, DefaultPasswordPolicy>();
@@ -55,9 +62,17 @@ public static class DependencyInjection
             IEmailVerificationTokenService,
             CryptographicEmailVerificationTokenService>();
         services.AddSingleton<EmailVerificationLinkBuilder>();
-        services.AddSingleton<
-            IEmailVerificationDelivery,
-            MailKitEmailVerificationDelivery>();
+        services.AddSingleton<MailKitEmailVerificationDelivery>();
+        services.AddScoped<
+            IEmailVerificationSendBudget,
+            PostgreSqlEmailVerificationSendBudget>();
+        services.AddScoped<IEmailVerificationDelivery>(serviceProvider =>
+            new BudgetedEmailVerificationDelivery(
+                serviceProvider.GetRequiredService<IEmailVerificationSendBudget>(),
+                serviceProvider.GetRequiredService<MailKitEmailVerificationDelivery>(),
+                serviceProvider.GetRequiredService<
+                    Microsoft.Extensions.Logging.ILogger<
+                        BudgetedEmailVerificationDelivery>>()));
         services.AddTransient<PwnedPasswordsTelemetryHandler>();
         services
             .AddHttpClient<
