@@ -1,3 +1,4 @@
+using Enma.Api.Endpoints.Authentication;
 using Enma.Api.Endpoints.Onboarding;
 using Enma.Api.Endpoints.Organizations;
 using Enma.Api.ExceptionHandling;
@@ -35,6 +36,7 @@ if (app.Environment.IsDevelopment())
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 
+app.MapEmailVerificationEndpoints();
 app.MapRegisterOrganizationOwnerEndpoint();
 app.MapOrganizationEndpoints();
 
