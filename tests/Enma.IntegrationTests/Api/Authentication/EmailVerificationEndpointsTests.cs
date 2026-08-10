@@ -97,7 +97,7 @@ public sealed class EmailVerificationEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task PostResend_DeliveryFailure_ReturnsGenericNoStoreResponse()
+    public async Task PostResend_EligibleAccountDeliveryFailure_ReturnsGenericNoStoreResponse()
     {
         userLookup.UserId = UserId;
         persistence.IssuanceResult =

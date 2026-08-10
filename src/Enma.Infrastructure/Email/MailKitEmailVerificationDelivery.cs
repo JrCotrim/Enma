@@ -1,5 +1,4 @@
 using System.Net.Sockets;
-using System.Security.Authentication;
 using System.Text.Encodings.Web;
 using Enma.Application.Authentication;
 using MailKit;
@@ -136,8 +135,10 @@ public sealed class MailKitEmailVerificationDelivery
             or SmtpProtocolException
             or ServiceNotConnectedException
             or ServiceNotAuthenticatedException
+            or MailKit.Security.AuthenticationException
+            or MailKit.Security.SaslException
+            or MailKit.Security.SslHandshakeException
             or SocketException
-            or IOException
-            or AuthenticationException;
+            or IOException;
     }
 }

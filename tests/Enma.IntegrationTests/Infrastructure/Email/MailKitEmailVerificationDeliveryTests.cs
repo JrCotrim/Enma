@@ -1,5 +1,10 @@
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using Enma.Application.Authentication;
 using Enma.Infrastructure.Email;
 using MailKit.Security;
@@ -41,11 +46,80 @@ public sealed class MailKitEmailVerificationDeliveryTests
             await serverTask;
 
             Assert.Equal(EmailVerificationDeliveryResult.Failed, result);
-            LogEntry entry = Assert.Single(logger.Entries);
-            Assert.Equal(LogLevel.Warning, entry.Level);
-            Assert.Equal(2001, entry.EventId.Id);
-            Assert.Null(entry.Exception);
-            AssertNoSensitiveTelemetry(logger.Entries);
+            AssertSanitizedFailure(logger);
+        }
+        finally
+        {
+            await timeout.CancelAsync();
+            listener.Stop();
+            await DrainServerTaskAsync(serverTask, timeout.Token);
+        }
+    }
+
+    [Fact]
+    public async Task DeliverAsync_SmtpRejectsCredentials_ReturnsFailedWithSanitizedTelemetry()
+    {
+        var logger = new CapturingLogger<MailKitEmailVerificationDelivery>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        Task serverTask = Task.CompletedTask;
+
+        try
+        {
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            MailKitEmailVerificationDelivery delivery = CreateDelivery(
+                CreateOptions(port, includeCredentials: true),
+                logger);
+            serverTask = RejectAuthenticationAsync(listener, timeout.Token);
+
+            EmailVerificationDeliveryResult result = await delivery.DeliverAsync(
+                Recipient,
+                SyntheticToken,
+                timeout.Token);
+            await serverTask;
+
+            Assert.Equal(EmailVerificationDeliveryResult.Failed, result);
+            AssertSanitizedFailure(logger);
+        }
+        finally
+        {
+            await timeout.CancelAsync();
+            listener.Stop();
+            await DrainServerTaskAsync(serverTask, timeout.Token);
+        }
+    }
+
+    [Fact]
+    public async Task DeliverAsync_UntrustedTlsCertificate_ReturnsFailedWithSanitizedTelemetry()
+    {
+        var logger = new CapturingLogger<MailKitEmailVerificationDelivery>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        Task serverTask = Task.CompletedTask;
+
+        try
+        {
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            MailKitEmailVerificationDelivery delivery = CreateDelivery(
+                CreateOptions(
+                    port,
+                    includeCredentials: false,
+                    SecureSocketOptions.SslOnConnect),
+                logger);
+            serverTask = NegotiateWithUntrustedCertificateAsync(
+                listener,
+                timeout.Token);
+
+            EmailVerificationDeliveryResult result = await delivery.DeliverAsync(
+                Recipient,
+                SyntheticToken,
+                timeout.Token);
+            await serverTask;
+
+            Assert.Equal(EmailVerificationDeliveryResult.Failed, result);
+            AssertSanitizedFailure(logger);
         }
         finally
         {
@@ -82,6 +156,76 @@ public sealed class MailKitEmailVerificationDeliveryTests
             cancellationToken);
     }
 
+    private static async Task RejectAuthenticationAsync(
+        TcpListener listener,
+        CancellationToken cancellationToken)
+    {
+        using TcpClient acceptedClient = await listener.AcceptTcpClientAsync(
+            cancellationToken);
+        await using NetworkStream stream = acceptedClient.GetStream();
+        using var reader = new StreamReader(
+            stream,
+            Encoding.ASCII,
+            detectEncodingFromByteOrderMarks: false,
+            leaveOpen: true);
+        await using var writer = new StreamWriter(
+            stream,
+            Encoding.ASCII,
+            leaveOpen: true)
+        {
+            AutoFlush = true,
+            NewLine = "\r\n"
+        };
+
+        await writer.WriteLineAsync("220 localhost ESMTP");
+        string? ehlo = await reader.ReadLineAsync(cancellationToken);
+        Assert.NotNull(ehlo);
+        Assert.StartsWith("EHLO ", ehlo, StringComparison.Ordinal);
+        await writer.WriteLineAsync("250-localhost");
+        await writer.WriteLineAsync("250 AUTH PLAIN");
+        string? authentication = await reader.ReadLineAsync(cancellationToken);
+        Assert.NotNull(authentication);
+        Assert.StartsWith("AUTH PLAIN ", authentication, StringComparison.Ordinal);
+        await writer.WriteLineAsync("535 5.7.8 Authentication credentials invalid");
+    }
+
+    private static async Task NegotiateWithUntrustedCertificateAsync(
+        TcpListener listener,
+        CancellationToken cancellationToken)
+    {
+        using RSA rsa = RSA.Create(2_048);
+        var certificateRequest = new CertificateRequest(
+            "CN=localhost",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using X509Certificate2 certificate = certificateRequest.CreateSelfSigned(
+            new DateTimeOffset(2000, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        using TcpClient acceptedClient = await listener.AcceptTcpClientAsync(
+            cancellationToken);
+        await using var sslStream = new SslStream(acceptedClient.GetStream());
+
+        try
+        {
+            await sslStream.AuthenticateAsServerAsync(
+                new SslServerAuthenticationOptions
+                {
+                    ServerCertificate = certificate,
+                    ClientCertificateRequired = false,
+                    EnabledSslProtocols = SslProtocols.None,
+                    CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+                },
+                cancellationToken);
+        }
+        catch (System.Security.Authentication.AuthenticationException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+    }
+
     private static async Task DrainServerTaskAsync(
         Task serverTask,
         CancellationToken cancellationToken)
@@ -103,7 +247,8 @@ public sealed class MailKitEmailVerificationDeliveryTests
 
     internal static EmailVerificationDeliveryOptions CreateOptions(
         int smtpPort,
-        bool includeCredentials)
+        bool includeCredentials,
+        SecureSocketOptions smtpSecurity = SecureSocketOptions.None)
     {
         return new EmailVerificationDeliveryOptions
         {
@@ -112,7 +257,7 @@ public sealed class MailKitEmailVerificationDeliveryTests
             SenderAddress = "no-reply@example.test",
             SmtpHost = "127.0.0.1",
             SmtpPort = smtpPort,
-            SmtpSecurity = SecureSocketOptions.None,
+            SmtpSecurity = smtpSecurity,
             SmtpUsername = includeCredentials ? "smtp-user" : string.Empty,
             SmtpPassword = includeCredentials ? SyntheticPassword : string.Empty
         };
@@ -155,6 +300,16 @@ public sealed class MailKitEmailVerificationDeliveryTests
                         sensitiveValue,
                         StringComparison.OrdinalIgnoreCase) ?? false));
         }
+    }
+
+    private static void AssertSanitizedFailure(
+        CapturingLogger<MailKitEmailVerificationDelivery> logger)
+    {
+        LogEntry entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Equal(2001, entry.EventId.Id);
+        Assert.Null(entry.Exception);
+        AssertNoSensitiveTelemetry(logger.Entries);
     }
 
     internal sealed class CapturingLogger<T> : ILogger<T>
