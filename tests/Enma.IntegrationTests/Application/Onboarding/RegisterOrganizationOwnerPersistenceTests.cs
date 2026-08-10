@@ -1,9 +1,11 @@
 using Enma.Application.Abstractions;
+using Enma.Application.Authentication;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Security;
 using Enma.Application.Users;
+using Enma.Domain.Authentication;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
@@ -24,6 +26,8 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
     : IAsyncLifetime
 {
     private const string SyntheticPassword = "Synthetic!Owner42";
+    private const string RawVerificationToken =
+        "synthetic-email-verification-token";
     private const string SafeDuplicateEmailMessage =
         "A user with the provided email already exists.";
 
@@ -47,13 +51,18 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
     }
 
     [Fact]
-    public async Task HandleAsync_WithValidCommand_PersistsOrganizationUserAndOwnerMembership()
+    public async Task HandleAsync_WithValidCommand_PersistsCompleteOnboardingAndInitialChallenge()
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         var compromisedPasswordChecker = new TestCompromisedPasswordChecker();
+        var emailVerificationTokenService =
+            new TestEmailVerificationTokenService();
+        var emailVerificationDelivery = new TestEmailVerificationDelivery();
         RegisterOrganizationOwnerHandler handler = CreateHandler(
             dbContext,
-            compromisedPasswordChecker);
+            compromisedPasswordChecker,
+            emailVerificationTokenService: emailVerificationTokenService,
+            emailVerificationDelivery: emailVerificationDelivery);
         using var cancellationTokenSource = new CancellationTokenSource();
         CancellationToken cancellationToken = cancellationTokenSource.Token;
 
@@ -73,6 +82,10 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
                 .AsNoTracking()
                 .SingleAsync();
         UserCredential credential = await verificationContext.UserCredentials
+            .AsNoTracking()
+            .SingleAsync();
+        EmailVerificationChallenge challenge = await verificationContext
+            .EmailVerificationChallenges
             .AsNoTracking()
             .SingleAsync();
 
@@ -114,12 +127,56 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.True(membership.IsActive);
         Assert.Equal(CreatedAt, membership.CreatedAt);
         Assert.Equal(membership.CreatedAt, result.CreatedAt);
+        Assert.Equal(user.Id, challenge.UserId);
+        Assert.Equal(user.Email, challenge.EmailAtIssue);
+        Assert.Equal(emailVerificationTokenService.TokenHash, challenge.TokenHash);
+        Assert.Equal(CreatedAt, challenge.CreatedAt);
+        Assert.Equal(
+            EmailVerificationPolicy.TokenLifetime,
+            challenge.ExpiresAt - challenge.CreatedAt);
+        Assert.Equal(1, emailVerificationTokenService.GenerateCallCount);
+        Assert.Equal(1, emailVerificationDelivery.CallCount);
+        Assert.Equal(user.Email, emailVerificationDelivery.Email);
+        Assert.Equal(RawVerificationToken, emailVerificationDelivery.RawToken);
         Assert.DoesNotContain(
             result.GetType().GetProperties(),
             property => property.Name.Contains("Password", StringComparison.Ordinal));
         Assert.Equal(1, compromisedPasswordChecker.CallCount);
         Assert.True(compromisedPasswordChecker.ReceivedExpectedPassword);
         Assert.Equal(cancellationToken, compromisedPasswordChecker.CancellationToken);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenPostCommitDeliveryThrows_LeavesCompleteOnboardingCommitted()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var expectedException = new InvalidOperationException(
+            "Synthetic unexpected delivery failure.");
+        var emailVerificationDelivery = new TestEmailVerificationDelivery
+        {
+            ExceptionToThrow = expectedException
+        };
+        RegisterOrganizationOwnerHandler handler = CreateHandler(
+            dbContext,
+            emailVerificationDelivery: emailVerificationDelivery);
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => handler.HandleAsync(CreateCommand()));
+
+        Assert.Same(expectedException, exception);
+        Assert.Equal(1, emailVerificationDelivery.CallCount);
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.Equal(1, await verificationContext.Organizations.CountAsync());
+        Assert.Equal(1, await verificationContext.Users.CountAsync());
+        Assert.Equal(1, await verificationContext.UserCredentials.CountAsync());
+        Assert.Equal(
+            1,
+            await verificationContext.OrganizationMemberships.CountAsync());
+        Assert.Equal(
+            1,
+            await verificationContext.EmailVerificationChallenges.CountAsync());
     }
 
     [Fact]
@@ -255,9 +312,11 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         var staleRepository = new StaleOrganizationRepository(
             new OrganizationRepository(dbContext));
+        var emailVerificationDelivery = new TestEmailVerificationDelivery();
         RegisterOrganizationOwnerHandler handler = CreateHandler(
             dbContext,
-            organizationRepository: staleRepository);
+            organizationRepository: staleRepository,
+            emailVerificationDelivery: emailVerificationDelivery);
 
         OrganizationSlugAlreadyExistsException exception =
             await Assert.ThrowsAsync<OrganizationSlugAlreadyExistsException>(
@@ -272,6 +331,7 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Equal("ux_organizations_slug", postgresException.ConstraintName);
 
         await AssertOnlySeededOrganizationRemainsAsync(seededOrganization.Id);
+        Assert.Equal(0, emailVerificationDelivery.CallCount);
     }
 
     [Fact]
@@ -286,9 +346,11 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         var staleRepository = new StaleUserRepository(
             new UserRepository(dbContext));
+        var emailVerificationDelivery = new TestEmailVerificationDelivery();
         RegisterOrganizationOwnerHandler handler = CreateHandler(
             dbContext,
-            userRepository: staleRepository);
+            userRepository: staleRepository,
+            emailVerificationDelivery: emailVerificationDelivery);
 
         UserEmailAlreadyExistsException exception =
             await Assert.ThrowsAsync<UserEmailAlreadyExistsException>(
@@ -304,6 +366,7 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Equal("ux_users_email", postgresException.ConstraintName);
 
         await AssertOnlySeededUserRemainsAsync(seededUser.Id);
+        Assert.Equal(0, emailVerificationDelivery.CallCount);
     }
 
     private static RegisterOrganizationOwnerCommand CreateCommand()
@@ -320,16 +383,22 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         EnmaDbContext dbContext,
         TestCompromisedPasswordChecker? compromisedPasswordChecker = null,
         IOrganizationRepository? organizationRepository = null,
-        IUserRepository? userRepository = null)
+        IUserRepository? userRepository = null,
+        IEmailVerificationTokenService? emailVerificationTokenService = null,
+        IEmailVerificationDelivery? emailVerificationDelivery = null)
     {
         return new RegisterOrganizationOwnerHandler(
             organizationRepository ?? new OrganizationRepository(dbContext),
             userRepository ?? new UserRepository(dbContext),
             new UserCredentialRepository(dbContext),
             new OrganizationMembershipRepository(dbContext),
+            new EmailVerificationChallengeRepository(dbContext),
             new DefaultPasswordPolicy(),
             compromisedPasswordChecker ?? new TestCompromisedPasswordChecker(),
             CreatePasswordHasher(),
+            emailVerificationTokenService ??
+                new TestEmailVerificationTokenService(),
+            emailVerificationDelivery ?? new TestEmailVerificationDelivery(),
             dbContext,
             new FixedTimeProvider(CreatedAt));
     }
@@ -356,6 +425,8 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Empty(await dbContext.Users.AsNoTracking().ToListAsync());
         Assert.Empty(await dbContext.UserCredentials.AsNoTracking().ToListAsync());
         Assert.Empty(
+            await dbContext.EmailVerificationChallenges.AsNoTracking().ToListAsync());
+        Assert.Empty(
             await dbContext.OrganizationMemberships.AsNoTracking().ToListAsync());
     }
 
@@ -371,6 +442,8 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Empty(
             await dbContext.OrganizationMemberships.AsNoTracking().ToListAsync());
         Assert.Empty(await dbContext.UserCredentials.AsNoTracking().ToListAsync());
+        Assert.Empty(
+            await dbContext.EmailVerificationChallenges.AsNoTracking().ToListAsync());
     }
 
     private async Task AssertOnlySeededUserRemainsAsync(Guid userId)
@@ -385,6 +458,8 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         Assert.Empty(
             await dbContext.OrganizationMemberships.AsNoTracking().ToListAsync());
         Assert.Empty(await dbContext.UserCredentials.AsNoTracking().ToListAsync());
+        Assert.Empty(
+            await dbContext.EmailVerificationChallenges.AsNoTracking().ToListAsync());
     }
 
     private sealed class StaleOrganizationRepository(
@@ -431,6 +506,58 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         }
     }
 
+    private sealed class TestEmailVerificationTokenService
+        : IEmailVerificationTokenService
+    {
+        public EmailVerificationTokenHash TokenHash { get; } =
+            new(CreateHashBytes(29));
+
+        public int GenerateCallCount { get; private set; }
+
+        public string GenerateToken(out EmailVerificationTokenHash tokenHash)
+        {
+            GenerateCallCount++;
+            tokenHash = TokenHash;
+            return RawVerificationToken;
+        }
+
+        public bool TryHashToken(
+            string? rawToken,
+            out EmailVerificationTokenHash? tokenHash)
+        {
+            throw new InvalidOperationException(
+                "TryHashToken must not be called by onboarding tests.");
+        }
+    }
+
+    private sealed class TestEmailVerificationDelivery : IEmailVerificationDelivery
+    {
+        public Exception? ExceptionToThrow { get; set; }
+
+        public int CallCount { get; private set; }
+
+        public string? Email { get; private set; }
+
+        public string? RawToken { get; private set; }
+
+        public Task<EmailVerificationDeliveryResult> DeliverAsync(
+            string email,
+            string rawToken,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            Email = email;
+            RawToken = rawToken;
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
+            }
+
+            return Task.FromResult(EmailVerificationDeliveryResult.Delivered);
+        }
+    }
+
     private sealed class TestCompromisedPasswordChecker
         : ICompromisedPasswordChecker
     {
@@ -468,5 +595,12 @@ public sealed class RegisterOrganizationOwnerPersistenceTests(PostgreSqlFixture 
         {
             return utcNow;
         }
+    }
+
+    private static byte[] CreateHashBytes(byte seed)
+    {
+        return Enumerable.Range(0, 32)
+            .Select(index => (byte)(seed + index))
+            .ToArray();
     }
 }

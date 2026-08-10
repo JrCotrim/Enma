@@ -118,6 +118,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IEmailVerificationChallengePersistence
             firstEmailVerificationChallengePersistence = firstScope.ServiceProvider
                 .GetRequiredService<IEmailVerificationChallengePersistence>();
+        IEmailVerificationChallengeRepository
+            firstEmailVerificationChallengeRepository = firstScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationChallengeRepository>();
         IAuthenticationSessionHandleService firstAuthenticationSessionHandleService =
             firstScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionHandleService>();
@@ -160,6 +163,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstAuthenticationSessionIssuancePersistence);
         Assert.IsType<EmailVerificationChallengePersistence>(
             firstEmailVerificationChallengePersistence);
+        Assert.IsType<EmailVerificationChallengeRepository>(
+            firstEmailVerificationChallengeRepository);
         Assert.IsType<CryptographicAuthenticationSessionHandleService>(
             firstAuthenticationSessionHandleService);
         Assert.IsType<CryptographicEmailVerificationTokenService>(
@@ -198,6 +203,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstEmailVerificationChallengePersistence,
             firstScope.ServiceProvider
                 .GetRequiredService<IEmailVerificationChallengePersistence>());
+        Assert.Same(
+            firstEmailVerificationChallengeRepository,
+            firstScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationChallengeRepository>());
         Assert.Same(
             firstAuthenticationSessionHandleService,
             firstScope.ServiceProvider
@@ -257,6 +266,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         IEmailVerificationChallengePersistence
             secondEmailVerificationChallengePersistence = secondScope.ServiceProvider
                 .GetRequiredService<IEmailVerificationChallengePersistence>();
+        IEmailVerificationChallengeRepository
+            secondEmailVerificationChallengeRepository = secondScope.ServiceProvider
+                .GetRequiredService<IEmailVerificationChallengeRepository>();
         IAuthenticationSessionHandleService secondAuthenticationSessionHandleService =
             secondScope.ServiceProvider
                 .GetRequiredService<IAuthenticationSessionHandleService>();
@@ -306,6 +318,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.NotSame(
             firstEmailVerificationChallengePersistence,
             secondEmailVerificationChallengePersistence);
+        Assert.NotSame(
+            firstEmailVerificationChallengeRepository,
+            secondEmailVerificationChallengeRepository);
         Assert.Same(
             firstAuthenticationSessionHandleService,
             secondAuthenticationSessionHandleService);

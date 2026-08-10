@@ -95,6 +95,9 @@ public static class DependencyInjection
         services.AddScoped<IOrganizationRepository, OrganizationRepository>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserCredentialRepository, UserCredentialRepository>();
+        services.AddScoped<
+            IEmailVerificationChallengeRepository,
+            EmailVerificationChallengeRepository>();
         services.AddScoped<IAuthenticationIdentityLookup, AuthenticationIdentityLookup>();
         services.AddScoped<
             IEmailVerificationUserLookup,

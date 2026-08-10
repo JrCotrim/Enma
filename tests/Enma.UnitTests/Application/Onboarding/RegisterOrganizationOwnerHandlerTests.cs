@@ -1,9 +1,11 @@
 using Enma.Application.Abstractions;
+using Enma.Application.Authentication;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Security;
 using Enma.Application.Users;
+using Enma.Domain.Authentication;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 
@@ -13,6 +15,8 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 {
     private const string ValidPassword = "Synthetic!Owner42";
     private const string OpaquePasswordHash = "opaque-test-password-hash";
+    private const string RawVerificationToken =
+        "synthetic-email-verification-token";
 
     private static readonly DateTimeOffset FixedUtcNow =
         new(2026, 8, 5, 12, 0, 0, TimeSpan.Zero);
@@ -83,6 +87,12 @@ public sealed class RegisterOrganizationOwnerHandlerTests
             FixedUtcNow,
             dependencies.UserCredentialRepository.AddedCredential?.PasswordChangedAt);
         Assert.Equal(FixedUtcNow, dependencies.MembershipRepository.AddedMembership?.CreatedAt);
+        Assert.Equal(
+            FixedUtcNow,
+            dependencies.EmailVerificationChallengeRepository.AddedChallenge?.CreatedAt);
+        Assert.Equal(
+            FixedUtcNow.Add(EmailVerificationPolicy.TokenLifetime),
+            dependencies.EmailVerificationChallengeRepository.AddedChallenge?.ExpiresAt);
         Assert.Equal(FixedUtcNow, result.CreatedAt);
         Assert.Equal(1, dependencies.TimeProvider.GetUtcNowCallCount);
     }
@@ -118,6 +128,9 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.Equal(1, dependencies.UserRepository.AddCallCount);
         Assert.Equal(1, dependencies.UserCredentialRepository.AddCallCount);
         Assert.Equal(1, dependencies.MembershipRepository.AddCallCount);
+        Assert.Equal(
+            1,
+            dependencies.EmailVerificationChallengeRepository.AddCallCount);
         Assert.Equal(1, dependencies.UnitOfWork.SaveChangesCallCount);
     }
 
@@ -137,11 +150,14 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 "user-exists",
                 "password-screen",
                 "password-hash",
+                "verification-token-generate",
                 "organization-add",
                 "user-add",
                 "credential-add",
                 "membership-add",
-                "save"
+                "challenge-add",
+                "save",
+                "verification-deliver"
             },
             dependencies.Operations);
     }
@@ -163,7 +179,97 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.Equal(cancellationToken, dependencies.UserRepository.AddCancellationToken);
         Assert.Equal(cancellationToken, dependencies.UserCredentialRepository.AddCancellationToken);
         Assert.Equal(cancellationToken, dependencies.MembershipRepository.AddCancellationToken);
+        Assert.Equal(
+            cancellationToken,
+            dependencies.EmailVerificationChallengeRepository.AddCancellationToken);
         Assert.Equal(cancellationToken, dependencies.UnitOfWork.CancellationToken);
+        Assert.Equal(cancellationToken, dependencies.EmailVerificationDelivery.CancellationToken);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithValidCommand_CreatesChallengeAndDeliversAfterCommit()
+    {
+        var dependencies = new TestDependencies();
+        var handler = dependencies.CreateHandler();
+
+        RegisterOrganizationOwnerResult result = await handler.HandleAsync(
+            CreateValidCommand(ownerEmail: "  OWNER@EXAMPLE.COM  "));
+
+        EmailVerificationChallenge challenge = Assert.IsType<
+            EmailVerificationChallenge>(
+                dependencies.EmailVerificationChallengeRepository.AddedChallenge);
+        Assert.Equal(1, dependencies.EmailVerificationTokenService.GenerateCallCount);
+        Assert.Equal(result.UserId, challenge.UserId);
+        Assert.Equal(result.UserEmail, challenge.EmailAtIssue);
+        Assert.Same(dependencies.EmailVerificationTokenService.TokenHash, challenge.TokenHash);
+        Assert.Equal(FixedUtcNow, challenge.CreatedAt);
+        Assert.Equal(
+            EmailVerificationPolicy.TokenLifetime,
+            challenge.ExpiresAt - challenge.CreatedAt);
+        Assert.Equal(1, dependencies.EmailVerificationDelivery.CallCount);
+        Assert.Equal(result.UserEmail, dependencies.EmailVerificationDelivery.Email);
+        Assert.Equal(
+            RawVerificationToken,
+            dependencies.EmailVerificationDelivery.RawToken);
+        Assert.True(
+            dependencies.Operations.IndexOf("save") <
+            dependencies.Operations.IndexOf("verification-deliver"));
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenPersistenceFails_DoesNotDeliver()
+    {
+        var dependencies = new TestDependencies();
+        var expectedException = new InvalidOperationException(
+            "Synthetic persistence failure.");
+        dependencies.UnitOfWork.ExceptionToThrow = expectedException;
+        var handler = dependencies.CreateHandler();
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => handler.HandleAsync(CreateValidCommand()));
+
+        Assert.Same(expectedException, exception);
+        Assert.Equal(1, dependencies.UnitOfWork.SaveChangesCallCount);
+        Assert.Equal(0, dependencies.EmailVerificationDelivery.CallCount);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenDeliveryFails_ReturnsSuccessfulOnboardingResult()
+    {
+        var dependencies = new TestDependencies();
+        dependencies.EmailVerificationDelivery.Result =
+            EmailVerificationDeliveryResult.Failed;
+        var handler = dependencies.CreateHandler();
+
+        RegisterOrganizationOwnerResult result = await handler.HandleAsync(
+            CreateValidCommand());
+
+        Assert.Equal(
+            dependencies.OrganizationRepository.AddedOrganization?.Id,
+            result.OrganizationId);
+        Assert.Equal(1, dependencies.UnitOfWork.SaveChangesCallCount);
+        Assert.Equal(1, dependencies.EmailVerificationDelivery.CallCount);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WhenDeliveryThrows_PropagatesAfterSingleCommit()
+    {
+        var dependencies = new TestDependencies();
+        var expectedException = new InvalidOperationException(
+            "Synthetic unexpected delivery failure.");
+        dependencies.EmailVerificationDelivery.ExceptionToThrow = expectedException;
+        var handler = dependencies.CreateHandler();
+
+        InvalidOperationException exception =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => handler.HandleAsync(CreateValidCommand()));
+
+        Assert.Same(expectedException, exception);
+        Assert.Equal(1, dependencies.UnitOfWork.SaveChangesCallCount);
+        Assert.Equal(1, dependencies.EmailVerificationDelivery.CallCount);
+        Assert.Equal(1, dependencies.EmailVerificationChallengeRepository.AddCallCount);
+        Assert.Equal("verification-deliver", dependencies.Operations[^1]);
     }
 
     [Fact]
@@ -320,9 +426,12 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserRepository,
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
                 dependencies.PasswordPolicy,
                 dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
         var userException = Assert.Throws<ArgumentNullException>(
@@ -331,9 +440,12 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 null!,
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
                 dependencies.PasswordPolicy,
                 dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
         var userCredentialException = Assert.Throws<ArgumentNullException>(
@@ -342,9 +454,12 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserRepository,
                 null!,
                 dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
                 dependencies.PasswordPolicy,
                 dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
         var membershipException = Assert.Throws<ArgumentNullException>(
@@ -353,9 +468,26 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserRepository,
                 dependencies.UserCredentialRepository,
                 null!,
+                dependencies.EmailVerificationChallengeRepository,
                 dependencies.PasswordPolicy,
                 dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
+                dependencies.UnitOfWork,
+                dependencies.TimeProvider));
+        var challengeException = Assert.Throws<ArgumentNullException>(
+            () => new RegisterOrganizationOwnerHandler(
+                dependencies.OrganizationRepository,
+                dependencies.UserRepository,
+                dependencies.UserCredentialRepository,
+                dependencies.MembershipRepository,
+                null!,
+                dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
+                dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
 
@@ -363,6 +495,9 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.Equal("userRepository", userException.ParamName);
         Assert.Equal("userCredentialRepository", userCredentialException.ParamName);
         Assert.Equal("membershipRepository", membershipException.ParamName);
+        Assert.Equal(
+            "emailVerificationChallengeRepository",
+            challengeException.ParamName);
     }
 
     [Fact]
@@ -376,9 +511,12 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserRepository,
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
                 dependencies.PasswordPolicy,
                 dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
                 null!,
                 dependencies.TimeProvider));
         var passwordPolicyException = Assert.Throws<ArgumentNullException>(
@@ -387,9 +525,12 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserRepository,
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
                 null!,
                 dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
         var compromisedPasswordCheckerException = Assert.Throws<ArgumentNullException>(
@@ -398,9 +539,12 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserRepository,
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
                 dependencies.PasswordPolicy,
                 null!,
                 dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
         var passwordHasherException = Assert.Throws<ArgumentNullException>(
@@ -409,8 +553,39 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserRepository,
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
                 dependencies.PasswordPolicy,
                 dependencies.CompromisedPasswordChecker,
+                null!,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
+                dependencies.UnitOfWork,
+                dependencies.TimeProvider));
+        var tokenServiceException = Assert.Throws<ArgumentNullException>(
+            () => new RegisterOrganizationOwnerHandler(
+                dependencies.OrganizationRepository,
+                dependencies.UserRepository,
+                dependencies.UserCredentialRepository,
+                dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
+                dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
+                dependencies.PasswordHasher,
+                null!,
+                dependencies.EmailVerificationDelivery,
+                dependencies.UnitOfWork,
+                dependencies.TimeProvider));
+        var deliveryException = Assert.Throws<ArgumentNullException>(
+            () => new RegisterOrganizationOwnerHandler(
+                dependencies.OrganizationRepository,
+                dependencies.UserRepository,
+                dependencies.UserCredentialRepository,
+                dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
+                dependencies.PasswordPolicy,
+                dependencies.CompromisedPasswordChecker,
+                dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
                 null!,
                 dependencies.UnitOfWork,
                 dependencies.TimeProvider));
@@ -420,9 +595,12 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 dependencies.UserRepository,
                 dependencies.UserCredentialRepository,
                 dependencies.MembershipRepository,
+                dependencies.EmailVerificationChallengeRepository,
                 dependencies.PasswordPolicy,
                 dependencies.CompromisedPasswordChecker,
                 dependencies.PasswordHasher,
+                dependencies.EmailVerificationTokenService,
+                dependencies.EmailVerificationDelivery,
                 dependencies.UnitOfWork,
                 null!));
 
@@ -431,6 +609,10 @@ public sealed class RegisterOrganizationOwnerHandlerTests
             "compromisedPasswordChecker",
             compromisedPasswordCheckerException.ParamName);
         Assert.Equal("passwordHasher", passwordHasherException.ParamName);
+        Assert.Equal(
+            "emailVerificationTokenService",
+            tokenServiceException.ParamName);
+        Assert.Equal("emailVerificationDelivery", deliveryException.ParamName);
         Assert.Equal("unitOfWork", unitOfWorkException.ParamName);
         Assert.Equal("timeProvider", timeProviderException.ParamName);
     }
@@ -607,9 +789,14 @@ public sealed class RegisterOrganizationOwnerHandlerTests
             UserRepository = new FakeUserRepository(Operations);
             UserCredentialRepository = new FakeUserCredentialRepository(Operations);
             MembershipRepository = new FakeOrganizationMembershipRepository(Operations);
+            EmailVerificationChallengeRepository =
+                new FakeEmailVerificationChallengeRepository(Operations);
             PasswordPolicy = new FakePasswordPolicy(Operations);
             CompromisedPasswordChecker = new FakeCompromisedPasswordChecker(Operations);
             PasswordHasher = new FakePasswordHasher(Operations);
+            EmailVerificationTokenService =
+                new FakeEmailVerificationTokenService(Operations);
+            EmailVerificationDelivery = new FakeEmailVerificationDelivery(Operations);
             UnitOfWork = new FakeUnitOfWork(Operations);
             TimeProvider = new FixedTimeProvider(FixedUtcNow);
         }
@@ -624,11 +811,19 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         public FakeOrganizationMembershipRepository MembershipRepository { get; }
 
+        public FakeEmailVerificationChallengeRepository
+            EmailVerificationChallengeRepository { get; }
+
         public FakePasswordPolicy PasswordPolicy { get; }
 
         public FakeCompromisedPasswordChecker CompromisedPasswordChecker { get; }
 
         public FakePasswordHasher PasswordHasher { get; }
+
+        public FakeEmailVerificationTokenService EmailVerificationTokenService
+        { get; }
+
+        public FakeEmailVerificationDelivery EmailVerificationDelivery { get; }
 
         public FakeUnitOfWork UnitOfWork { get; }
 
@@ -641,11 +836,96 @@ public sealed class RegisterOrganizationOwnerHandlerTests
                 UserRepository,
                 UserCredentialRepository,
                 MembershipRepository,
+                EmailVerificationChallengeRepository,
                 PasswordPolicy,
                 CompromisedPasswordChecker,
                 PasswordHasher,
+                EmailVerificationTokenService,
+                EmailVerificationDelivery,
                 UnitOfWork,
                 TimeProvider);
+        }
+    }
+
+    private sealed class FakeEmailVerificationChallengeRepository(
+        List<string> operations) : IEmailVerificationChallengeRepository
+    {
+        public EmailVerificationChallenge? AddedChallenge { get; private set; }
+
+        public int AddCallCount { get; private set; }
+
+        public CancellationToken AddCancellationToken { get; private set; }
+
+        public Task AddAsync(
+            EmailVerificationChallenge challenge,
+            CancellationToken cancellationToken = default)
+        {
+            operations.Add("challenge-add");
+            AddCallCount++;
+            AddedChallenge = challenge;
+            AddCancellationToken = cancellationToken;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeEmailVerificationTokenService(List<string> operations)
+        : IEmailVerificationTokenService
+    {
+        public EmailVerificationTokenHash TokenHash { get; } =
+            new(CreateHashBytes(17));
+
+        public int GenerateCallCount { get; private set; }
+
+        public string GenerateToken(out EmailVerificationTokenHash tokenHash)
+        {
+            operations.Add("verification-token-generate");
+            GenerateCallCount++;
+            tokenHash = TokenHash;
+            return RawVerificationToken;
+        }
+
+        public bool TryHashToken(
+            string? rawToken,
+            out EmailVerificationTokenHash? tokenHash)
+        {
+            throw new InvalidOperationException(
+                "TryHashToken must not be called by onboarding tests.");
+        }
+    }
+
+    private sealed class FakeEmailVerificationDelivery(List<string> operations)
+        : IEmailVerificationDelivery
+    {
+        public EmailVerificationDeliveryResult Result { get; set; } =
+            EmailVerificationDeliveryResult.Delivered;
+
+        public Exception? ExceptionToThrow { get; set; }
+
+        public int CallCount { get; private set; }
+
+        public string? Email { get; private set; }
+
+        public string? RawToken { get; private set; }
+
+        public CancellationToken CancellationToken { get; private set; }
+
+        public Task<EmailVerificationDeliveryResult> DeliverAsync(
+            string email,
+            string rawToken,
+            CancellationToken cancellationToken = default)
+        {
+            operations.Add("verification-deliver");
+            CallCount++;
+            Email = email;
+            RawToken = rawToken;
+            CancellationToken = cancellationToken;
+
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
+            }
+
+            return Task.FromResult(Result);
         }
     }
 
@@ -875,14 +1155,28 @@ public sealed class RegisterOrganizationOwnerHandlerTests
 
         public CancellationToken CancellationToken { get; private set; }
 
+        public Exception? ExceptionToThrow { get; set; }
+
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
             operations.Add("save");
             SaveChangesCallCount++;
             CancellationToken = cancellationToken;
 
-            return Task.FromResult(4);
+            if (ExceptionToThrow is not null)
+            {
+                throw ExceptionToThrow;
+            }
+
+            return Task.FromResult(5);
         }
+    }
+
+    private static byte[] CreateHashBytes(byte seed)
+    {
+        return Enumerable.Range(0, 32)
+            .Select(index => (byte)(seed + index))
+            .ToArray();
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

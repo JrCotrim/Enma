@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Enma.Api.Contracts.Onboarding;
 using Enma.Api.Contracts.Organizations;
+using Enma.Application.Authentication;
 using Enma.Application.Security;
+using Enma.Domain.Authentication;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
@@ -41,6 +43,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
     private readonly EnmaApiFactory factory;
     private readonly WebApplicationFactory<Program> testFactory;
     private readonly TestCompromisedPasswordChecker compromisedPasswordChecker;
+    private readonly TestEmailVerificationDelivery emailVerificationDelivery;
     private readonly HttpClient client;
 
     public RegisterOrganizationOwnerEndpointTests(PostgreSqlFixture fixture)
@@ -49,6 +52,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
 
         this.fixture = fixture;
         compromisedPasswordChecker = new TestCompromisedPasswordChecker();
+        emailVerificationDelivery = new TestEmailVerificationDelivery();
         factory = new EnmaApiFactory(fixture);
         testFactory = factory.WithWebHostBuilder(builder =>
         {
@@ -57,6 +61,9 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
                 services.RemoveAll<ICompromisedPasswordChecker>();
                 services.AddSingleton<ICompromisedPasswordChecker>(
                     compromisedPasswordChecker);
+                services.RemoveAll<IEmailVerificationDelivery>();
+                services.AddSingleton<IEmailVerificationDelivery>(
+                    emailVerificationDelivery);
             });
         });
         client = testFactory.CreateClient(new WebApplicationFactoryClientOptions
@@ -68,6 +75,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
     public Task InitializeAsync()
     {
         compromisedPasswordChecker.Reset();
+        emailVerificationDelivery.Reset();
         return fixture.ResetDatabaseAsync();
     }
 
@@ -133,6 +141,33 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(onboarding.OrganizationSlug, organization.Slug);
         Assert.Equal(1, compromisedPasswordChecker.CallCount);
         Assert.True(compromisedPasswordChecker.ReceivedExpectedPassword);
+        Assert.Equal(1, emailVerificationDelivery.CallCount);
+        Assert.Equal(onboarding.UserEmail, emailVerificationDelivery.Email);
+        Assert.False(string.IsNullOrWhiteSpace(emailVerificationDelivery.RawToken));
+    }
+
+    [Fact]
+    public async Task Post_WhenVerificationDeliveryFails_ReturnsCreatedAndKeepsChallenge()
+    {
+        emailVerificationDelivery.Result = EmailVerificationDeliveryResult.Failed;
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            RequestPath,
+            CreateValidRequest());
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        RegisterOrganizationOwnerResponse? onboarding = await response.Content
+            .ReadFromJsonAsync<RegisterOrganizationOwnerResponse>();
+        Assert.NotNull(onboarding);
+        Assert.Equal("owner@example.com", onboarding.UserEmail);
+        Assert.Equal(1, emailVerificationDelivery.CallCount);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(1, await dbContext.Organizations.CountAsync());
+        Assert.Equal(1, await dbContext.Users.CountAsync());
+        Assert.Equal(1, await dbContext.UserCredentials.CountAsync());
+        Assert.Equal(1, await dbContext.OrganizationMemberships.CountAsync());
+        Assert.Equal(1, await dbContext.EmailVerificationChallenges.CountAsync());
     }
 
     [Fact]
@@ -164,6 +199,10 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             await dbContext.OrganizationMemberships
                 .AsNoTracking()
                 .SingleAsync();
+        EmailVerificationChallenge challenge = await dbContext
+            .EmailVerificationChallenges
+            .AsNoTracking()
+            .SingleAsync();
 
         Assert.Equal(onboarding.OrganizationId, organization.Id);
         Assert.Equal("Enma Legal", organization.Name);
@@ -181,6 +220,14 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(user.Id, credential.UserId);
         Assert.False(string.IsNullOrWhiteSpace(credential.PasswordHash));
         Assert.NotEqual(request.Password, credential.PasswordHash);
+        Assert.Equal(user.Id, challenge.UserId);
+        Assert.Equal(user.Email, challenge.EmailAtIssue);
+        Assert.Equal(
+            EmailVerificationPolicy.TokenLifetime,
+            challenge.ExpiresAt - challenge.CreatedAt);
+        Assert.Equal(1, emailVerificationDelivery.CallCount);
+        Assert.Equal(user.Email, emailVerificationDelivery.Email);
+        string rawToken = Assert.IsType<string>(emailVerificationDelivery.RawToken);
 
         using IServiceScope scope = testFactory.Services.CreateScope();
         IPasswordHasher passwordHasher =
@@ -190,6 +237,10 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             passwordHasher.VerifyHashedPassword(
                 credential.PasswordHash,
                 request.Password));
+        IEmailVerificationTokenService tokenService = scope.ServiceProvider
+            .GetRequiredService<IEmailVerificationTokenService>();
+        Assert.True(tokenService.TryHashToken(rawToken, out var deliveredTokenHash));
+        Assert.Equal(deliveredTokenHash, challenge.TokenHash);
         Assert.Equal(1, compromisedPasswordChecker.CallCount);
         Assert.True(compromisedPasswordChecker.ReceivedExpectedPassword);
     }
@@ -282,6 +333,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(0, await dbContext.Users.CountAsync());
         Assert.Equal(0, await dbContext.UserCredentials.CountAsync());
         Assert.Equal(0, await dbContext.OrganizationMemberships.CountAsync());
+        Assert.Equal(0, await dbContext.EmailVerificationChallenges.CountAsync());
     }
 
     [Fact]
@@ -318,6 +370,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(0, await dbContext.Organizations.CountAsync());
         Assert.Equal(0, await dbContext.UserCredentials.CountAsync());
         Assert.Equal(0, await dbContext.OrganizationMemberships.CountAsync());
+        Assert.Equal(0, await dbContext.EmailVerificationChallenges.CountAsync());
     }
 
     [Fact]
@@ -342,6 +395,19 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             request.Password,
             rawResponse,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            Assert.IsType<string>(emailVerificationDelivery.RawToken),
+            rawResponse,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "verificationUrl",
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "challengeId",
+            rawResponse,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("smtp", rawResponse, StringComparison.OrdinalIgnoreCase);
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         UserCredential credential = await dbContext.UserCredentials
@@ -536,6 +602,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(0, await dbContext.Users.CountAsync());
         Assert.Equal(0, await dbContext.UserCredentials.CountAsync());
         Assert.Equal(0, await dbContext.OrganizationMemberships.CountAsync());
+        Assert.Equal(0, await dbContext.EmailVerificationChallenges.CountAsync());
     }
 
     private async Task SeedAsync(object entity)
@@ -578,6 +645,37 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             ReceivedExpectedPassword = false;
             IsCompromised = false;
             ExceptionToThrow = null;
+        }
+    }
+
+    private sealed class TestEmailVerificationDelivery : IEmailVerificationDelivery
+    {
+        public EmailVerificationDeliveryResult Result { get; set; } =
+            EmailVerificationDeliveryResult.Delivered;
+
+        public int CallCount { get; private set; }
+
+        public string? Email { get; private set; }
+
+        public string? RawToken { get; private set; }
+
+        public Task<EmailVerificationDeliveryResult> DeliverAsync(
+            string email,
+            string rawToken,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            Email = email;
+            RawToken = rawToken;
+            return Task.FromResult(Result);
+        }
+
+        public void Reset()
+        {
+            CallCount = 0;
+            Email = null;
+            RawToken = null;
+            Result = EmailVerificationDeliveryResult.Delivered;
         }
     }
 }
