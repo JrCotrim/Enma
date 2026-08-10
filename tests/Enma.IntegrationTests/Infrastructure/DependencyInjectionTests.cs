@@ -23,6 +23,51 @@ namespace Enma.IntegrationTests.Infrastructure;
 public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 {
     [Fact]
+    public async Task AddInfrastructure_RegistersLoginUseCaseWithSafeScopedLifetime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddLogging();
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+        LoginUseCase firstUseCase = firstScope.ServiceProvider
+            .GetRequiredService<LoginUseCase>();
+        ILoginDummyPasswordHashProvider firstDummyPasswordHashProvider =
+            firstScope.ServiceProvider
+                .GetRequiredService<ILoginDummyPasswordHashProvider>();
+        IPasswordHasher firstPasswordHasher = firstScope.ServiceProvider
+            .GetRequiredService<IPasswordHasher>();
+
+        Assert.Same(
+            firstUseCase,
+            firstScope.ServiceProvider.GetRequiredService<LoginUseCase>());
+        Assert.IsType<LoginDummyPasswordHashProvider>(
+            firstDummyPasswordHashProvider);
+
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+        LoginUseCase secondUseCase = secondScope.ServiceProvider
+            .GetRequiredService<LoginUseCase>();
+        ILoginDummyPasswordHashProvider secondDummyPasswordHashProvider =
+            secondScope.ServiceProvider
+                .GetRequiredService<ILoginDummyPasswordHashProvider>();
+        IPasswordHasher secondPasswordHasher = secondScope.ServiceProvider
+            .GetRequiredService<IPasswordHasher>();
+
+        Assert.NotSame(firstUseCase, secondUseCase);
+        Assert.Same(
+            firstDummyPasswordHashProvider,
+            secondDummyPasswordHashProvider);
+        Assert.NotSame(firstPasswordHasher, secondPasswordHasher);
+    }
+
+    [Fact]
     public async Task AddInfrastructure_RegistersCompromisedPasswordCheckerAsTypedHttpClient()
     {
         var services = new ServiceCollection();

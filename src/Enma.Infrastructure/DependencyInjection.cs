@@ -54,6 +54,14 @@ public static class DependencyInjection
             EmailVerificationSendBudgetOptionsValidator>();
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<object>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
+        services.AddSingleton<ILoginDummyPasswordHashProvider>(serviceProvider =>
+        {
+            using IServiceScope initializationScope = serviceProvider.CreateScope();
+            IPasswordHasher passwordHasher = initializationScope.ServiceProvider
+                .GetRequiredService<IPasswordHasher>();
+
+            return new LoginDummyPasswordHashProvider(passwordHasher);
+        });
         services.AddSingleton<IPasswordPolicy, DefaultPasswordPolicy>();
         services.AddSingleton<
             IAuthenticationSessionHandleService,
@@ -116,6 +124,7 @@ public static class DependencyInjection
             OrganizationMembershipRepository>();
         services.AddScoped<IUnitOfWork>(
             serviceProvider => serviceProvider.GetRequiredService<EnmaDbContext>());
+        services.AddScoped<LoginUseCase>();
         services.AddScoped<RequestEmailVerificationUseCase>();
         services.AddScoped<VerifyEmailUseCase>();
 
