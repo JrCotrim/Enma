@@ -69,6 +69,45 @@ to support localhost without production ingress configuration.
 `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` must not be set. That global shortcut
 does not express ENMA's explicit allowlist and Production startup rejects it.
 
+## Email-verification delivery configuration
+
+Production must provide the complete `EmailVerification:Delivery` configuration
+contract. The required categories are:
+
+- `EmailVerification:Delivery:VerificationPageUrl`
+- `EmailVerification:Delivery:SenderName`
+- `EmailVerification:Delivery:SenderAddress`
+- `EmailVerification:Delivery:SmtpHost`
+- `EmailVerification:Delivery:SmtpPort`
+- `EmailVerification:Delivery:SmtpSecurity`
+- `EmailVerification:Delivery:SmtpUsername`
+- `EmailVerification:Delivery:SmtpPassword`
+
+No example above is a real value or secret. `VerificationPageUrl` must be an
+absolute HTTPS URL for the frontend `/verify-email` route and must not contain a
+query or fragment; the application appends the verification token in the URL
+fragment. `SmtpSecurity` must be either `StartTls` or `SslOnConnect`. Insecure
+SMTP modes are not permitted in production. SMTP credentials and other secrets
+must be supplied through deployment configuration or secret storage and must
+not be committed.
+
+## Production logging policy for authentication secrets
+
+Production application, edge, proxy, and observability configuration must not
+capture:
+
+- request bodies for email-verification or other authentication secret
+  endpoints;
+- raw email-verification tokens;
+- verification URLs containing token fragments;
+- SMTP credentials;
+- recipient addresses, unless a separately reviewed operational requirement
+  explicitly permits that PII logging.
+
+The current application does not enable request-body HTTP logging. This
+document defines the required provider-neutral policy; it does not claim that
+an external provider or edge logging policy has already been deployed.
+
 ## Forwarded-header processing
 
 When trusted proxy mode is enabled, the API processes exactly:
