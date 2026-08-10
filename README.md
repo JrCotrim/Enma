@@ -72,6 +72,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\verify.ps1" -Inte
 
 Integration tests require Docker.
 
+## Deployment
+
+The current supported production ingress and edge security contract is defined
+in [docs/deployment/production-topology.md](docs/deployment/production-topology.md).
+
 ## API endpoints
 
 - `POST /api/organizations`
