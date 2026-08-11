@@ -23,6 +23,52 @@ namespace Enma.IntegrationTests.Infrastructure;
 public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 {
     [Fact]
+    public async Task AddInfrastructure_RegistersSessionRuntimeWithSafeScopedLifetime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddLogging();
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+        ValidateSessionUseCase firstUseCase = firstScope.ServiceProvider
+            .GetRequiredService<ValidateSessionUseCase>();
+        IAuthenticationSessionRuntimePersistence firstPersistence = firstScope
+            .ServiceProvider
+            .GetRequiredService<IAuthenticationSessionRuntimePersistence>();
+
+        Assert.Same(
+            firstUseCase,
+            firstScope.ServiceProvider.GetRequiredService<ValidateSessionUseCase>());
+        Assert.Same(
+            firstPersistence,
+            firstScope.ServiceProvider
+                .GetRequiredService<IAuthenticationSessionRuntimePersistence>());
+        Assert.IsType<AuthenticationSessionRuntimePersistence>(firstPersistence);
+
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+
+        Assert.NotSame(
+            firstUseCase,
+            secondScope.ServiceProvider.GetRequiredService<ValidateSessionUseCase>());
+        Assert.NotSame(
+            firstPersistence,
+            secondScope.ServiceProvider
+                .GetRequiredService<IAuthenticationSessionRuntimePersistence>());
+        Assert.Same(
+            firstScope.ServiceProvider
+                .GetRequiredService<IAuthenticationSessionHandleService>(),
+            secondScope.ServiceProvider
+                .GetRequiredService<IAuthenticationSessionHandleService>());
+    }
+
+    [Fact]
     public async Task AddInfrastructure_RegistersLoginUseCaseWithSafeScopedLifetime()
     {
         var services = new ServiceCollection();

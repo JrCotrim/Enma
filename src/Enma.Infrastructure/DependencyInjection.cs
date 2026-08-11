@@ -117,6 +117,9 @@ public static class DependencyInjection
             IAuthenticationSessionIssuancePersistence,
             AuthenticationSessionIssuancePersistence>();
         services.AddScoped<
+            IAuthenticationSessionRuntimePersistence,
+            AuthenticationSessionRuntimePersistence>();
+        services.AddScoped<
             IEmailVerificationChallengePersistence,
             EmailVerificationChallengePersistence>();
         services.AddScoped<
@@ -125,6 +128,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork>(
             serviceProvider => serviceProvider.GetRequiredService<EnmaDbContext>());
         services.AddScoped<LoginUseCase>();
+        services.AddScoped<ValidateSessionUseCase>();
         services.AddScoped<RequestEmailVerificationUseCase>();
         services.AddScoped<VerifyEmailUseCase>();
 
