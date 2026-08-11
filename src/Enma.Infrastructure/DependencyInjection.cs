@@ -120,6 +120,9 @@ public static class DependencyInjection
             IAuthenticationSessionRuntimePersistence,
             AuthenticationSessionRuntimePersistence>();
         services.AddScoped<
+            IAuthenticationSessionRevocationPersistence,
+            AuthenticationSessionRevocationPersistence>();
+        services.AddScoped<
             IEmailVerificationChallengePersistence,
             EmailVerificationChallengePersistence>();
         services.AddScoped<
@@ -129,6 +132,7 @@ public static class DependencyInjection
             serviceProvider => serviceProvider.GetRequiredService<EnmaDbContext>());
         services.AddScoped<LoginUseCase>();
         services.AddScoped<ValidateSessionUseCase>();
+        services.AddScoped<RevokeSessionUseCase>();
         services.AddScoped<RequestEmailVerificationUseCase>();
         services.AddScoped<VerifyEmailUseCase>();
 
