@@ -1,5 +1,6 @@
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.GetById;
+using Enma.Application.Validation;
 using Enma.Domain.Organizations;
 
 namespace Enma.UnitTests.Application.Organizations.GetById;
@@ -81,16 +82,16 @@ public sealed class GetOrganizationByIdHandlerTests
     }
 
     [Fact]
-    public async Task HandleAsync_WithEmptyId_ThrowsArgumentExceptionBeforeRepositoryAccess()
+    public async Task HandleAsync_WithEmptyId_ThrowsRequestValidationExceptionBeforeRepositoryAccess()
     {
         var repository = new FakeOrganizationRepository(CreateOrganization());
         var handler = new GetOrganizationByIdHandler(repository);
 
-        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(
-            () => handler.HandleAsync(Guid.Empty));
+        RequestValidationException exception =
+            await Assert.ThrowsAsync<RequestValidationException>(
+                () => handler.HandleAsync(Guid.Empty));
 
-        Assert.Equal("organizationId", exception.ParamName);
-        Assert.Contains("Organization id cannot be empty.", exception.Message);
+        Assert.Equal("Organization id cannot be empty.", exception.Message);
         Assert.False(repository.GetByIdAsyncCalled);
     }
 

@@ -4,6 +4,7 @@ using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Security;
 using Enma.Application.Users;
+using Enma.Application.Validation;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
@@ -84,7 +85,7 @@ public static class RegisterOrganizationOwnerEndpoint
                             "Password screening unavailable",
                             exception.Message);
                     }
-                    catch (ArgumentException exception)
+                    catch (RequestValidationException exception)
                     {
                         return CreateProblem(
                             httpContext,

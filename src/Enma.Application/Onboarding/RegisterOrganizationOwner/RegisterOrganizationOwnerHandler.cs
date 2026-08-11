@@ -4,6 +4,7 @@ using Enma.Application.Organizations;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Security;
 using Enma.Application.Users;
+using Enma.Application.Validation;
 using Enma.Domain.Authentication;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
@@ -75,13 +76,13 @@ public sealed class RegisterOrganizationOwnerHandler
         ArgumentNullException.ThrowIfNull(command);
 
         DateTimeOffset createdAt = timeProvider.GetUtcNow();
-        var organization = new Organization(
+        Organization organization = CreateOrganization(
             command.OrganizationName,
             command.OrganizationSlug,
             createdAt);
-        var user = new User(command.OwnerName, command.OwnerEmail, createdAt);
+        User user = CreateUser(command.OwnerName, command.OwnerEmail, createdAt);
 
-        passwordPolicy.Validate(command.Password);
+        ValidatePassword(command.Password);
 
         bool slugAlreadyExists = await organizationRepository.ExistsBySlugAsync(
             organization.Slug,
@@ -152,5 +153,50 @@ public sealed class RegisterOrganizationOwnerHandler
             cancellationToken);
 
         return result;
+    }
+
+    private static Organization CreateOrganization(
+        string name,
+        string slug,
+        DateTimeOffset createdAt)
+    {
+        try
+        {
+            return new Organization(name, slug, createdAt);
+        }
+        catch (ArgumentException exception)
+            when (exception.ParamName is "name" or "slug")
+        {
+            throw new RequestValidationException(exception.Message, exception);
+        }
+    }
+
+    private static User CreateUser(
+        string name,
+        string email,
+        DateTimeOffset createdAt)
+    {
+        try
+        {
+            return new User(name, email, createdAt);
+        }
+        catch (ArgumentException exception)
+            when (exception.ParamName is "name" or "email")
+        {
+            throw new RequestValidationException(exception.Message, exception);
+        }
+    }
+
+    private void ValidatePassword(string password)
+    {
+        try
+        {
+            passwordPolicy.Validate(password);
+        }
+        catch (ArgumentException exception)
+            when (exception.ParamName == "password")
+        {
+            throw new RequestValidationException(exception.Message, exception);
+        }
     }
 }

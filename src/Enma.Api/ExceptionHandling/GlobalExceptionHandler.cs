@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Organizations.GetById;
+using Enma.Application.Validation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
@@ -43,7 +44,7 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
                 StatusCodes.Status409Conflict,
                 "Organization slug conflict",
                 exception.Message),
-            ArgumentException => (
+            RequestValidationException => (
                 StatusCodes.Status400BadRequest,
                 "Invalid organization data",
                 exception.Message),

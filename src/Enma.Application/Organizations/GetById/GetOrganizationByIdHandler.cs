@@ -1,3 +1,4 @@
+using Enma.Application.Validation;
 using Enma.Domain.Organizations;
 
 namespace Enma.Application.Organizations.GetById;
@@ -19,9 +20,8 @@ public sealed class GetOrganizationByIdHandler
     {
         if (organizationId == Guid.Empty)
         {
-            throw new ArgumentException(
-                "Organization id cannot be empty.",
-                nameof(organizationId));
+            throw new RequestValidationException(
+                "Organization id cannot be empty.");
         }
 
         Organization? organization = await organizationRepository.GetByIdAsync(

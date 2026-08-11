@@ -5,6 +5,7 @@ using Enma.Application.Organizations;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Security;
 using Enma.Application.Users;
+using Enma.Application.Validation;
 using Enma.Domain.Authentication;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
@@ -280,7 +281,8 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         RegisterOrganizationOwnerCommand command = CreateValidCommand(
             organizationName: "   ");
 
-        await Assert.ThrowsAsync<ArgumentException>(() => handler.HandleAsync(command));
+        await Assert.ThrowsAsync<RequestValidationException>(
+            () => handler.HandleAsync(command));
 
         Assert.Empty(dependencies.Operations);
         Assert.Equal(0, dependencies.PasswordPolicy.CallCount);
@@ -295,7 +297,8 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         RegisterOrganizationOwnerCommand command = CreateValidCommand(
             organizationSlug: "enma_advocacia");
 
-        await Assert.ThrowsAsync<ArgumentException>(() => handler.HandleAsync(command));
+        await Assert.ThrowsAsync<RequestValidationException>(
+            () => handler.HandleAsync(command));
 
         Assert.Empty(dependencies.Operations);
         Assert.Equal(0, dependencies.PasswordPolicy.CallCount);
@@ -309,7 +312,8 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         var handler = dependencies.CreateHandler();
         RegisterOrganizationOwnerCommand command = CreateValidCommand(ownerName: "   ");
 
-        await Assert.ThrowsAsync<ArgumentException>(() => handler.HandleAsync(command));
+        await Assert.ThrowsAsync<RequestValidationException>(
+            () => handler.HandleAsync(command));
 
         Assert.Empty(dependencies.Operations);
         Assert.Equal(0, dependencies.PasswordPolicy.CallCount);
@@ -324,7 +328,8 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         RegisterOrganizationOwnerCommand command = CreateValidCommand(
             ownerEmail: "invalid email");
 
-        await Assert.ThrowsAsync<ArgumentException>(() => handler.HandleAsync(command));
+        await Assert.ThrowsAsync<RequestValidationException>(
+            () => handler.HandleAsync(command));
 
         Assert.Empty(dependencies.Operations);
         Assert.Equal(0, dependencies.PasswordPolicy.CallCount);
@@ -662,10 +667,12 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         dependencies.PasswordPolicy.ExceptionToThrow = expectedException;
         var handler = dependencies.CreateHandler();
 
-        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(
-            () => handler.HandleAsync(CreateValidCommand()));
+        RequestValidationException exception =
+            await Assert.ThrowsAsync<RequestValidationException>(
+                () => handler.HandleAsync(CreateValidCommand()));
 
-        Assert.Same(expectedException, exception);
+        Assert.Equal(expectedException.Message, exception.Message);
+        Assert.Same(expectedException, exception.InnerException);
         Assert.Equal(1, dependencies.TimeProvider.GetUtcNowCallCount);
         Assert.Equal(1, dependencies.PasswordPolicy.CallCount);
         Assert.Equal(0, dependencies.OrganizationRepository.ExistsCallCount);
