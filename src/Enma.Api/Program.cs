@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Enma.Api.Authentication;
+using Enma.Api.Authorization;
 using Enma.Api.Deployment;
 using Enma.Api.Endpoints.Authentication;
 using Enma.Api.Endpoints.Onboarding;
@@ -9,6 +10,7 @@ using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations.GetById;
 using Enma.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -44,7 +46,19 @@ builder.Services
     .AddScheme<AuthenticationSchemeOptions, EnmaSessionAuthenticationHandler>(
         EnmaSessionAuthenticationDefaults.Scheme,
         _ => { });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(
+        EnmaAuthorizationPolicies.OrganizationAccess,
+        policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.AddRequirements(new OrganizationAccessRequirement());
+        });
+});
+builder.Services.AddScoped<
+    IAuthorizationHandler,
+    OrganizationAccessAuthorizationHandler>();
 builder.Services.AddSingleton(serviceProvider =>
 {
     IConfiguration configuration =
