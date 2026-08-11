@@ -24,6 +24,47 @@ namespace Enma.IntegrationTests.Infrastructure;
 public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 {
     [Fact]
+    public async Task AddInfrastructure_RegistersClientAccessWithSafeScopedLifetime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+        ClientAccessAuthorization firstAuthorization = firstScope.ServiceProvider
+            .GetRequiredService<ClientAccessAuthorization>();
+        IClientOrganizationOwnershipLookup firstLookup = firstScope.ServiceProvider
+            .GetRequiredService<IClientOrganizationOwnershipLookup>();
+
+        Assert.Same(
+            firstAuthorization,
+            firstScope.ServiceProvider
+                .GetRequiredService<ClientAccessAuthorization>());
+        Assert.Same(
+            firstLookup,
+            firstScope.ServiceProvider
+                .GetRequiredService<IClientOrganizationOwnershipLookup>());
+        Assert.IsType<ClientOrganizationOwnershipLookup>(firstLookup);
+
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+
+        Assert.NotSame(
+            firstAuthorization,
+            secondScope.ServiceProvider
+                .GetRequiredService<ClientAccessAuthorization>());
+        Assert.NotSame(
+            firstLookup,
+            secondScope.ServiceProvider
+                .GetRequiredService<IClientOrganizationOwnershipLookup>());
+    }
+
+    [Fact]
     public async Task AddInfrastructure_RegistersOrganizationAccessWithSafeScopedLifetime()
     {
         var services = new ServiceCollection();

@@ -2,6 +2,7 @@ using Enma.Application.Abstractions;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Users;
 using Enma.Domain.Authentication;
+using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,8 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     private const string UserEmailUniqueConstraint = "ux_users_email";
 
     public DbSet<Organization> Organizations => Set<Organization>();
+
+    public DbSet<Client> Clients => Set<Client>();
 
     public DbSet<User> Users => Set<User>();
 

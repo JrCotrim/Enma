@@ -126,6 +126,9 @@ public static class DependencyInjection
         services.AddScoped<
             IEmailVerificationChallengePersistence,
             EmailVerificationChallengePersistence>();
+        services.AddScoped<
+            IClientOrganizationOwnershipLookup,
+            ClientOrganizationOwnershipLookup>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
             IOrganizationMembershipRepository,
@@ -138,6 +141,7 @@ public static class DependencyInjection
         services.AddScoped<RequestEmailVerificationUseCase>();
         services.AddScoped<VerifyEmailUseCase>();
         services.AddScoped<OrganizationAccessAuthorization>();
+        services.AddScoped<ClientAccessAuthorization>();
 
         return services;
     }
