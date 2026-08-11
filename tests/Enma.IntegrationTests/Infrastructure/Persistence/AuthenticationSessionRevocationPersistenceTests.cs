@@ -284,7 +284,6 @@ public sealed class AuthenticationSessionRevocationPersistenceTests(
         Assert.Equal(
             expected.CredentialVersionAtIssue,
             persisted.CredentialVersionAtIssue);
-        Assert.Equal(expected.SelectedOrganizationId, persisted.SelectedOrganizationId);
         Assert.Equal(expected.CreatedAt, persisted.CreatedAt);
         Assert.Equal(expected.LastSeenAt, persisted.LastSeenAt);
         Assert.Equal(expected.IdleExpiresAt, persisted.IdleExpiresAt);

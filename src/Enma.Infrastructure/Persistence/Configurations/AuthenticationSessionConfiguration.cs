@@ -1,5 +1,4 @@
 using Enma.Domain.Authentication;
-using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -77,11 +76,6 @@ public sealed class AuthenticationSessionConfiguration
             .HasColumnType("bigint")
             .IsRequired();
 
-        builder.Property(session => session.SelectedOrganizationId)
-            .HasColumnName("selected_organization_id")
-            .HasColumnType("uuid")
-            .IsRequired(false);
-
         builder.Property(session => session.CreatedAt)
             .HasColumnName("created_at")
             .HasColumnType("timestamp with time zone")
@@ -121,10 +115,6 @@ public sealed class AuthenticationSessionConfiguration
         builder.HasIndex(session => session.UserId)
             .HasDatabaseName("ix_authentication_sessions_user_id");
 
-        builder.HasIndex(session => session.SelectedOrganizationId)
-            .HasDatabaseName(
-                "ix_authentication_sessions_selected_organization_id");
-
         builder.HasIndex(session => session.IdleExpiresAt)
             .HasDatabaseName("ix_authentication_sessions_idle_expires_at");
 
@@ -136,12 +126,5 @@ public sealed class AuthenticationSessionConfiguration
             .HasForeignKey(session => session.UserId)
             .OnDelete(DeleteBehavior.Cascade)
             .HasConstraintName("fk_authentication_sessions_users_user_id");
-
-        builder.HasOne<Organization>()
-            .WithMany()
-            .HasForeignKey(session => session.SelectedOrganizationId)
-            .OnDelete(DeleteBehavior.Restrict)
-            .HasConstraintName(
-                "fk_authentication_sessions_organizations_selected_org_id");
     }
 }

@@ -6,10 +6,6 @@ public sealed class AuthenticationSessionTests
 {
     private static readonly Guid UserId =
         Guid.Parse("6c942f46-2889-4df0-b76e-8b06fbe3c4a2");
-    private static readonly Guid OrganizationId =
-        Guid.Parse("0304942e-74f2-4b83-9397-b1c13c8a4689");
-    private static readonly Guid OtherOrganizationId =
-        Guid.Parse("7b91e972-2265-45c1-958d-d06e9d35915b");
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
         8,
@@ -32,14 +28,12 @@ public sealed class AuthenticationSessionTests
             3,
             CreatedAt,
             IdleExpiresAt,
-            AbsoluteExpiresAt,
-            OrganizationId);
+            AbsoluteExpiresAt);
 
         Assert.NotEqual(Guid.Empty, session.Id);
         Assert.Equal(UserId, session.UserId);
         Assert.Equal(secretHash, session.SecretHash);
         Assert.Equal(3, session.CredentialVersionAtIssue);
-        Assert.Equal(OrganizationId, session.SelectedOrganizationId);
         Assert.Equal(CreatedAt, session.CreatedAt);
         Assert.Equal(CreatedAt, session.LastSeenAt);
         Assert.Equal(IdleExpiresAt, session.IdleExpiresAt);
@@ -113,18 +107,6 @@ public sealed class AuthenticationSessionTests
         Assert.Equal("idleExpiresAt", exception.ParamName);
         Assert.Contains(
             AuthenticationSessionErrors.IdleExpiresAtInvalid,
-            exception.Message);
-    }
-
-    [Fact]
-    public void Constructor_WithEmptySelectedOrganizationId_Throws()
-    {
-        var exception = Assert.Throws<ArgumentException>(() =>
-            CreateSession(selectedOrganizationId: Guid.Empty));
-
-        Assert.Equal("selectedOrganizationId", exception.ParamName);
-        Assert.Contains(
-            AuthenticationSessionErrors.SelectedOrganizationIdInvalid,
             exception.Message);
     }
 
@@ -235,8 +217,7 @@ public sealed class AuthenticationSessionTests
     [Fact]
     public void Revoke_WhenAlreadyRevoked_PreservesFirstRevocationAndVersion()
     {
-        AuthenticationSession session = CreateSession(
-            selectedOrganizationId: OrganizationId);
+        AuthenticationSession session = CreateSession();
         DateTimeOffset firstRevokedAt = CreatedAt.AddMinutes(20);
         session.Revoke(firstRevokedAt);
         SessionState revokedState = CaptureState(session);
@@ -252,59 +233,7 @@ public sealed class AuthenticationSessionTests
             session.Touch(
                 CreatedAt.AddMinutes(5),
                 IdleExpiresAt.AddMinutes(1)));
-        Assert.Throws<InvalidOperationException>(() =>
-            session.SelectOrganization(OtherOrganizationId));
-        Assert.Throws<InvalidOperationException>(session.ClearSelectedOrganization);
         AssertState(session, revokedState);
-    }
-
-    [Fact]
-    public void SelectOrganization_WithValidOrganization_ChangesSelectionAndVersion()
-    {
-        AuthenticationSession session = CreateSession();
-
-        session.SelectOrganization(OrganizationId);
-
-        Assert.Equal(OrganizationId, session.SelectedOrganizationId);
-        Assert.Equal(2, session.ConcurrencyVersion);
-
-        session.SelectOrganization(OrganizationId);
-
-        Assert.Equal(OrganizationId, session.SelectedOrganizationId);
-        Assert.Equal(2, session.ConcurrencyVersion);
-    }
-
-    [Fact]
-    public void SelectOrganization_WithEmptyOrganization_ThrowsAndPreservesState()
-    {
-        AuthenticationSession session = CreateSession();
-        SessionState state = CaptureState(session);
-
-        var exception = Assert.Throws<ArgumentException>(() =>
-            session.SelectOrganization(Guid.Empty));
-
-        Assert.Equal("organizationId", exception.ParamName);
-        Assert.Contains(
-            AuthenticationSessionErrors.SelectedOrganizationIdInvalid,
-            exception.Message);
-        AssertState(session, state);
-    }
-
-    [Fact]
-    public void ClearSelectedOrganization_WhenSelected_ClearsAndIncrementsVersion()
-    {
-        AuthenticationSession session = CreateSession(
-            selectedOrganizationId: OrganizationId);
-
-        session.ClearSelectedOrganization();
-
-        Assert.Null(session.SelectedOrganizationId);
-        Assert.Equal(2, session.ConcurrencyVersion);
-
-        session.ClearSelectedOrganization();
-
-        Assert.Null(session.SelectedOrganizationId);
-        Assert.Equal(2, session.ConcurrencyVersion);
     }
 
     private static AuthenticationSession CreateSession(
@@ -312,8 +241,7 @@ public sealed class AuthenticationSessionTests
         long credentialVersionAtIssue = 3,
         DateTimeOffset? createdAt = null,
         DateTimeOffset? idleExpiresAt = null,
-        DateTimeOffset? absoluteExpiresAt = null,
-        Guid? selectedOrganizationId = null)
+        DateTimeOffset? absoluteExpiresAt = null)
     {
         return new AuthenticationSession(
             userId ?? UserId,
@@ -321,8 +249,7 @@ public sealed class AuthenticationSessionTests
             credentialVersionAtIssue,
             createdAt ?? CreatedAt,
             idleExpiresAt ?? IdleExpiresAt,
-            absoluteExpiresAt ?? AbsoluteExpiresAt,
-            selectedOrganizationId);
+            absoluteExpiresAt ?? AbsoluteExpiresAt);
     }
 
     private static AuthenticationSessionSecretHash CreateSecretHash()
@@ -340,7 +267,6 @@ public sealed class AuthenticationSessionTests
             session.LastSeenAt,
             session.IdleExpiresAt,
             session.RevokedAt,
-            session.SelectedOrganizationId,
             session.ConcurrencyVersion);
     }
 
@@ -351,7 +277,6 @@ public sealed class AuthenticationSessionTests
         Assert.Equal(expected.LastSeenAt, session.LastSeenAt);
         Assert.Equal(expected.IdleExpiresAt, session.IdleExpiresAt);
         Assert.Equal(expected.RevokedAt, session.RevokedAt);
-        Assert.Equal(expected.SelectedOrganizationId, session.SelectedOrganizationId);
         Assert.Equal(expected.ConcurrencyVersion, session.ConcurrencyVersion);
     }
 
@@ -359,6 +284,5 @@ public sealed class AuthenticationSessionTests
         DateTimeOffset LastSeenAt,
         DateTimeOffset IdleExpiresAt,
         DateTimeOffset? RevokedAt,
-        Guid? SelectedOrganizationId,
         long ConcurrencyVersion);
 }

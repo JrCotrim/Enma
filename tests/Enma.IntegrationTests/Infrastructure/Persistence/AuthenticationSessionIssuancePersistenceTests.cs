@@ -1,7 +1,6 @@
 using System.Data;
 using Enma.Application.Authentication;
 using Enma.Domain.Authentication;
-using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -75,7 +74,6 @@ public sealed class AuthenticationSessionIssuancePersistenceTests(
         Assert.Equal(
             session.CredentialVersionAtIssue,
             persistedSession.CredentialVersionAtIssue);
-        Assert.Equal(session.SelectedOrganizationId, persistedSession.SelectedOrganizationId);
         Assert.Equal(session.CreatedAt, persistedSession.CreatedAt);
         Assert.Equal(session.LastSeenAt, persistedSession.LastSeenAt);
         Assert.Equal(session.IdleExpiresAt, persistedSession.IdleExpiresAt);
@@ -351,22 +349,15 @@ public sealed class AuthenticationSessionIssuancePersistenceTests(
     public async Task TryPersistAsync_WhenIssuanceLocksCredentialFirst_PasswordChangeCannotInvalidateBeforeCommit()
     {
         (User user, _) = await SeedUserWithCredentialAsync(emailVerified: true);
-        var organization = new Organization(
-            "Issuance Lock Organization",
-            "issuance-lock-organization",
+        AuthenticationSession session = CreateSession(user.Id, 1, 101);
+        var blockerUser = new User(
+            "Issuance Lock Blocker",
+            "issuance-lock-blocker@example.test",
             CreatedAt);
-
-        await using (EnmaDbContext setupContext = fixture.CreateDbContext())
-        {
-            setupContext.Organizations.Add(organization);
-            await setupContext.SaveChangesAsync();
-        }
-
-        AuthenticationSession session = CreateSession(
-            user.Id,
+        AuthenticationSession blockerSession = CreateSession(
+            blockerUser.Id,
             1,
-            101,
-            organization.Id);
+            101);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
         await using EnmaDbContext passwordChangeContext = fixture.CreateDbContext();
@@ -375,15 +366,14 @@ public sealed class AuthenticationSessionIssuancePersistenceTests(
                 candidate => candidate.UserId == user.Id,
                 timeout.Token);
 
-        await using EnmaDbContext organizationLockContext = fixture.CreateDbContext();
-        await using var organizationLockTransaction =
-            await organizationLockContext.Database.BeginTransactionAsync(
+        await using EnmaDbContext blockerContext = fixture.CreateDbContext();
+        await using var blockerTransaction =
+            await blockerContext.Database.BeginTransactionAsync(
                 IsolationLevel.ReadCommitted,
                 timeout.Token);
-        await LockOrganizationAsync(
-            organizationLockContext,
-            organization.Id,
-            timeout.Token);
+        blockerContext.Users.Add(blockerUser);
+        blockerContext.AuthenticationSessions.Add(blockerSession);
+        await blockerContext.SaveChangesAsync(timeout.Token);
 
         Task<AuthenticationSessionIssuancePersistenceResult> issuanceTask =
             CreatePersistence().TryPersistAsync(session, null, timeout.Token);
@@ -403,7 +393,7 @@ public sealed class AuthenticationSessionIssuancePersistenceTests(
             timeout.Token);
         Assert.False(passwordChangeTask.IsCompleted);
 
-        await organizationLockTransaction.CommitAsync(timeout.Token);
+        await blockerTransaction.RollbackAsync(timeout.Token);
         AuthenticationSessionIssuancePersistenceResult result =
             await issuanceTask.WaitAsync(timeout.Token);
         await passwordChangeTask.WaitAsync(timeout.Token);
@@ -572,18 +562,6 @@ public sealed class AuthenticationSessionIssuancePersistenceTests(
         Assert.Single(users);
     }
 
-    private static async Task LockOrganizationAsync(
-        EnmaDbContext dbContext,
-        Guid organizationId,
-        CancellationToken cancellationToken)
-    {
-        Organization[] organizations = await dbContext.Organizations
-            .FromSqlInterpolated(
-                $"SELECT * FROM organizations WHERE id = {organizationId} FOR UPDATE")
-            .ToArrayAsync(cancellationToken);
-        Assert.Single(organizations);
-    }
-
     private static void AssertCredentialUnchanged(
         UserCredential expected,
         UserCredential actual)
@@ -598,8 +576,7 @@ public sealed class AuthenticationSessionIssuancePersistenceTests(
     private static AuthenticationSession CreateSession(
         Guid userId,
         long credentialVersionAtIssue,
-        byte hashSeed,
-        Guid? selectedOrganizationId = null)
+        byte hashSeed)
     {
         return new AuthenticationSession(
             userId,
@@ -607,8 +584,7 @@ public sealed class AuthenticationSessionIssuancePersistenceTests(
             credentialVersionAtIssue,
             CreatedAt,
             CreatedAt.AddMinutes(30),
-            CreatedAt.AddHours(2),
-            selectedOrganizationId);
+            CreatedAt.AddHours(2));
     }
 
     private static AuthenticationSessionSecretHash CreateSecretHash(byte seed)

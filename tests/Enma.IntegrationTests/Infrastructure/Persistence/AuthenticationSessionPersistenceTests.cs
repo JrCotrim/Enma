@@ -36,7 +36,6 @@ public sealed class AuthenticationSessionPersistenceTests(PostgreSqlFixture fixt
     public async Task SaveChanges_WithValidSession_PersistsCompleteSession()
     {
         User user = CreateUser("complete-session@example.com");
-        Organization organization = CreateOrganization("Complete Session", "complete-session");
         byte[] expectedHash = CreateHashBytes(11);
         var session = new AuthenticationSession(
             user.Id,
@@ -44,8 +43,7 @@ public sealed class AuthenticationSessionPersistenceTests(PostgreSqlFixture fixt
             4,
             CreatedAt,
             IdleExpiresAt,
-            AbsoluteExpiresAt,
-            organization.Id);
+            AbsoluteExpiresAt);
         DateTimeOffset seenAt = CreatedAt.AddMinutes(10);
         DateTimeOffset renewedIdleExpiresAt = IdleExpiresAt.AddMinutes(15);
         DateTimeOffset revokedAt = AbsoluteExpiresAt.AddHours(1);
@@ -55,7 +53,6 @@ public sealed class AuthenticationSessionPersistenceTests(PostgreSqlFixture fixt
         await using (EnmaDbContext setupContext = fixture.CreateDbContext())
         {
             setupContext.Users.Add(user);
-            setupContext.Organizations.Add(organization);
             setupContext.AuthenticationSessions.Add(session);
             await setupContext.SaveChangesAsync();
         }
@@ -70,25 +67,12 @@ public sealed class AuthenticationSessionPersistenceTests(PostgreSqlFixture fixt
         Assert.Equal(user.Id, persistedSession.UserId);
         Assert.True(expectedHash.SequenceEqual(persistedSession.SecretHash.ToArray()));
         Assert.Equal(4, persistedSession.CredentialVersionAtIssue);
-        Assert.Equal(organization.Id, persistedSession.SelectedOrganizationId);
         Assert.Equal(CreatedAt, persistedSession.CreatedAt);
         Assert.Equal(seenAt, persistedSession.LastSeenAt);
         Assert.Equal(renewedIdleExpiresAt, persistedSession.IdleExpiresAt);
         Assert.Equal(AbsoluteExpiresAt, persistedSession.AbsoluteExpiresAt);
         Assert.Equal(revokedAt, persistedSession.RevokedAt);
         Assert.Equal(3, persistedSession.ConcurrencyVersion);
-
-        var sessionEntityType = verificationContext.Model.FindEntityType(
-            typeof(AuthenticationSession));
-        Assert.NotNull(sessionEntityType);
-        var selectedOrganizationIndex = Assert.Single(
-            sessionEntityType.GetIndexes(),
-            index => index.GetDatabaseName() ==
-                "ix_authentication_sessions_selected_organization_id");
-        Assert.Equal(
-            nameof(AuthenticationSession.SelectedOrganizationId),
-            Assert.Single(selectedOrganizationIndex.Properties).Name);
-        Assert.False(selectedOrganizationIndex.IsUnique);
 
         var configureConventionsMethod = typeof(EnmaDbContext).GetMethod(
             "ConfigureConventions",
@@ -270,48 +254,27 @@ public sealed class AuthenticationSessionPersistenceTests(PostgreSqlFixture fixt
     }
 
     [Fact]
-    public async Task SelectedOrganizationDeletion_IsRestrictedWhileReferenced()
+    public void AuthenticationSessionModel_HasNoDurableOrganizationSelectionState()
     {
-        User user = CreateUser("restricted-session@example.com");
-        Organization organization = CreateOrganization(
-            "Restricted Session",
-            "restricted-session");
-        AuthenticationSession session = CreateSession(
-            user.Id,
-            42,
-            organization.Id);
+        using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var sessionEntityType = dbContext.Model.FindEntityType(
+            typeof(AuthenticationSession));
 
-        await using (EnmaDbContext setupContext = fixture.CreateDbContext())
-        {
-            setupContext.Users.Add(user);
-            setupContext.Organizations.Add(organization);
-            setupContext.AuthenticationSessions.Add(session);
-            await setupContext.SaveChangesAsync();
-        }
-
-        await using (EnmaDbContext deleteContext = fixture.CreateDbContext())
-        {
-            Organization persistedOrganization = await deleteContext.Organizations
-                .SingleAsync(candidate => candidate.Id == organization.Id);
-            deleteContext.Organizations.Remove(persistedOrganization);
-
-            DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(
-                () => deleteContext.SaveChangesAsync());
-            PostgresException postgresException = Assert.IsType<PostgresException>(
-                exception.InnerException);
-
-            Assert.Equal(
-                PostgresErrorCodes.RestrictViolation,
-                postgresException.SqlState);
-            Assert.Equal(
-                "fk_authentication_sessions_organizations_selected_org_id",
-                postgresException.ConstraintName);
-        }
-
-        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
-        Assert.True(await verificationContext.AuthenticationSessions
-            .AsNoTracking()
-            .AnyAsync(candidate => candidate.Id == session.Id));
+        Assert.NotNull(sessionEntityType);
+        Assert.Null(sessionEntityType.FindProperty("SelectedOrganizationId"));
+        Assert.DoesNotContain(
+            sessionEntityType.GetForeignKeys(),
+            foreignKey => foreignKey.PrincipalEntityType.ClrType ==
+                typeof(Organization));
+        Assert.DoesNotContain(
+            sessionEntityType.GetIndexes(),
+            index => index.GetDatabaseName() ==
+                "ix_authentication_sessions_selected_organization_id");
+        Assert.Null(typeof(AuthenticationSession).GetProperty(
+            "SelectedOrganizationId"));
+        Assert.Null(typeof(AuthenticationSession).GetMethod("SelectOrganization"));
+        Assert.Null(typeof(AuthenticationSession).GetMethod(
+            "ClearSelectedOrganization"));
     }
 
     [Fact]
@@ -456,8 +419,7 @@ public sealed class AuthenticationSessionPersistenceTests(PostgreSqlFixture fixt
 
     private static AuthenticationSession CreateSession(
         Guid userId,
-        byte hashSeed,
-        Guid? selectedOrganizationId = null)
+        byte hashSeed)
     {
         return new AuthenticationSession(
             userId,
@@ -465,8 +427,7 @@ public sealed class AuthenticationSessionPersistenceTests(PostgreSqlFixture fixt
             1,
             CreatedAt,
             IdleExpiresAt,
-            AbsoluteExpiresAt,
-            selectedOrganizationId);
+            AbsoluteExpiresAt);
     }
 
     private static byte[] CreateHashBytes(byte seed)
@@ -479,10 +440,5 @@ public sealed class AuthenticationSessionPersistenceTests(PostgreSqlFixture fixt
     private static User CreateUser(string email)
     {
         return new User("Authentication Session User", email, CreatedAt);
-    }
-
-    private static Organization CreateOrganization(string name, string slug)
-    {
-        return new Organization(name, slug, CreatedAt);
     }
 }

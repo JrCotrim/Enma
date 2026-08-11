@@ -8,8 +8,7 @@ public sealed class AuthenticationSession
         long credentialVersionAtIssue,
         DateTimeOffset createdAt,
         DateTimeOffset idleExpiresAt,
-        DateTimeOffset absoluteExpiresAt,
-        Guid? selectedOrganizationId = null)
+        DateTimeOffset absoluteExpiresAt)
     {
         if (userId == Guid.Empty)
         {
@@ -60,18 +59,10 @@ public sealed class AuthenticationSession
                 AuthenticationSessionErrors.IdleExpiresAtInvalid);
         }
 
-        if (selectedOrganizationId == Guid.Empty)
-        {
-            throw new ArgumentException(
-                AuthenticationSessionErrors.SelectedOrganizationIdInvalid,
-                nameof(selectedOrganizationId));
-        }
-
         Id = Guid.NewGuid();
         UserId = userId;
         SecretHash = secretHash;
         CredentialVersionAtIssue = credentialVersionAtIssue;
-        SelectedOrganizationId = selectedOrganizationId;
         CreatedAt = createdAt;
         LastSeenAt = createdAt;
         IdleExpiresAt = idleExpiresAt;
@@ -87,8 +78,6 @@ public sealed class AuthenticationSession
     public AuthenticationSessionSecretHash SecretHash { get; private set; }
 
     public long CredentialVersionAtIssue { get; private set; }
-
-    public Guid? SelectedOrganizationId { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 
@@ -165,43 +154,6 @@ public sealed class AuthenticationSession
         long nextConcurrencyVersion = checked(ConcurrencyVersion + 1);
 
         RevokedAt = revokedAt;
-        ConcurrencyVersion = nextConcurrencyVersion;
-    }
-
-    public void SelectOrganization(Guid organizationId)
-    {
-        if (organizationId == Guid.Empty)
-        {
-            throw new ArgumentException(
-                AuthenticationSessionErrors.SelectedOrganizationIdInvalid,
-                nameof(organizationId));
-        }
-
-        ThrowIfRevoked();
-
-        if (SelectedOrganizationId == organizationId)
-        {
-            return;
-        }
-
-        long nextConcurrencyVersion = checked(ConcurrencyVersion + 1);
-
-        SelectedOrganizationId = organizationId;
-        ConcurrencyVersion = nextConcurrencyVersion;
-    }
-
-    public void ClearSelectedOrganization()
-    {
-        ThrowIfRevoked();
-
-        if (SelectedOrganizationId is null)
-        {
-            return;
-        }
-
-        long nextConcurrencyVersion = checked(ConcurrencyVersion + 1);
-
-        SelectedOrganizationId = null;
         ConcurrencyVersion = nextConcurrencyVersion;
     }
 

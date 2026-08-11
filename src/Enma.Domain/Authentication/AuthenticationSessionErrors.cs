@@ -20,8 +20,6 @@ public static class AuthenticationSessionErrors
         "Session idle expiration cannot move backward.";
     public const string RevokedAtInvalid =
         "Session revocation date cannot be earlier than its creation date.";
-    public const string SelectedOrganizationIdInvalid =
-        "Selected organization id cannot be empty.";
     public const string SessionRevoked =
         "A revoked session cannot be modified.";
     public const string ConcurrencyVersionInvalid =

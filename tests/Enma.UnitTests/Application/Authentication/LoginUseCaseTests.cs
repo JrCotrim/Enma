@@ -60,7 +60,6 @@ public sealed class LoginUseCaseTests
         Assert.Equal(
             CreatedAt.Add(AuthenticationSessionPolicy.AbsoluteLifetime),
             session.AbsoluteExpiresAt);
-        Assert.Null(session.SelectedOrganizationId);
         Assert.Equal(
             dependencies.SessionHandleService.SecretHash,
             session.SecretHash);
