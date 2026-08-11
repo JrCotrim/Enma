@@ -27,6 +27,12 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = EnmaAntiforgeryDefaults.HeaderName;
+    options.SuppressReadingTokenFromFormBody = true;
+    AuthenticationCookies.ConfigureAntiforgery(options.Cookie);
+});
 builder.Services
     .AddAuthentication(options =>
     {
@@ -129,9 +135,12 @@ app.UseHttpsRedirection();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseAntiforgery();
 
 app.MapLoginEndpoints();
 app.MapEmailVerificationEndpoints();
+app.MapCsrfEndpoint();
+app.MapLogoutEndpoint();
 app.MapRegisterOrganizationOwnerEndpoint();
 app.MapOrganizationEndpoints();
 

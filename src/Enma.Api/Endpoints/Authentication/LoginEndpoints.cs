@@ -40,13 +40,7 @@ public static class LoginEndpoints
                     httpContext.Response.Cookies.Append(
                         AuthenticationCookies.SessionName,
                         sessionHandle,
-                        new CookieOptions
-                        {
-                            Path = "/",
-                            HttpOnly = true,
-                            Secure = true,
-                            SameSite = SameSiteMode.Lax
-                        });
+                        AuthenticationCookies.CreateSessionOptions());
 
                     return TypedResults.NoContent();
                 })

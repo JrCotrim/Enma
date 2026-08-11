@@ -102,6 +102,8 @@ capture:
 - verification URLs containing token fragments;
 - `Cookie` or `Set-Cookie` headers;
 - raw authentication session handles;
+- `X-CSRF-TOKEN` header values;
+- antiforgery request tokens or antiforgery cookie values;
 - SMTP credentials;
 - recipient addresses, unless a separately reviewed operational requirement
   explicitly permits that PII logging.
