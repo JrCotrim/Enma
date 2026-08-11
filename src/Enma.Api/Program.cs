@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using Enma.Api.Authentication;
 using Enma.Api.Deployment;
 using Enma.Api.Endpoints.Authentication;
 using Enma.Api.Endpoints.Onboarding;
@@ -7,6 +8,7 @@ using Enma.Api.ExceptionHandling;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations.GetById;
 using Enma.Infrastructure;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -25,6 +27,18 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services
+    .AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme =
+            EnmaSessionAuthenticationDefaults.Scheme;
+        options.DefaultChallengeScheme =
+            EnmaSessionAuthenticationDefaults.Scheme;
+    })
+    .AddScheme<AuthenticationSchemeOptions, EnmaSessionAuthenticationHandler>(
+        EnmaSessionAuthenticationDefaults.Scheme,
+        _ => { });
+builder.Services.AddAuthorization();
 builder.Services.AddSingleton(serviceProvider =>
 {
     IConfiguration configuration =
@@ -113,6 +127,8 @@ if (trustedProxyTrustSet.Enabled)
 
 app.UseHttpsRedirection();
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapLoginEndpoints();
 app.MapEmailVerificationEndpoints();
