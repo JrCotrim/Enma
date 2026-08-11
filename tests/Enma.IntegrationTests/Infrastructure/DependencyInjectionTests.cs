@@ -1,4 +1,5 @@
 using Enma.Application.Abstractions;
+using Enma.Application.Authorization;
 using Enma.Application.Authentication;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
@@ -22,6 +23,45 @@ namespace Enma.IntegrationTests.Infrastructure;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 {
+    [Fact]
+    public async Task AddInfrastructure_RegistersOrganizationAccessWithSafeScopedLifetime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+        OrganizationAccessAuthorization firstAuthorization = firstScope.ServiceProvider
+            .GetRequiredService<OrganizationAccessAuthorization>();
+        IOrganizationAccessLookup firstLookup = firstScope.ServiceProvider
+            .GetRequiredService<IOrganizationAccessLookup>();
+
+        Assert.Same(
+            firstAuthorization,
+            firstScope.ServiceProvider
+                .GetRequiredService<OrganizationAccessAuthorization>());
+        Assert.Same(
+            firstLookup,
+            firstScope.ServiceProvider.GetRequiredService<IOrganizationAccessLookup>());
+        Assert.IsType<OrganizationAccessLookup>(firstLookup);
+
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+
+        Assert.NotSame(
+            firstAuthorization,
+            secondScope.ServiceProvider
+                .GetRequiredService<OrganizationAccessAuthorization>());
+        Assert.NotSame(
+            firstLookup,
+            secondScope.ServiceProvider.GetRequiredService<IOrganizationAccessLookup>());
+    }
+
     [Fact]
     public async Task AddInfrastructure_RegistersSessionRevocationWithSafeScopedLifetime()
     {

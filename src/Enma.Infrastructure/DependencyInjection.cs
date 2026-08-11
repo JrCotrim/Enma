@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using Enma.Application.Abstractions;
+using Enma.Application.Authorization;
 using Enma.Application.Authentication;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
@@ -125,6 +126,7 @@ public static class DependencyInjection
         services.AddScoped<
             IEmailVerificationChallengePersistence,
             EmailVerificationChallengePersistence>();
+        services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
             IOrganizationMembershipRepository,
             OrganizationMembershipRepository>();
@@ -135,6 +137,7 @@ public static class DependencyInjection
         services.AddScoped<RevokeSessionUseCase>();
         services.AddScoped<RequestEmailVerificationUseCase>();
         services.AddScoped<VerifyEmailUseCase>();
+        services.AddScoped<OrganizationAccessAuthorization>();
 
         return services;
     }
