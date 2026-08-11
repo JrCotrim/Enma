@@ -74,6 +74,18 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
                 AutoReplenishment = true
             }));
+
+    options.AddPolicy(
+        LoginEndpoints.RateLimitPolicy,
+        httpContext => RateLimitPartition.GetFixedWindowLimiter(
+            GetClientIpPartitionKey(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
 });
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddScoped<RegisterOrganizationOwnerHandler>();
@@ -102,6 +114,7 @@ if (trustedProxyTrustSet.Enabled)
 app.UseHttpsRedirection();
 app.UseRateLimiter();
 
+app.MapLoginEndpoints();
 app.MapEmailVerificationEndpoints();
 app.MapRegisterOrganizationOwnerEndpoint();
 app.MapOrganizationEndpoints();

@@ -100,6 +100,8 @@ capture:
   endpoints;
 - raw email-verification tokens;
 - verification URLs containing token fragments;
+- `Cookie` or `Set-Cookie` headers;
+- raw authentication session handles;
 - SMTP credentials;
 - recipient addresses, unless a separately reviewed operational requirement
   explicitly permits that PII logging.
