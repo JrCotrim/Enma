@@ -47,6 +47,7 @@ a {
 }
 
 .page {
+  width: 100%;
   max-width: 42rem;
 }
 
@@ -81,4 +82,129 @@ h1 {
   margin-top: 1.75rem;
   color: #174d39;
   font-weight: 700;
+}
+
+.auth-card,
+.workspace-shell {
+  width: min(100%, 42rem);
+  padding: clamp(1.5rem, 5vw, 3rem);
+  border: 1px solid #d8d2c4;
+  border-radius: 1rem;
+  background: #fbfaf6;
+  box-shadow: 0 1rem 3rem rgb(24 34 29 / 8%);
+  justify-self: center;
+}
+
+.auth-status {
+  justify-self: center;
+}
+
+.auth-card h1,
+.workspace-shell h1,
+.auth-status h1 {
+  font-size: clamp(2.25rem, 7vw, 4rem);
+}
+
+.auth-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.auth-form label {
+  color: #34483f;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.auth-form input {
+  width: 100%;
+  min-height: 3rem;
+  margin-bottom: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #aaa99f;
+  border-radius: 0.5rem;
+  color: #18221d;
+  background: #fff;
+  font: inherit;
+}
+
+.auth-form input:focus-visible,
+.primary-button:focus-visible,
+.secondary-button:focus-visible {
+  outline: 3px solid #9ecdb6;
+  outline-offset: 2px;
+}
+
+.primary-button,
+.secondary-button {
+  min-height: 3rem;
+  padding: 0.75rem 1.25rem;
+  border: 1px solid #174d39;
+  border-radius: 0.5rem;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.primary-button {
+  margin-top: 0.5rem;
+  color: #fff;
+  background: #174d39;
+}
+
+.secondary-button {
+  color: #174d39;
+  background: transparent;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.form-error {
+  margin: 0.25rem 0;
+  color: #9a2f2f;
+  line-height: 1.5;
+}
+
+.workspace-shell {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.workspace-actions {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  gap: 0.75rem;
+}
+
+.workspace-actions .form-error {
+  max-width: 16rem;
+  text-align: right;
+}
+
+@media (max-width: 40rem) {
+  .app-main {
+    padding: 1.5rem;
+  }
+
+  .workspace-shell {
+    flex-direction: column;
+  }
+
+  .workspace-actions {
+    width: 100%;
+    justify-items: stretch;
+  }
+
+  .workspace-actions .form-error {
+    max-width: none;
+    text-align: left;
+  }
 }
