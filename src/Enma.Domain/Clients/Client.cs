@@ -37,6 +37,11 @@ public sealed class Client
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    public void ChangeName(string name)
+    {
+        Name = NormalizeName(name);
+    }
+
     public void Activate()
     {
         IsActive = true;

@@ -45,6 +45,12 @@ public sealed class ClientActionAuthorization
                 OrganizationRole.Member) => ClientActionAuthorizationResult.Allowed,
             (ClientAction.Create, OrganizationRole.Owner or
                 OrganizationRole.Administrator) => ClientActionAuthorizationResult.Allowed,
+            (ClientAction.Update, OrganizationRole.Owner or
+                OrganizationRole.Administrator) => ClientActionAuthorizationResult.Allowed,
+            (ClientAction.Deactivate, OrganizationRole.Owner or
+                OrganizationRole.Administrator) => ClientActionAuthorizationResult.Allowed,
+            (ClientAction.Reactivate, OrganizationRole.Owner or
+                OrganizationRole.Administrator) => ClientActionAuthorizationResult.Allowed,
             _ => ClientActionAuthorizationResult.Denied
         };
     }

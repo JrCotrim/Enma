@@ -4,8 +4,11 @@ using Enma.Application.Authorization;
 using Enma.Application.Authentication;
 using Enma.Application.Clients;
 using Enma.Application.Clients.Create;
+using Enma.Application.Clients.Deactivate;
 using Enma.Application.Clients.GetById;
 using Enma.Application.Clients.List;
+using Enma.Application.Clients.Reactivate;
+using Enma.Application.Clients.Update;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
 using Enma.Application.Users;
@@ -134,6 +137,7 @@ public static class DependencyInjection
             IClientOrganizationOwnershipLookup,
             ClientOrganizationOwnershipLookup>();
         services.AddScoped<IClientCreationPersistence, ClientCreationPersistence>();
+        services.AddScoped<IClientMutationPersistence, ClientMutationPersistence>();
         services.AddScoped<IClientReadQueries, ClientReadQueries>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
@@ -150,8 +154,11 @@ public static class DependencyInjection
         services.AddScoped<ClientAccessAuthorization>();
         services.AddScoped<ClientActionAuthorization>();
         services.AddScoped<CreateClientUseCase>();
+        services.AddScoped<DeactivateClientUseCase>();
         services.AddScoped<GetClientUseCase>();
         services.AddScoped<ListClientsUseCase>();
+        services.AddScoped<ReactivateClientUseCase>();
+        services.AddScoped<UpdateClientUseCase>();
 
         return services;
     }

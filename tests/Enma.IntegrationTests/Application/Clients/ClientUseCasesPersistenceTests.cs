@@ -1,7 +1,10 @@
 using Enma.Application.Authorization;
 using Enma.Application.Clients.Create;
+using Enma.Application.Clients.Deactivate;
 using Enma.Application.Clients.GetById;
 using Enma.Application.Clients.List;
+using Enma.Application.Clients.Reactivate;
+using Enma.Application.Clients.Update;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
@@ -274,6 +277,386 @@ public sealed class ClientUseCasesPersistenceTests(
             client => client.Id == clientB.Id);
     }
 
+    [Fact]
+    public async Task UpdateAsync_WithTenantAndLiveRoleMatrix_PreservesContextIsolation()
+    {
+        Organization organizationA = CreateOrganization(
+            "Mutation Organization A",
+            "mutation-organization-a");
+        Organization organizationB = CreateOrganization(
+            "Mutation Organization B",
+            "mutation-organization-b");
+        User owner = CreateUser("Update Owner", "update-owner@example.test");
+        User administrator = CreateUser(
+            "Update Administrator",
+            "update-administrator@example.test");
+        User contextualUser = CreateUser(
+            "Update Contextual User",
+            "update-contextual@example.test");
+        User dualMember = CreateUser(
+            "Update Dual Member",
+            "update-dual@example.test");
+        var ownerMembership = new OrganizationMembership(
+            organizationA.Id,
+            owner.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var administratorMembership = new OrganizationMembership(
+            organizationA.Id,
+            administrator.Id,
+            OrganizationRole.Administrator,
+            CreatedAt);
+        var contextualMembershipA = new OrganizationMembership(
+            organizationA.Id,
+            contextualUser.Id,
+            OrganizationRole.Member,
+            CreatedAt);
+        var contextualMembershipB = new OrganizationMembership(
+            organizationB.Id,
+            contextualUser.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var dualMembershipA = new OrganizationMembership(
+            organizationA.Id,
+            dualMember.Id,
+            OrganizationRole.Administrator,
+            CreatedAt);
+        var dualMembershipB = new OrganizationMembership(
+            organizationB.Id,
+            dualMember.Id,
+            OrganizationRole.Administrator,
+            CreatedAt);
+        var clientA = new Client(organizationA.Id, "Client A", CreatedAt);
+        var clientB = new Client(organizationB.Id, "Client B", CreatedAt);
+        await SeedAsync(
+            organizationA,
+            organizationB,
+            owner,
+            administrator,
+            contextualUser,
+            dualMember,
+            ownerMembership,
+            administratorMembership,
+            contextualMembershipA,
+            contextualMembershipB,
+            dualMembershipA,
+            dualMembershipB,
+            clientA,
+            clientB);
+
+        await using EnmaDbContext operationContext = fixture.CreateDbContext();
+        UpdateClientUseCase useCase = CreateUpdateUseCase(operationContext);
+
+        UpdateClientResult ownerResult = await useCase.ExecuteAsync(
+            owner.Id,
+            organizationA.Id,
+            clientA.Id,
+            "Owner Updated");
+        UpdateClientResult administratorResult = await useCase.ExecuteAsync(
+            administrator.Id,
+            organizationA.Id,
+            clientA.Id,
+            "Administrator Updated");
+        UpdateClientResult crossTenantResult = await useCase.ExecuteAsync(
+            owner.Id,
+            organizationA.Id,
+            clientB.Id,
+            "Cross Tenant Attempt");
+        UpdateClientResult dualWrongContextResult = await useCase.ExecuteAsync(
+            dualMember.Id,
+            organizationA.Id,
+            clientB.Id,
+            "Dual Wrong Context Attempt");
+        UpdateClientResult contextualMemberResult = await useCase.ExecuteAsync(
+            contextualUser.Id,
+            organizationA.Id,
+            clientA.Id,
+            "Owner Elsewhere Attempt");
+
+        Assert.Equal(UpdateClientResultStatus.Succeeded, ownerResult.Status);
+        Assert.Equal(
+            UpdateClientResultStatus.Succeeded,
+            administratorResult.Status);
+        Assert.Equal(UpdateClientResultStatus.NotFound, crossTenantResult.Status);
+        Assert.Equal(
+            UpdateClientResultStatus.NotFound,
+            dualWrongContextResult.Status);
+        Assert.Equal(
+            UpdateClientResultStatus.AccessDenied,
+            contextualMemberResult.Status);
+
+        await using (EnmaDbContext isolationVerificationContext =
+            fixture.CreateDbContext())
+        {
+            Client isolatedClientA = await isolationVerificationContext.Clients
+                .AsNoTracking()
+                .SingleAsync(client => client.Id == clientA.Id);
+            Client isolatedClientB = await isolationVerificationContext.Clients
+                .AsNoTracking()
+                .SingleAsync(client => client.Id == clientB.Id);
+
+            Assert.Equal("Administrator Updated", isolatedClientA.Name);
+            Assert.Equal("Client B", isolatedClientB.Name);
+        }
+
+        UpdateClientResult dualCorrectContextResult = await useCase.ExecuteAsync(
+            dualMember.Id,
+            organizationB.Id,
+            clientB.Id,
+            "Dual Correct Context");
+
+        Assert.Equal(
+            UpdateClientResultStatus.Succeeded,
+            dualCorrectContextResult.Status);
+
+        await ChangeRoleAsync(
+            contextualUser.Id,
+            organizationA.Id,
+            OrganizationRole.Administrator);
+
+        UpdateClientResult promotedResult = await useCase.ExecuteAsync(
+            contextualUser.Id,
+            organizationA.Id,
+            clientA.Id,
+            "Live Role Updated");
+
+        Assert.Equal(UpdateClientResultStatus.Succeeded, promotedResult.Status);
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Client persistedClientA = await verificationContext.Clients
+            .AsNoTracking()
+            .SingleAsync(client => client.Id == clientA.Id);
+        Client persistedClientB = await verificationContext.Clients
+            .AsNoTracking()
+            .SingleAsync(client => client.Id == clientB.Id);
+
+        Assert.Equal("Live Role Updated", persistedClientA.Name);
+        Assert.Equal("Dual Correct Context", persistedClientB.Name);
+        Assert.Equal(organizationA.Id, persistedClientA.OrganizationId);
+        Assert.Equal(organizationB.Id, persistedClientB.OrganizationId);
+    }
+
+    [Fact]
+    public async Task DeactivateAsync_WithRoleTenantAndIdempotencyMatrix_PersistsSafely()
+    {
+        Organization organizationA = CreateOrganization(
+            "Deactivate Organization A",
+            "deactivate-organization-a");
+        Organization organizationB = CreateOrganization(
+            "Deactivate Organization B",
+            "deactivate-organization-b");
+        User owner = CreateUser(
+            "Deactivate Owner",
+            "deactivate-owner@example.test");
+        User administrator = CreateUser(
+            "Deactivate Administrator",
+            "deactivate-administrator@example.test");
+        User contextualUser = CreateUser(
+            "Deactivate Contextual User",
+            "deactivate-contextual@example.test");
+        var ownerMembership = new OrganizationMembership(
+            organizationA.Id,
+            owner.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var administratorMembership = new OrganizationMembership(
+            organizationA.Id,
+            administrator.Id,
+            OrganizationRole.Administrator,
+            CreatedAt);
+        var contextualMembershipA = new OrganizationMembership(
+            organizationA.Id,
+            contextualUser.Id,
+            OrganizationRole.Member,
+            CreatedAt);
+        var contextualMembershipB = new OrganizationMembership(
+            organizationB.Id,
+            contextualUser.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var ownerClientA = new Client(
+            organizationA.Id,
+            "Owner Client A",
+            CreatedAt);
+        var administratorClientA = new Client(
+            organizationA.Id,
+            "Administrator Client A",
+            CreatedAt);
+        var clientB = new Client(organizationB.Id, "Client B", CreatedAt);
+        await SeedAsync(
+            organizationA,
+            organizationB,
+            owner,
+            administrator,
+            contextualUser,
+            ownerMembership,
+            administratorMembership,
+            contextualMembershipA,
+            contextualMembershipB,
+            ownerClientA,
+            administratorClientA,
+            clientB);
+
+        await using EnmaDbContext operationContext = fixture.CreateDbContext();
+        DeactivateClientUseCase useCase = CreateDeactivateUseCase(operationContext);
+
+        DeactivateClientResult ownerResult = await useCase.ExecuteAsync(
+            owner.Id,
+            organizationA.Id,
+            ownerClientA.Id);
+        DeactivateClientResult repeatedResult = await useCase.ExecuteAsync(
+            owner.Id,
+            organizationA.Id,
+            ownerClientA.Id);
+        DeactivateClientResult administratorResult = await useCase.ExecuteAsync(
+            administrator.Id,
+            organizationA.Id,
+            administratorClientA.Id);
+        DeactivateClientResult crossTenantResult = await useCase.ExecuteAsync(
+            owner.Id,
+            organizationA.Id,
+            clientB.Id);
+        DeactivateClientResult contextualMemberResult = await useCase.ExecuteAsync(
+            contextualUser.Id,
+            organizationA.Id,
+            administratorClientA.Id);
+
+        Assert.Equal(DeactivateClientResultStatus.Succeeded, ownerResult.Status);
+        Assert.Equal(DeactivateClientResultStatus.Succeeded, repeatedResult.Status);
+        Assert.Equal(
+            DeactivateClientResultStatus.Succeeded,
+            administratorResult.Status);
+        Assert.Equal(
+            DeactivateClientResultStatus.NotFound,
+            crossTenantResult.Status);
+        Assert.Equal(
+            DeactivateClientResultStatus.AccessDenied,
+            contextualMemberResult.Status);
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.False((await verificationContext.Clients
+            .AsNoTracking()
+            .SingleAsync(client => client.Id == ownerClientA.Id)).IsActive);
+        Assert.False((await verificationContext.Clients
+            .AsNoTracking()
+            .SingleAsync(client => client.Id == administratorClientA.Id)).IsActive);
+        Assert.True((await verificationContext.Clients
+            .AsNoTracking()
+            .SingleAsync(client => client.Id == clientB.Id)).IsActive);
+    }
+
+    [Fact]
+    public async Task ReactivateAsync_WithRoleTenantAndIdempotencyMatrix_PersistsSafely()
+    {
+        Organization organizationA = CreateOrganization(
+            "Reactivate Organization A",
+            "reactivate-organization-a");
+        Organization organizationB = CreateOrganization(
+            "Reactivate Organization B",
+            "reactivate-organization-b");
+        User owner = CreateUser(
+            "Reactivate Owner",
+            "reactivate-owner@example.test");
+        User administrator = CreateUser(
+            "Reactivate Administrator",
+            "reactivate-administrator@example.test");
+        User contextualUser = CreateUser(
+            "Reactivate Contextual User",
+            "reactivate-contextual@example.test");
+        var ownerMembership = new OrganizationMembership(
+            organizationA.Id,
+            owner.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var administratorMembership = new OrganizationMembership(
+            organizationA.Id,
+            administrator.Id,
+            OrganizationRole.Administrator,
+            CreatedAt);
+        var contextualMembershipA = new OrganizationMembership(
+            organizationA.Id,
+            contextualUser.Id,
+            OrganizationRole.Member,
+            CreatedAt);
+        var contextualMembershipB = new OrganizationMembership(
+            organizationB.Id,
+            contextualUser.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var ownerClientA = new Client(
+            organizationA.Id,
+            "Owner Client A",
+            CreatedAt);
+        var administratorClientA = new Client(
+            organizationA.Id,
+            "Administrator Client A",
+            CreatedAt);
+        var clientB = new Client(organizationB.Id, "Client B", CreatedAt);
+        ownerClientA.Deactivate();
+        administratorClientA.Deactivate();
+        clientB.Deactivate();
+        await SeedAsync(
+            organizationA,
+            organizationB,
+            owner,
+            administrator,
+            contextualUser,
+            ownerMembership,
+            administratorMembership,
+            contextualMembershipA,
+            contextualMembershipB,
+            ownerClientA,
+            administratorClientA,
+            clientB);
+
+        await using EnmaDbContext operationContext = fixture.CreateDbContext();
+        ReactivateClientUseCase useCase = CreateReactivateUseCase(operationContext);
+
+        ReactivateClientResult ownerResult = await useCase.ExecuteAsync(
+            owner.Id,
+            organizationA.Id,
+            ownerClientA.Id);
+        ReactivateClientResult repeatedResult = await useCase.ExecuteAsync(
+            owner.Id,
+            organizationA.Id,
+            ownerClientA.Id);
+        ReactivateClientResult administratorResult = await useCase.ExecuteAsync(
+            administrator.Id,
+            organizationA.Id,
+            administratorClientA.Id);
+        ReactivateClientResult crossTenantResult = await useCase.ExecuteAsync(
+            owner.Id,
+            organizationA.Id,
+            clientB.Id);
+        ReactivateClientResult contextualMemberResult = await useCase.ExecuteAsync(
+            contextualUser.Id,
+            organizationA.Id,
+            administratorClientA.Id);
+
+        Assert.Equal(ReactivateClientResultStatus.Succeeded, ownerResult.Status);
+        Assert.Equal(ReactivateClientResultStatus.Succeeded, repeatedResult.Status);
+        Assert.Equal(
+            ReactivateClientResultStatus.Succeeded,
+            administratorResult.Status);
+        Assert.Equal(
+            ReactivateClientResultStatus.NotFound,
+            crossTenantResult.Status);
+        Assert.Equal(
+            ReactivateClientResultStatus.AccessDenied,
+            contextualMemberResult.Status);
+
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.True((await verificationContext.Clients
+            .AsNoTracking()
+            .SingleAsync(client => client.Id == ownerClientA.Id)).IsActive);
+        Assert.True((await verificationContext.Clients
+            .AsNoTracking()
+            .SingleAsync(client => client.Id == administratorClientA.Id)).IsActive);
+        Assert.False((await verificationContext.Clients
+            .AsNoTracking()
+            .SingleAsync(client => client.Id == clientB.Id)).IsActive);
+    }
+
     private static CreateClientUseCase CreateCreateUseCase(EnmaDbContext dbContext)
     {
         return new CreateClientUseCase(
@@ -294,6 +677,37 @@ public sealed class ClientUseCasesPersistenceTests(
         return new ListClientsUseCase(
             CreateActionAuthorization(dbContext),
             new ClientReadQueries(dbContext));
+    }
+
+    private UpdateClientUseCase CreateUpdateUseCase(EnmaDbContext dbContext)
+    {
+        return new UpdateClientUseCase(
+            CreateActionAuthorization(dbContext),
+            CreateMutationPersistence());
+    }
+
+    private DeactivateClientUseCase CreateDeactivateUseCase(EnmaDbContext dbContext)
+    {
+        return new DeactivateClientUseCase(
+            CreateActionAuthorization(dbContext),
+            CreateMutationPersistence());
+    }
+
+    private ReactivateClientUseCase CreateReactivateUseCase(EnmaDbContext dbContext)
+    {
+        return new ReactivateClientUseCase(
+            CreateActionAuthorization(dbContext),
+            CreateMutationPersistence());
+    }
+
+    private ClientMutationPersistence CreateMutationPersistence()
+    {
+        DbContextOptions<EnmaDbContext> options =
+            new DbContextOptionsBuilder<EnmaDbContext>()
+                .UseNpgsql(fixture.ConnectionString)
+                .Options;
+
+        return new ClientMutationPersistence(options);
     }
 
     private static ClientActionAuthorization CreateActionAuthorization(

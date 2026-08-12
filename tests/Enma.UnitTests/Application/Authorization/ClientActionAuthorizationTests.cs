@@ -18,6 +18,15 @@ public sealed class ClientActionAuthorizationTests
     [InlineData(ClientAction.Create, OrganizationRole.Owner, true)]
     [InlineData(ClientAction.Create, OrganizationRole.Administrator, true)]
     [InlineData(ClientAction.Create, OrganizationRole.Member, false)]
+    [InlineData(ClientAction.Update, OrganizationRole.Owner, true)]
+    [InlineData(ClientAction.Update, OrganizationRole.Administrator, true)]
+    [InlineData(ClientAction.Update, OrganizationRole.Member, false)]
+    [InlineData(ClientAction.Deactivate, OrganizationRole.Owner, true)]
+    [InlineData(ClientAction.Deactivate, OrganizationRole.Administrator, true)]
+    [InlineData(ClientAction.Deactivate, OrganizationRole.Member, false)]
+    [InlineData(ClientAction.Reactivate, OrganizationRole.Owner, true)]
+    [InlineData(ClientAction.Reactivate, OrganizationRole.Administrator, true)]
+    [InlineData(ClientAction.Reactivate, OrganizationRole.Member, false)]
     public async Task AuthorizeAsync_WithLiveRole_AppliesExplicitActionRule(
         ClientAction action,
         OrganizationRole role,

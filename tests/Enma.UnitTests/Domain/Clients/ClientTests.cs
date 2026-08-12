@@ -100,6 +100,80 @@ public sealed class ClientTests
     }
 
     [Fact]
+    public void ChangeName_WithValidName_ChangesName()
+    {
+        Client client = CreateClient();
+
+        client.ChangeName("Renamed Legal");
+
+        Assert.Equal("Renamed Legal", client.Name);
+    }
+
+    [Fact]
+    public void ChangeName_WithSurroundingWhitespace_TrimsName()
+    {
+        Client client = CreateClient();
+
+        client.ChangeName("  Renamed Legal  ");
+
+        Assert.Equal("Renamed Legal", client.Name);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ChangeName_WithUnusableName_ThrowsArgumentException(string? name)
+    {
+        Client client = CreateClient();
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            client.ChangeName(name!));
+
+        Assert.Equal("name", exception.ParamName);
+        Assert.Contains(ClientErrors.NameRequired, exception.Message);
+        Assert.Equal("Acme Legal", client.Name);
+    }
+
+    [Fact]
+    public void ChangeName_WithNameAtMaximumLength_AcceptsName()
+    {
+        Client client = CreateClient();
+        string name = new('a', 150);
+
+        client.ChangeName(name);
+
+        Assert.Equal(name, client.Name);
+    }
+
+    [Fact]
+    public void ChangeName_WithNameBeyondMaximumLength_ThrowsArgumentOutOfRangeException()
+    {
+        Client client = CreateClient();
+
+        ArgumentOutOfRangeException exception =
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                client.ChangeName(new string('a', 151)));
+
+        Assert.Equal("name", exception.ParamName);
+        Assert.Contains(ClientErrors.NameTooLong, exception.Message);
+        Assert.Equal("Acme Legal", client.Name);
+    }
+
+    [Fact]
+    public void ChangeName_WithValidName_PreservesOwnershipActivityAndCreationDate()
+    {
+        Client client = CreateClient();
+        client.Deactivate();
+
+        client.ChangeName("Renamed Legal");
+
+        Assert.Equal(OrganizationId, client.OrganizationId);
+        Assert.False(client.IsActive);
+        Assert.Equal(CreatedAt, client.CreatedAt);
+    }
+
+    [Fact]
     public void Deactivate_WithActiveClient_MakesClientInactive()
     {
         Client client = CreateClient();
