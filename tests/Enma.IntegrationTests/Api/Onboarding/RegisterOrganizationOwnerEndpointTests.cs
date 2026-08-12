@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Enma.Api.Contracts.Onboarding;
-using Enma.Api.Contracts.Organizations;
 using Enma.Application.Authentication;
 using Enma.Application.Security;
 using Enma.Domain.Authentication;
@@ -87,7 +86,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Post_WithValidRequest_ReturnsCreatedResponseAndLocation()
+    public async Task Post_WithValidRequest_ReturnsCreatedResponseAndProtectedLocation()
     {
         RegisterOrganizationOwnerRequest request = CreateValidRequest();
 
@@ -131,14 +130,10 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             $"/api/organizations/{onboarding.OrganizationId}",
             locationPath);
 
-        HttpResponseMessage getResponse = await client.GetAsync(location);
-        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
-        GetOrganizationResponse? organization =
-            await getResponse.Content.ReadFromJsonAsync<GetOrganizationResponse>();
-        Assert.NotNull(organization);
-        Assert.Equal(onboarding.OrganizationId, organization.Id);
-        Assert.Equal(onboarding.OrganizationName, organization.Name);
-        Assert.Equal(onboarding.OrganizationSlug, organization.Slug);
+        using HttpResponseMessage getResponse = await client.GetAsync(location);
+        Assert.Equal(HttpStatusCode.Unauthorized, getResponse.StatusCode);
+        Assert.True(getResponse.Headers.CacheControl?.NoStore);
+        Assert.Equal(string.Empty, await getResponse.Content.ReadAsStringAsync());
         Assert.Equal(1, compromisedPasswordChecker.CallCount);
         Assert.True(compromisedPasswordChecker.ReceivedExpectedPassword);
         Assert.Equal(1, emailVerificationDelivery.CallCount);

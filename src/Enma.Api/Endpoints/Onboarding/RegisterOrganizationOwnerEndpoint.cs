@@ -51,7 +51,7 @@ public static class RegisterOrganizationOwnerEndpoint
                         return TypedResults.CreatedAtRoute(
                             response,
                             "GetOrganizationById",
-                            new { id = result.OrganizationId });
+                            new { organizationId = result.OrganizationId });
                     }
                     catch (OrganizationSlugAlreadyExistsException exception)
                     {

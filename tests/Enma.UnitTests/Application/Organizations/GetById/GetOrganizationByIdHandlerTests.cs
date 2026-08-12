@@ -1,12 +1,18 @@
+using Enma.Application.Authorization;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.GetById;
-using Enma.Application.Validation;
 using Enma.Domain.Organizations;
 
 namespace Enma.UnitTests.Application.Organizations.GetById;
 
 public sealed class GetOrganizationByIdHandlerTests
 {
+    private static readonly Guid UserId = Guid.Parse(
+        "64ca0f8c-babe-4278-8222-75cb71638804");
+
+    private static readonly Guid OrganizationId = Guid.Parse(
+        "f1ca5268-fbdf-4dfd-9b8c-d4ccf052b969");
+
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
         8,
@@ -17,91 +23,146 @@ public sealed class GetOrganizationByIdHandlerTests
         TimeSpan.Zero);
 
     [Fact]
-    public async Task HandleAsync_WithExistingOrganization_ReturnsOrganization()
+    public async Task HandleAsync_DeniedOrganizationAccess_ReturnsAccessDeniedWithoutRepositoryQuery()
     {
-        Organization organization = CreateOrganization();
-        var repository = new FakeOrganizationRepository(organization);
-        var handler = new GetOrganizationByIdHandler(repository);
+        var repository = new FakeOrganizationRepository(CreateOrganization());
+        GetOrganizationByIdHandler handler = CreateHandler(null, repository);
 
-        GetOrganizationByIdResult result = await handler.HandleAsync(organization.Id);
+        GetOrganizationByIdResult result = await handler.HandleAsync(
+            UserId,
+            OrganizationId);
 
-        Assert.NotNull(result);
-        Assert.Equal(organization.Id, result.Id);
+        Assert.Equal(GetOrganizationByIdResultStatus.AccessDenied, result.Status);
+        Assert.Null(result.Organization);
+        Assert.Equal(0, repository.GetByIdAsyncCallCount);
     }
 
     [Fact]
-    public async Task HandleAsync_WithExistingOrganization_MapsAllFields()
+    public async Task HandleAsync_AllowedAccessAndExistingOrganization_ReturnsAllMetadata()
     {
         Organization organization = CreateOrganization();
         organization.Deactivate();
         var repository = new FakeOrganizationRepository(organization);
-        var handler = new GetOrganizationByIdHandler(repository);
+        GetOrganizationByIdHandler handler = CreateHandler(
+            OrganizationRole.Member,
+            repository);
 
-        GetOrganizationByIdResult result = await handler.HandleAsync(organization.Id);
+        GetOrganizationByIdResult result = await handler.HandleAsync(
+            UserId,
+            organization.Id);
 
-        Assert.Equal(organization.Id, result.Id);
-        Assert.Equal("Enma Legal", result.Name);
-        Assert.Equal("enma-legal", result.Slug);
-        Assert.False(result.IsActive);
-        Assert.Equal(CreatedAt, result.CreatedAt);
+        Assert.Equal(GetOrganizationByIdResultStatus.Succeeded, result.Status);
+        OrganizationMetadataReadModel metadata = Assert.IsType<
+            OrganizationMetadataReadModel>(result.Organization);
+        Assert.Equal(organization.Id, metadata.Id);
+        Assert.Equal("Enma Legal", metadata.Name);
+        Assert.Equal("enma-legal", metadata.Slug);
+        Assert.False(metadata.IsActive);
+        Assert.Equal(CreatedAt, metadata.CreatedAt);
     }
 
     [Fact]
-    public async Task HandleAsync_WithExistingOrganization_ForwardsCancellationToken()
+    public async Task HandleAsync_AllowedAccessAndMissingOrganization_ReturnsNotFound()
+    {
+        var repository = new FakeOrganizationRepository(null);
+        GetOrganizationByIdHandler handler = CreateHandler(
+            OrganizationRole.Owner,
+            repository);
+
+        GetOrganizationByIdResult result = await handler.HandleAsync(
+            UserId,
+            OrganizationId);
+
+        Assert.Equal(GetOrganizationByIdResultStatus.NotFound, result.Status);
+        Assert.Null(result.Organization);
+        Assert.Equal(1, repository.GetByIdAsyncCallCount);
+        Assert.Equal(OrganizationId, repository.ReceivedId);
+    }
+
+    [Fact]
+    public async Task HandleAsync_AllowedContext_ForwardsIdentityTenantAndCancellation()
     {
         Organization organization = CreateOrganization();
         var repository = new FakeOrganizationRepository(organization);
-        var handler = new GetOrganizationByIdHandler(repository);
+        var accessLookup = new RecordingOrganizationAccessLookup(
+            OrganizationRole.Administrator);
+        var handler = new GetOrganizationByIdHandler(
+            new OrganizationAccessAuthorization(accessLookup),
+            repository);
         using var cancellationTokenSource = new CancellationTokenSource();
-        CancellationToken cancellationToken = cancellationTokenSource.Token;
 
-        await handler.HandleAsync(organization.Id, cancellationToken);
+        await handler.HandleAsync(
+            UserId,
+            organization.Id,
+            cancellationTokenSource.Token);
 
-        Assert.Equal(organization.Id, repository.ReceivedId);
-        Assert.Equal(cancellationToken, repository.ReceivedCancellationToken);
-    }
-
-    [Fact]
-    public async Task HandleAsync_WithMissingOrganization_ThrowsOrganizationNotFoundException()
-    {
-        Guid organizationId = Guid.Parse("2344ce14-f31f-4731-ac01-c54933fc8941");
-        var repository = new FakeOrganizationRepository(null);
-        var handler = new GetOrganizationByIdHandler(repository);
-
-        OrganizationNotFoundException exception =
-            await Assert.ThrowsAsync<OrganizationNotFoundException>(
-                () => handler.HandleAsync(organizationId));
-
-        Assert.Equal(organizationId, exception.OrganizationId);
+        Assert.Equal(1, accessLookup.CallCount);
+        Assert.Equal(UserId, accessLookup.UserId);
+        Assert.Equal(organization.Id, accessLookup.OrganizationId);
         Assert.Equal(
-            $"Organization with id '{organizationId}' was not found.",
-            exception.Message);
-        Assert.True(repository.GetByIdAsyncCalled);
+            cancellationTokenSource.Token,
+            accessLookup.CancellationToken);
         Assert.Equal(1, repository.GetByIdAsyncCallCount);
-        Assert.Equal(organizationId, repository.ReceivedId);
+        Assert.Equal(organization.Id, repository.ReceivedId);
+        Assert.Equal(
+            cancellationTokenSource.Token,
+            repository.ReceivedCancellationToken);
     }
 
-    [Fact]
-    public async Task HandleAsync_WithEmptyId_ThrowsRequestValidationExceptionBeforeRepositoryAccess()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HandleAsync_EmptyContextId_ReturnsAccessDeniedWithoutQueries(
+        bool emptyUserId)
     {
         var repository = new FakeOrganizationRepository(CreateOrganization());
-        var handler = new GetOrganizationByIdHandler(repository);
+        var accessLookup = new RecordingOrganizationAccessLookup(
+            OrganizationRole.Owner);
+        var handler = new GetOrganizationByIdHandler(
+            new OrganizationAccessAuthorization(accessLookup),
+            repository);
 
-        RequestValidationException exception =
-            await Assert.ThrowsAsync<RequestValidationException>(
-                () => handler.HandleAsync(Guid.Empty));
+        GetOrganizationByIdResult result = await handler.HandleAsync(
+            emptyUserId ? Guid.Empty : UserId,
+            emptyUserId ? OrganizationId : Guid.Empty);
 
-        Assert.Equal("Organization id cannot be empty.", exception.Message);
-        Assert.False(repository.GetByIdAsyncCalled);
+        Assert.Equal(GetOrganizationByIdResultStatus.AccessDenied, result.Status);
+        Assert.Null(result.Organization);
+        Assert.Equal(0, accessLookup.CallCount);
+        Assert.Equal(0, repository.GetByIdAsyncCallCount);
     }
 
     [Fact]
-    public void Constructor_WithNullRepository_ThrowsArgumentNullException()
+    public void Constructor_NullAuthorization_ThrowsArgumentNullException()
     {
         ArgumentNullException exception = Assert.Throws<ArgumentNullException>(
-            () => new GetOrganizationByIdHandler(null!));
+            () => new GetOrganizationByIdHandler(
+                null!,
+                new FakeOrganizationRepository(null)));
+
+        Assert.Equal("organizationAccessAuthorization", exception.ParamName);
+    }
+
+    [Fact]
+    public void Constructor_NullRepository_ThrowsArgumentNullException()
+    {
+        var authorization = new OrganizationAccessAuthorization(
+            new RecordingOrganizationAccessLookup(OrganizationRole.Owner));
+
+        ArgumentNullException exception = Assert.Throws<ArgumentNullException>(
+            () => new GetOrganizationByIdHandler(authorization, null!));
 
         Assert.Equal("organizationRepository", exception.ParamName);
+    }
+
+    private static GetOrganizationByIdHandler CreateHandler(
+        OrganizationRole? role,
+        FakeOrganizationRepository repository)
+    {
+        return new GetOrganizationByIdHandler(
+            new OrganizationAccessAuthorization(
+                new RecordingOrganizationAccessLookup(role)),
+            repository);
     }
 
     private static Organization CreateOrganization()
@@ -109,13 +170,34 @@ public sealed class GetOrganizationByIdHandlerTests
         return new Organization("Enma Legal", "enma-legal", CreatedAt);
     }
 
+    private sealed class RecordingOrganizationAccessLookup(
+        OrganizationRole? role) : IOrganizationAccessLookup
+    {
+        public int CallCount { get; private set; }
+
+        public Guid UserId { get; private set; }
+
+        public Guid OrganizationId { get; private set; }
+
+        public CancellationToken CancellationToken { get; private set; }
+
+        public Task<OrganizationRole?> FindActiveRoleAsync(
+            Guid userId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            UserId = userId;
+            OrganizationId = organizationId;
+            CancellationToken = cancellationToken;
+
+            return Task.FromResult(role);
+        }
+    }
+
     private sealed class FakeOrganizationRepository(Organization? organization)
         : IOrganizationRepository
     {
-        public Organization? OrganizationToReturn { get; } = organization;
-
-        public bool GetByIdAsyncCalled { get; private set; }
-
         public int GetByIdAsyncCallCount { get; private set; }
 
         public Guid ReceivedId { get; private set; }
@@ -126,12 +208,11 @@ public sealed class GetOrganizationByIdHandlerTests
             Guid id,
             CancellationToken cancellationToken = default)
         {
-            GetByIdAsyncCalled = true;
             GetByIdAsyncCallCount++;
             ReceivedId = id;
             ReceivedCancellationToken = cancellationToken;
 
-            return Task.FromResult(OrganizationToReturn);
+            return Task.FromResult(organization);
         }
 
         public Task<bool> ExistsBySlugAsync(

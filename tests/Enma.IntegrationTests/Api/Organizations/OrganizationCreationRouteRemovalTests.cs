@@ -88,7 +88,7 @@ public sealed class OrganizationCreationRouteRemovalTests : IAsyncLifetime
             routeEndpoints,
             endpoint => MatchesRouteAndMethod(
                 endpoint,
-                "/api/organizations/{id:guid}",
+                "/api/organizations/{organizationId:guid}",
                 HttpMethods.Get));
         Assert.Equal(
             "GetOrganizationById",

@@ -1,27 +1,38 @@
-using Enma.Application.Validation;
+using Enma.Application.Authorization;
 using Enma.Domain.Organizations;
 
 namespace Enma.Application.Organizations.GetById;
 
 public sealed class GetOrganizationByIdHandler
 {
+    private readonly OrganizationAccessAuthorization organizationAccessAuthorization;
     private readonly IOrganizationRepository organizationRepository;
 
     public GetOrganizationByIdHandler(
+        OrganizationAccessAuthorization organizationAccessAuthorization,
         IOrganizationRepository organizationRepository)
     {
+        ArgumentNullException.ThrowIfNull(organizationAccessAuthorization);
         ArgumentNullException.ThrowIfNull(organizationRepository);
+
+        this.organizationAccessAuthorization = organizationAccessAuthorization;
         this.organizationRepository = organizationRepository;
     }
 
     public async Task<GetOrganizationByIdResult> HandleAsync(
+        Guid userId,
         Guid organizationId,
         CancellationToken cancellationToken = default)
     {
-        if (organizationId == Guid.Empty)
+        OrganizationAccessAuthorizationResult authorization =
+            await organizationAccessAuthorization.AuthorizeAsync(
+                userId,
+                organizationId,
+                cancellationToken);
+
+        if (authorization.Status == OrganizationAccessAuthorizationStatus.Denied)
         {
-            throw new RequestValidationException(
-                "Organization id cannot be empty.");
+            return GetOrganizationByIdResult.AccessDenied;
         }
 
         Organization? organization = await organizationRepository.GetByIdAsync(
@@ -30,14 +41,15 @@ public sealed class GetOrganizationByIdHandler
 
         if (organization is null)
         {
-            throw new OrganizationNotFoundException(organizationId);
+            return GetOrganizationByIdResult.NotFound;
         }
 
-        return new GetOrganizationByIdResult(
-            organization.Id,
-            organization.Name,
-            organization.Slug,
-            organization.IsActive,
-            organization.CreatedAt);
+        return GetOrganizationByIdResult.Success(
+            new OrganizationMetadataReadModel(
+                organization.Id,
+                organization.Name,
+                organization.Slug,
+                organization.IsActive,
+                organization.CreatedAt));
     }
 }
