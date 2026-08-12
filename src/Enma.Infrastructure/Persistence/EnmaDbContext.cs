@@ -4,6 +4,7 @@ using Enma.Application.Users;
 using Enma.Domain.Authentication;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -19,6 +20,8 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     public DbSet<Organization> Organizations => Set<Organization>();
 
     public DbSet<Client> Clients => Set<Client>();
+
+    public DbSet<LegalProcess> LegalProcesses => Set<LegalProcess>();
 
     public DbSet<User> Users => Set<User>();
 

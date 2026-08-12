@@ -170,12 +170,16 @@ public sealed class ClientPersistenceTests(
             150,
             entityType.FindProperty(nameof(Client.Name))!.GetMaxLength());
 
-        IIndex index = Assert.Single(entityType.GetIndexes());
-        Assert.Equal("ix_clients_organization_id", index.GetDatabaseName());
-        Assert.False(index.IsUnique);
+        IKey alternateKey = Assert.Single(
+            entityType.GetKeys(),
+            key => !key.IsPrimaryKey());
         Assert.Equal(
-            [nameof(Client.OrganizationId)],
-            index.Properties.Select(property => property.Name).ToArray());
+            "ak_clients_organization_id_id",
+            alternateKey.GetName());
+        Assert.Equal(
+            [nameof(Client.OrganizationId), nameof(Client.Id)],
+            alternateKey.Properties.Select(property => property.Name).ToArray());
+        Assert.Empty(entityType.GetIndexes());
         Assert.DoesNotContain(
             entityType.GetIndexes(),
             candidate => candidate.Properties.Any(

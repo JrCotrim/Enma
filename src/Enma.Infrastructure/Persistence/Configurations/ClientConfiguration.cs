@@ -41,8 +41,12 @@ public sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
             .HasColumnType("timestamp with time zone")
             .IsRequired();
 
-        builder.HasIndex(client => client.OrganizationId)
-            .HasDatabaseName("ix_clients_organization_id");
+        builder.HasAlternateKey(client => new
+            {
+                client.OrganizationId,
+                client.Id
+            })
+            .HasName("ak_clients_organization_id_id");
 
         builder.HasOne<Organization>()
             .WithMany()
