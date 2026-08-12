@@ -1,10 +1,12 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { AuthProvider } from '../features/authentication/AuthProvider'
 import { LoginPage } from '../features/authentication/LoginPage'
-import { OrganizationsPage } from '../features/authentication/OrganizationsPage'
 import { ProtectedRoute } from '../features/authentication/SessionStatus'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
 import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
+import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
+import { OrganizationRoute } from '../features/organizations/OrganizationRoute'
+import { OrganizationsPage } from '../features/organizations/OrganizationsPage'
 import { HomePage } from '../pages/HomePage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { App } from './App'
@@ -37,7 +39,17 @@ export function createAppRoutes(
               children: [
                 {
                   path: 'organizations',
-                  element: <OrganizationsPage />,
+                  element: <OrganizationProvider />,
+                  children: [
+                    {
+                      index: true,
+                      element: <OrganizationsPage />,
+                    },
+                    {
+                      path: ':organizationId',
+                      element: <OrganizationRoute />,
+                    },
+                  ],
                 },
               ],
             },

@@ -51,6 +51,7 @@ describe('authentication flow', () => {
       .fn()
       .mockResolvedValueOnce(response(401))
       .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, { items: [] }))
     vi.stubGlobal('fetch', fetchMock)
     const router = renderRoute('/login')
 
@@ -58,7 +59,7 @@ describe('authentication flow', () => {
     fillAndSubmitLogin('person@example.com', 'correct horse battery staple')
 
     expect(
-      await screen.findByRole('heading', { name: 'Sua sessão está ativa' }),
+      await screen.findByRole('heading', { name: 'Suas organizações' }),
     ).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/organizations')
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/auth/login', {
@@ -152,14 +153,25 @@ describe('authentication flow', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() =>
-        Promise.resolve(response(200, { items: [{ id: 'ignored' }] })),
+        Promise.resolve(
+          response(200, {
+            items: [
+              {
+                id: '2a6a0642-8e1d-47dd-bb54-3da70a4c638c',
+                name: 'Organização Alfa',
+                role: 'Member',
+              },
+            ],
+          }),
+        ),
       ),
     )
     renderRoute('/organizations')
 
     expect(
-      await screen.findByRole('heading', { name: 'Sua sessão está ativa' }),
+      await screen.findByRole('heading', { name: 'Suas organizações' }),
     ).toBeInTheDocument()
+    expect(screen.getByText('Organização Alfa')).toBeInTheDocument()
   })
 
   it('SessionBootstrap_SuccessWithNoOrganizations_RemainsAuthenticated', async () => {
@@ -172,7 +184,7 @@ describe('authentication flow', () => {
     renderRoute('/organizations')
 
     expect(
-      await screen.findByRole('heading', { name: 'Sua sessão está ativa' }),
+      await screen.findByRole('heading', { name: 'Suas organizações' }),
     ).toBeInTheDocument()
     expect(localStorageSpy).not.toHaveBeenCalled()
     expect(sessionStorageSpy).not.toHaveBeenCalled()
@@ -200,7 +212,7 @@ describe('authentication flow', () => {
       screen.getByRole('heading', { name: 'Verificando acesso...' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('heading', { name: 'Sua sessão está ativa' }),
+      screen.queryByRole('heading', { name: 'Suas organizações' }),
     ).not.toBeInTheDocument()
 
     await act(async () => {
@@ -209,7 +221,7 @@ describe('authentication flow', () => {
     })
 
     expect(
-      await screen.findByRole('heading', { name: 'Sua sessão está ativa' }),
+      await screen.findByRole('heading', { name: 'Suas organizações' }),
     ).toBeInTheDocument()
   })
 
@@ -221,7 +233,7 @@ describe('authentication flow', () => {
     renderRoute('/login')
 
     expect(
-      await screen.findByRole('heading', { name: 'Sua sessão está ativa' }),
+      await screen.findByRole('heading', { name: 'Suas organizações' }),
     ).toBeInTheDocument()
     expect(screen.queryByLabelText('Senha')).not.toBeInTheDocument()
   })
@@ -232,24 +244,25 @@ describe('authentication flow', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response(200, { items: [] }))
+      .mockResolvedValueOnce(response(200, { items: [] }))
       .mockResolvedValueOnce(response(200, { requestToken: 'transient-token' }))
       .mockResolvedValueOnce(response(204))
     vi.stubGlobal('fetch', fetchMock)
     const router = renderRoute('/organizations')
 
-    await screen.findByRole('heading', { name: 'Sua sessão está ativa' })
+    await screen.findByRole('heading', { name: 'Suas organizações' })
     fireEvent.click(screen.getByRole('button', { name: 'Sair' }))
 
     expect(
       await screen.findByRole('heading', { name: 'Entrar no ENMA' }),
     ).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/login')
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/auth/csrf', {
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/auth/csrf', {
       method: 'GET',
       credentials: 'same-origin',
       cache: 'no-store',
     })
-    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/auth/logout', {
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/auth/logout', {
       method: 'POST',
       headers: { 'X-CSRF-TOKEN': 'transient-token' },
       cache: 'no-store',
@@ -265,19 +278,20 @@ describe('authentication flow', () => {
       vi
         .fn()
         .mockResolvedValueOnce(response(200, { items: [] }))
+        .mockResolvedValueOnce(response(200, { items: [] }))
         .mockResolvedValueOnce(response(200, { requestToken: 'transient-token' }))
         .mockRejectedValueOnce(new Error('private network detail')),
     )
     renderRoute('/organizations')
 
-    await screen.findByRole('heading', { name: 'Sua sessão está ativa' })
+    await screen.findByRole('heading', { name: 'Suas organizações' })
     fireEvent.click(screen.getByRole('button', { name: 'Sair' }))
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('Não foi possível sair agora. Tente novamente.')
     expect(alert).not.toHaveTextContent('private network detail')
     expect(
-      screen.getByRole('heading', { name: 'Sua sessão está ativa' }),
+      screen.getByRole('heading', { name: 'Suas organizações' }),
     ).toBeInTheDocument()
   })
 
