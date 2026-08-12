@@ -15,6 +15,7 @@ import {
   createClient,
   listClients,
 } from './clientService'
+import { formatClientCreatedAt } from './clientFormatting'
 import type { ClientListResponse } from './clientTypes'
 
 const pageSize = 20
@@ -36,11 +37,6 @@ type ListState =
     }
   | { readonly status: 'forbidden'; readonly scope: string }
   | { readonly status: 'error'; readonly scope: string }
-
-const dateFormatter = new Intl.DateTimeFormat('pt-BR', {
-  dateStyle: 'short',
-  timeStyle: 'short',
-})
 
 function resolvePage(value: string | null): number {
   if (value === null) {
@@ -396,7 +392,14 @@ export function ClientsPage() {
                 <tbody>
                   {currentListState.response.items.map((client) => (
                     <tr key={client.id}>
-                      <td data-label="Nome">{client.name}</td>
+                      <td data-label="Nome">
+                        <Link
+                          className="client-detail-link"
+                          to={encodeURIComponent(client.id)}
+                        >
+                          {client.name}
+                        </Link>
+                      </td>
                       <td data-label="Status">
                         <span
                           className={`client-status ${client.isActive ? 'is-active' : 'is-inactive'}`}
@@ -405,7 +408,7 @@ export function ClientsPage() {
                         </span>
                       </td>
                       <td data-label="Criado em">
-                        {dateFormatter.format(new Date(client.createdAt))}
+                        {formatClientCreatedAt(client.createdAt)}
                       </td>
                     </tr>
                   ))}

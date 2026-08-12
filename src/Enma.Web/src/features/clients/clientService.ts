@@ -8,11 +8,13 @@ import type {
   ClientListResponse,
   CreateClientRequest,
   CreateClientResponse,
+  UpdateClientRequest,
 } from './clientTypes'
 
 export type ClientRequestFailure =
   | 'unauthorized'
   | 'forbidden'
+  | 'not-found'
   | 'bad-request'
   | 'unexpected'
 
@@ -105,11 +107,19 @@ function throwForStatus(status: number): never {
     throw new ClientRequestError('bad-request')
   }
 
+  if (status === 404) {
+    throw new ClientRequestError('not-found')
+  }
+
   throw new ClientRequestError('unexpected')
 }
 
 function getClientsEndpoint(organizationId: string): string {
   return `/api/organizations/${encodeURIComponent(organizationId)}/clients`
+}
+
+function getClientEndpoint(organizationId: string, clientId: string): string {
+  return `${getClientsEndpoint(organizationId)}/${encodeURIComponent(clientId)}`
 }
 
 export async function listClients(
@@ -188,4 +198,119 @@ export async function createClient(
   }
 
   return parseCreateClientResponse(await response.json())
+}
+
+export async function getClient(
+  organizationId: string,
+  clientId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<Client> {
+  const response = await fetchWithSession(
+    getClientEndpoint(organizationId, clientId),
+    {
+      method: 'GET',
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status !== 200) {
+    throwForStatus(response.status)
+  }
+
+  const client = parseClient(await response.json())
+
+  if (!client || client.id.toLowerCase() !== clientId.toLowerCase()) {
+    throw new ClientRequestError('unexpected')
+  }
+
+  return client
+}
+
+async function mutateClient(
+  organizationId: string,
+  clientId: string,
+  path: string,
+  method: 'POST' | 'PUT',
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+  body?: UpdateClientRequest,
+): Promise<void> {
+  const requestToken = await getCsrfToken()
+  const response = await fetchWithSession(
+    `${getClientEndpoint(organizationId, clientId)}${path}`,
+    {
+      method,
+      headers: body
+        ? {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': requestToken,
+          }
+        : { 'X-CSRF-TOKEN': requestToken },
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status !== 204) {
+    if (response.status === 400) {
+      clearCsrfToken()
+    }
+
+    throwForStatus(response.status)
+  }
+}
+
+export function updateClient(
+  organizationId: string,
+  clientId: string,
+  name: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return mutateClient(
+    organizationId,
+    clientId,
+    '',
+    'PUT',
+    onUnauthorized,
+    signal,
+    { name },
+  )
+}
+
+export function deactivateClient(
+  organizationId: string,
+  clientId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return mutateClient(
+    organizationId,
+    clientId,
+    '/deactivate',
+    'POST',
+    onUnauthorized,
+    signal,
+  )
+}
+
+export function reactivateClient(
+  organizationId: string,
+  clientId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return mutateClient(
+    organizationId,
+    clientId,
+    '/reactivate',
+    'POST',
+    onUnauthorized,
+    signal,
+  )
 }

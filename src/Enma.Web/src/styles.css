@@ -131,6 +131,7 @@ h1 {
 
 .auth-form input:focus-visible,
 .client-create-form input:focus-visible,
+.client-detail-link:focus-visible,
 .organization-switcher select:focus-visible,
 .organization-link:focus-visible,
 .workspace-navigation-link:focus-visible,
@@ -332,6 +333,10 @@ h1 {
   margin-top: 2rem;
 }
 
+.client-details-page {
+  margin-top: 2rem;
+}
+
 .clients-header {
   display: flex;
   align-items: flex-start;
@@ -346,6 +351,28 @@ h1 {
   font-weight: 500;
 }
 
+.client-details-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.client-details-header h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 500;
+}
+
+.client-detail-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.75rem;
+}
+
 .clients-description {
   margin: 0.75rem 0 0;
   color: #547064;
@@ -353,6 +380,7 @@ h1 {
 }
 
 .client-create-form,
+.client-confirmation,
 .clients-state {
   margin-top: 1.5rem;
   padding: 1.5rem;
@@ -367,6 +395,7 @@ h1 {
 }
 
 .client-create-form h3,
+.client-confirmation h3,
 .clients-state h3 {
   margin: 0;
   font-family: Georgia, "Times New Roman", serif;
@@ -378,6 +407,51 @@ h1 {
   color: #34483f;
   font-size: 0.9rem;
   font-weight: 700;
+}
+
+.client-detail-link {
+  color: #174d39;
+  font-weight: 750;
+  text-underline-offset: 0.2em;
+}
+
+.client-edit-form,
+.client-confirmation {
+  max-width: 42rem;
+}
+
+.client-confirmation p {
+  line-height: 1.5;
+}
+
+.client-properties {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 1.5rem 0 0;
+  overflow: hidden;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.75rem;
+  background: #d8d2c4;
+}
+
+.client-properties div {
+  min-width: 0;
+  padding: 1.25rem;
+  background: #fff;
+}
+
+.client-properties dt {
+  color: #547064;
+  font-size: 0.85rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.client-properties dd {
+  margin: 0.5rem 0 0;
+  overflow-wrap: anywhere;
 }
 
 .client-create-form input {
@@ -408,6 +482,14 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.client-mutation-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
 }
 
 .text-button {
@@ -522,7 +604,8 @@ h1 {
   .organization-directory-header,
   .workspace-toolbar,
   .organization-card,
-  .clients-header {
+  .clients-header,
+  .client-details-header {
     flex-direction: column;
   }
 
@@ -554,13 +637,24 @@ h1 {
 
   .client-form-actions,
   .clients-state-actions,
-  .client-create-error {
+  .client-create-error,
+  .client-detail-actions,
+  .client-mutation-error {
     align-items: stretch;
     flex-direction: column;
   }
 
   .clients-table-wrapper {
     overflow: visible;
+  }
+
+  .client-detail-actions,
+  .client-detail-actions .secondary-button {
+    width: 100%;
+  }
+
+  .client-properties {
+    grid-template-columns: 1fr;
   }
 
   .clients-table thead {

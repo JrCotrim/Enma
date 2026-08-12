@@ -15,6 +15,10 @@ export interface CreateClientRequest {
   readonly name: string
 }
 
+export interface UpdateClientRequest {
+  readonly name: string
+}
+
 export interface CreateClientResponse {
   readonly id: string
 }

@@ -3,6 +3,7 @@ import { AuthProvider } from '../features/authentication/AuthProvider'
 import { LoginPage } from '../features/authentication/LoginPage'
 import { ProtectedRoute } from '../features/authentication/SessionStatus'
 import { ClientsPage } from '../features/clients/ClientsPage'
+import { ClientDetailsPage } from '../features/clients/ClientDetailsPage'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
 import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
 import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
@@ -53,6 +54,10 @@ export function createAppRoutes(
                         {
                           path: 'clients',
                           element: <ClientsPage />,
+                        },
+                        {
+                          path: 'clients/:clientId',
+                          element: <ClientDetailsPage />,
                         },
                       ],
                     },
