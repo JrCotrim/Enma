@@ -10,6 +10,7 @@ using Enma.Application.Clients.List;
 using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
 using Enma.Application.Organizations;
+using Enma.Application.Organizations.CurrentUser;
 using Enma.Application.Security;
 using Enma.Application.Users;
 using Enma.Infrastructure.Email;
@@ -141,6 +142,9 @@ public static class DependencyInjection
         services.AddScoped<IClientReadQueries, ClientReadQueries>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
+            ICurrentUserOrganizationQueries,
+            CurrentUserOrganizationQueries>();
+        services.AddScoped<
             IOrganizationMembershipRepository,
             OrganizationMembershipRepository>();
         services.AddScoped<IUnitOfWork>(
@@ -151,6 +155,7 @@ public static class DependencyInjection
         services.AddScoped<RequestEmailVerificationUseCase>();
         services.AddScoped<VerifyEmailUseCase>();
         services.AddScoped<OrganizationAccessAuthorization>();
+        services.AddScoped<GetCurrentUserOrganizationsUseCase>();
         services.AddScoped<ClientAccessAuthorization>();
         services.AddScoped<ClientActionAuthorization>();
         services.AddScoped<CreateClientUseCase>();

@@ -159,6 +159,7 @@ app.MapCsrfEndpoint();
 app.MapLogoutEndpoint();
 app.MapRegisterOrganizationOwnerEndpoint();
 app.MapOrganizationEndpoints();
+app.MapCurrentUserOrganizationEndpoints();
 app.MapClientEndpoints();
 
 app.Run();
