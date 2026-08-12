@@ -2,6 +2,10 @@ using System.Net.Http.Headers;
 using Enma.Application.Abstractions;
 using Enma.Application.Authorization;
 using Enma.Application.Authentication;
+using Enma.Application.Clients;
+using Enma.Application.Clients.Create;
+using Enma.Application.Clients.GetById;
+using Enma.Application.Clients.List;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
 using Enma.Application.Users;
@@ -129,6 +133,8 @@ public static class DependencyInjection
         services.AddScoped<
             IClientOrganizationOwnershipLookup,
             ClientOrganizationOwnershipLookup>();
+        services.AddScoped<IClientCreationPersistence, ClientCreationPersistence>();
+        services.AddScoped<IClientReadQueries, ClientReadQueries>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
             IOrganizationMembershipRepository,
@@ -142,6 +148,10 @@ public static class DependencyInjection
         services.AddScoped<VerifyEmailUseCase>();
         services.AddScoped<OrganizationAccessAuthorization>();
         services.AddScoped<ClientAccessAuthorization>();
+        services.AddScoped<ClientActionAuthorization>();
+        services.AddScoped<CreateClientUseCase>();
+        services.AddScoped<GetClientUseCase>();
+        services.AddScoped<ListClientsUseCase>();
 
         return services;
     }

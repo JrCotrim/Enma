@@ -1,6 +1,10 @@
 using Enma.Application.Abstractions;
 using Enma.Application.Authorization;
 using Enma.Application.Authentication;
+using Enma.Application.Clients;
+using Enma.Application.Clients.Create;
+using Enma.Application.Clients.GetById;
+using Enma.Application.Clients.List;
 using Enma.Application.Organizations;
 using Enma.Application.Security;
 using Enma.Application.Users;
@@ -23,6 +27,81 @@ namespace Enma.IntegrationTests.Infrastructure;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 {
+    [Fact]
+    public async Task AddInfrastructure_RegistersClientUseCasesWithSafeScopedLifetime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+
+        ClientActionAuthorization firstAuthorization = firstScope.ServiceProvider
+            .GetRequiredService<ClientActionAuthorization>();
+        IClientCreationPersistence firstCreationPersistence = firstScope.ServiceProvider
+            .GetRequiredService<IClientCreationPersistence>();
+        IClientReadQueries firstReadQueries = firstScope.ServiceProvider
+            .GetRequiredService<IClientReadQueries>();
+        CreateClientUseCase firstCreateUseCase = firstScope.ServiceProvider
+            .GetRequiredService<CreateClientUseCase>();
+        GetClientUseCase firstGetUseCase = firstScope.ServiceProvider
+            .GetRequiredService<GetClientUseCase>();
+        ListClientsUseCase firstListUseCase = firstScope.ServiceProvider
+            .GetRequiredService<ListClientsUseCase>();
+
+        Assert.IsType<ClientCreationPersistence>(firstCreationPersistence);
+        Assert.IsType<ClientReadQueries>(firstReadQueries);
+        Assert.Same(
+            firstAuthorization,
+            firstScope.ServiceProvider
+                .GetRequiredService<ClientActionAuthorization>());
+        Assert.Same(
+            firstCreationPersistence,
+            firstScope.ServiceProvider
+                .GetRequiredService<IClientCreationPersistence>());
+        Assert.Same(
+            firstReadQueries,
+            firstScope.ServiceProvider.GetRequiredService<IClientReadQueries>());
+        Assert.Same(
+            firstCreateUseCase,
+            firstScope.ServiceProvider.GetRequiredService<CreateClientUseCase>());
+        Assert.Same(
+            firstGetUseCase,
+            firstScope.ServiceProvider.GetRequiredService<GetClientUseCase>());
+        Assert.Same(
+            firstListUseCase,
+            firstScope.ServiceProvider.GetRequiredService<ListClientsUseCase>());
+
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+
+        Assert.NotSame(
+            firstAuthorization,
+            secondScope.ServiceProvider
+                .GetRequiredService<ClientActionAuthorization>());
+        Assert.NotSame(
+            firstCreationPersistence,
+            secondScope.ServiceProvider
+                .GetRequiredService<IClientCreationPersistence>());
+        Assert.NotSame(
+            firstReadQueries,
+            secondScope.ServiceProvider.GetRequiredService<IClientReadQueries>());
+        Assert.NotSame(
+            firstCreateUseCase,
+            secondScope.ServiceProvider.GetRequiredService<CreateClientUseCase>());
+        Assert.NotSame(
+            firstGetUseCase,
+            secondScope.ServiceProvider.GetRequiredService<GetClientUseCase>());
+        Assert.NotSame(
+            firstListUseCase,
+            secondScope.ServiceProvider.GetRequiredService<ListClientsUseCase>());
+    }
+
     [Fact]
     public async Task AddInfrastructure_RegistersClientAccessWithSafeScopedLifetime()
     {
