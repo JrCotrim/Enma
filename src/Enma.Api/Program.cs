@@ -3,6 +3,7 @@ using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Deployment;
 using Enma.Api.Endpoints.Authentication;
+using Enma.Api.Endpoints.Clients;
 using Enma.Api.Endpoints.Onboarding;
 using Enma.Api.Endpoints.Organizations;
 using Enma.Api.ExceptionHandling;
@@ -150,6 +151,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
+app.UseClientNoStoreResponses();
 
 app.MapLoginEndpoints();
 app.MapEmailVerificationEndpoints();
@@ -157,6 +159,7 @@ app.MapCsrfEndpoint();
 app.MapLogoutEndpoint();
 app.MapRegisterOrganizationOwnerEndpoint();
 app.MapOrganizationEndpoints();
+app.MapClientEndpoints();
 
 app.Run();
 
