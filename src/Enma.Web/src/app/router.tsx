@@ -2,6 +2,7 @@ import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { AuthProvider } from '../features/authentication/AuthProvider'
 import { LoginPage } from '../features/authentication/LoginPage'
 import { ProtectedRoute } from '../features/authentication/SessionStatus'
+import { ClientsPage } from '../features/clients/ClientsPage'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
 import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
 import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
@@ -48,6 +49,12 @@ export function createAppRoutes(
                     {
                       path: ':organizationId',
                       element: <OrganizationRoute />,
+                      children: [
+                        {
+                          path: 'clients',
+                          element: <ClientsPage />,
+                        },
+                      ],
                     },
                   ],
                 },

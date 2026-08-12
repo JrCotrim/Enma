@@ -1,4 +1,4 @@
-import { Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { AuthenticatedLogout } from '../authentication/AuthenticatedLogout'
 import {
   useCurrentOrganization,
@@ -51,7 +51,18 @@ export function OrganizationWorkspace() {
         </p>
       </div>
 
-      <Outlet />
+      <nav className="workspace-navigation" aria-label="Navegação da organização">
+        <NavLink
+          className={({ isActive }) =>
+            `workspace-navigation-link${isActive ? ' is-active' : ''}`
+          }
+          to="clients"
+        >
+          Clientes
+        </NavLink>
+      </nav>
+
+      <Outlet key={currentOrganization.id} />
     </section>
   )
 }

@@ -130,9 +130,12 @@ h1 {
 }
 
 .auth-form input:focus-visible,
+.client-create-form input:focus-visible,
 .organization-switcher select:focus-visible,
 .organization-link:focus-visible,
+.workspace-navigation-link:focus-visible,
 .home-link:focus-visible,
+.text-button:focus-visible,
 .primary-button:focus-visible,
 .secondary-button:focus-visible {
   outline: 3px solid #9ecdb6;
@@ -305,6 +308,208 @@ h1 {
   font: inherit;
 }
 
+.workspace-navigation {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 2rem;
+  border-bottom: 1px solid #d8d2c4;
+}
+
+.workspace-navigation-link {
+  padding: 0.75rem 1rem;
+  border-bottom: 3px solid transparent;
+  color: #34483f;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.workspace-navigation-link.is-active {
+  border-bottom-color: #174d39;
+  color: #174d39;
+}
+
+.clients-page {
+  margin-top: 2rem;
+}
+
+.clients-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.clients-header h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 500;
+}
+
+.clients-description {
+  margin: 0.75rem 0 0;
+  color: #547064;
+  line-height: 1.5;
+}
+
+.client-create-form,
+.clients-state {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.client-create-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.client-create-form h3,
+.clients-state h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.5rem;
+  font-weight: 500;
+}
+
+.client-create-form label {
+  color: #34483f;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.client-create-form input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #aaa99f;
+  border-radius: 0.5rem;
+  color: #18221d;
+  background: #fff;
+  font: inherit;
+}
+
+.client-form-actions,
+.clients-state-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.client-form-actions .primary-button,
+.clients-header .primary-button {
+  margin-top: 0;
+}
+
+.client-create-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.text-button {
+  padding: 0;
+  border: 0;
+  color: #174d39;
+  background: transparent;
+  font: inherit;
+  font-weight: 750;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.success-message {
+  margin: 1.5rem 0 0;
+  padding: 0.9rem 1rem;
+  border-left: 4px solid #347052;
+  color: #285541;
+  background: #eaf5ef;
+}
+
+.clients-state p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.clients-state h3 + p {
+  margin-top: 0.5rem;
+}
+
+.clients-state .secondary-button,
+.clients-state-actions {
+  margin-top: 1rem;
+}
+
+.clients-state-actions .home-link {
+  margin: 0;
+  align-self: center;
+}
+
+.clients-table-wrapper {
+  overflow-x: auto;
+  margin-top: 1.5rem;
+}
+
+.clients-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.clients-table th,
+.clients-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #d8d2c4;
+  text-align: left;
+}
+
+.clients-table th {
+  color: #34483f;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.client-status {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 750;
+}
+
+.client-status.is-active {
+  color: #285541;
+  background: #e0f1e8;
+}
+
+.client-status.is-inactive {
+  color: #6a463e;
+  background: #f1e5e1;
+}
+
+.clients-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 40rem) {
   .app-main {
     padding: 1.5rem;
@@ -316,7 +521,8 @@ h1 {
 
   .organization-directory-header,
   .workspace-toolbar,
-  .organization-card {
+  .organization-card,
+  .clients-header {
     flex-direction: column;
   }
 
@@ -340,5 +546,61 @@ h1 {
 
   .logout-control {
     justify-items: stretch;
+  }
+
+  .clients-header .primary-button {
+    width: 100%;
+  }
+
+  .client-form-actions,
+  .clients-state-actions,
+  .client-create-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .clients-table-wrapper {
+    overflow: visible;
+  }
+
+  .clients-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  .clients-table,
+  .clients-table tbody,
+  .clients-table tr,
+  .clients-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .clients-table tr {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #d8d2c4;
+  }
+
+  .clients-table td {
+    display: grid;
+    grid-template-columns: minmax(6rem, 0.4fr) minmax(0, 1fr);
+    gap: 1rem;
+    padding: 0.6rem 0;
+    border: 0;
+  }
+
+  .clients-table td::before {
+    color: #34483f;
+    content: attr(data-label);
+    font-size: 0.8rem;
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+
+  .clients-pagination {
+    flex-wrap: wrap;
   }
 }
