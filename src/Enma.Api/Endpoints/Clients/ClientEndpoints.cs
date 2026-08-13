@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Contracts.Clients;
+using Enma.Api.Endpoints;
 using Enma.Application.Clients;
 using Enma.Application.Clients.Create;
 using Enma.Application.Clients.Deactivate;
@@ -27,7 +28,7 @@ public static class ClientEndpoints
             .MapGroup(RoutePrefix)
             .WithTags("Clients")
             .RequireAuthorization(EnmaAuthorizationPolicies.OrganizationAccess)
-            .RequireClientNoStoreResponses();
+            .RequireNoStoreResponses();
 
         group.MapPost(string.Empty, CreateAsync)
             .WithName("CreateClient")

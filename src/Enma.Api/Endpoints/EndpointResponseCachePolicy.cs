@@ -1,16 +1,16 @@
-namespace Enma.Api.Endpoints.Clients;
+namespace Enma.Api.Endpoints;
 
-internal static class ClientResponseCachePolicy
+internal static class EndpointResponseCachePolicy
 {
-    internal static RouteGroupBuilder RequireClientNoStoreResponses(
+    internal static RouteGroupBuilder RequireNoStoreResponses(
         this RouteGroupBuilder group)
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        return group.WithMetadata(ClientNoStoreMetadata.Instance);
+        return group.WithMetadata(NoStoreMetadata.Instance);
     }
 
-    internal static IApplicationBuilder UseClientNoStoreResponses(
+    internal static IApplicationBuilder UseNoStoreResponses(
         this IApplicationBuilder application)
     {
         ArgumentNullException.ThrowIfNull(application);
@@ -19,7 +19,7 @@ internal static class ClientResponseCachePolicy
             async (httpContext, next) =>
             {
                 if (httpContext.GetEndpoint()?.Metadata
-                    .GetMetadata<ClientNoStoreMetadata>() is not null)
+                    .GetMetadata<NoStoreMetadata>() is not null)
                 {
                     httpContext.Response.Headers.CacheControl = "no-store";
                 }
@@ -28,8 +28,8 @@ internal static class ClientResponseCachePolicy
             });
     }
 
-    private sealed class ClientNoStoreMetadata
+    private sealed class NoStoreMetadata
     {
-        internal static ClientNoStoreMetadata Instance { get; } = new();
+        internal static NoStoreMetadata Instance { get; } = new();
     }
 }

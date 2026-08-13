@@ -59,7 +59,7 @@ public sealed class GlobalExceptionHandlerTests
         Assert.True(result.Handled);
         Assert.Equal(StatusCodes.Status400BadRequest, result.ResponseStatusCode);
         Assert.Equal(StatusCodes.Status400BadRequest, result.ProblemDetails.Status);
-        Assert.Equal("Invalid organization data", result.ProblemDetails.Title);
+        Assert.Equal("Invalid request data", result.ProblemDetails.Title);
         Assert.Equal(PublicMessage, result.ProblemDetails.Detail);
         Assert.Empty(result.Logger.Entries);
     }

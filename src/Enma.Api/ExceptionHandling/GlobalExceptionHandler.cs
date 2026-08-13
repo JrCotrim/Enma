@@ -46,7 +46,7 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
                 exception.Message),
             RequestValidationException => (
                 StatusCodes.Status400BadRequest,
-                "Invalid organization data",
+                "Invalid request data",
                 exception.Message),
             _ => (
                 StatusCodes.Status500InternalServerError,

@@ -2,10 +2,12 @@ using System.Threading.RateLimiting;
 using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Deployment;
+using Enma.Api.Endpoints;
 using Enma.Api.Endpoints.Authentication;
 using Enma.Api.Endpoints.Clients;
 using Enma.Api.Endpoints.Onboarding;
 using Enma.Api.Endpoints.Organizations;
+using Enma.Api.Endpoints.Processes;
 using Enma.Api.ExceptionHandling;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations.GetById;
@@ -148,10 +150,10 @@ if (trustedProxyTrustSet.Enabled)
 
 app.UseHttpsRedirection();
 app.UseRateLimiter();
+app.UseNoStoreResponses();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
-app.UseClientNoStoreResponses();
 
 app.MapLoginEndpoints();
 app.MapEmailVerificationEndpoints();
@@ -161,6 +163,7 @@ app.MapRegisterOrganizationOwnerEndpoint();
 app.MapOrganizationEndpoints();
 app.MapCurrentUserOrganizationEndpoints();
 app.MapClientEndpoints();
+app.MapLegalProcessEndpoints();
 
 app.Run();
 
