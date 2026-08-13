@@ -9,6 +9,10 @@ using Enma.Application.Clients.List;
 using Enma.Application.Clients.Lookup;
 using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
+using Enma.Application.Deadlines;
+using Enma.Application.Deadlines.Create;
+using Enma.Application.Deadlines.GetById;
+using Enma.Application.Deadlines.List;
 using Enma.Application.Organizations;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
@@ -36,6 +40,111 @@ namespace Enma.IntegrationTests.Infrastructure;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 {
+    [Fact]
+    public async Task AddInfrastructure_RegistersLegalDeadlineServicesWithSafeScopedLifetime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+
+        DeadlineAccessAuthorization firstAccess = firstScope.ServiceProvider
+            .GetRequiredService<DeadlineAccessAuthorization>();
+        DeadlineActionAuthorization firstAction = firstScope.ServiceProvider
+            .GetRequiredService<DeadlineActionAuthorization>();
+        IDeadlineOrganizationOwnershipLookup firstOwnership = firstScope
+            .ServiceProvider
+            .GetRequiredService<IDeadlineOrganizationOwnershipLookup>();
+        ILegalDeadlineCreationPersistence firstCreation = firstScope.ServiceProvider
+            .GetRequiredService<ILegalDeadlineCreationPersistence>();
+        ILegalDeadlineReadQueries firstQueries = firstScope.ServiceProvider
+            .GetRequiredService<ILegalDeadlineReadQueries>();
+        CreateLegalDeadlineUseCase firstCreate = firstScope.ServiceProvider
+            .GetRequiredService<CreateLegalDeadlineUseCase>();
+        GetLegalDeadlineUseCase firstGet = firstScope.ServiceProvider
+            .GetRequiredService<GetLegalDeadlineUseCase>();
+        ListLegalDeadlinesUseCase firstList = firstScope.ServiceProvider
+            .GetRequiredService<ListLegalDeadlinesUseCase>();
+
+        Assert.IsType<DeadlineOrganizationOwnershipLookup>(firstOwnership);
+        Assert.IsType<LegalDeadlineCreationPersistence>(firstCreation);
+        Assert.IsType<LegalDeadlineReadQueries>(firstQueries);
+        Assert.Same(
+            firstAccess,
+            firstScope.ServiceProvider
+                .GetRequiredService<DeadlineAccessAuthorization>());
+        Assert.Same(
+            firstAction,
+            firstScope.ServiceProvider
+                .GetRequiredService<DeadlineActionAuthorization>());
+        Assert.Same(
+            firstOwnership,
+            firstScope.ServiceProvider
+                .GetRequiredService<IDeadlineOrganizationOwnershipLookup>());
+        Assert.Same(
+            firstCreation,
+            firstScope.ServiceProvider
+                .GetRequiredService<ILegalDeadlineCreationPersistence>());
+        Assert.Same(
+            firstQueries,
+            firstScope.ServiceProvider
+                .GetRequiredService<ILegalDeadlineReadQueries>());
+        Assert.Same(
+            firstCreate,
+            firstScope.ServiceProvider
+                .GetRequiredService<CreateLegalDeadlineUseCase>());
+        Assert.Same(
+            firstGet,
+            firstScope.ServiceProvider
+                .GetRequiredService<GetLegalDeadlineUseCase>());
+        Assert.Same(
+            firstList,
+            firstScope.ServiceProvider
+                .GetRequiredService<ListLegalDeadlinesUseCase>());
+
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+
+        Assert.NotSame(
+            firstAccess,
+            secondScope.ServiceProvider
+                .GetRequiredService<DeadlineAccessAuthorization>());
+        Assert.NotSame(
+            firstAction,
+            secondScope.ServiceProvider
+                .GetRequiredService<DeadlineActionAuthorization>());
+        Assert.NotSame(
+            firstOwnership,
+            secondScope.ServiceProvider
+                .GetRequiredService<IDeadlineOrganizationOwnershipLookup>());
+        Assert.NotSame(
+            firstCreation,
+            secondScope.ServiceProvider
+                .GetRequiredService<ILegalDeadlineCreationPersistence>());
+        Assert.NotSame(
+            firstQueries,
+            secondScope.ServiceProvider
+                .GetRequiredService<ILegalDeadlineReadQueries>());
+        Assert.NotSame(
+            firstCreate,
+            secondScope.ServiceProvider
+                .GetRequiredService<CreateLegalDeadlineUseCase>());
+        Assert.NotSame(
+            firstGet,
+            secondScope.ServiceProvider
+                .GetRequiredService<GetLegalDeadlineUseCase>());
+        Assert.NotSame(
+            firstList,
+            secondScope.ServiceProvider
+                .GetRequiredService<ListLegalDeadlinesUseCase>());
+    }
+
     [Fact]
     public async Task AddInfrastructure_RegistersLegalProcessServicesWithSafeScopedLifetime()
     {

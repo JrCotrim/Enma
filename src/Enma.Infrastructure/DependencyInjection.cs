@@ -10,6 +10,10 @@ using Enma.Application.Clients.List;
 using Enma.Application.Clients.Lookup;
 using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
+using Enma.Application.Deadlines;
+using Enma.Application.Deadlines.Create;
+using Enma.Application.Deadlines.GetById;
+using Enma.Application.Deadlines.List;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
 using Enma.Application.Processes;
@@ -147,6 +151,9 @@ public static class DependencyInjection
             IProcessOrganizationOwnershipLookup,
             ProcessOrganizationOwnershipLookup>();
         services.AddScoped<
+            IDeadlineOrganizationOwnershipLookup,
+            DeadlineOrganizationOwnershipLookup>();
+        services.AddScoped<
             IActiveClientInOrganizationLookup,
             ActiveClientInOrganizationLookup>();
         services.AddScoped<IClientCreationPersistence, ClientCreationPersistence>();
@@ -160,6 +167,10 @@ public static class DependencyInjection
             ILegalProcessMutationPersistence,
             LegalProcessMutationPersistence>();
         services.AddScoped<ILegalProcessReadQueries, LegalProcessReadQueries>();
+        services.AddScoped<
+            ILegalDeadlineCreationPersistence,
+            LegalDeadlineCreationPersistence>();
+        services.AddScoped<ILegalDeadlineReadQueries, LegalDeadlineReadQueries>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
             ICurrentUserOrganizationQueries,
@@ -180,6 +191,8 @@ public static class DependencyInjection
         services.AddScoped<ClientActionAuthorization>();
         services.AddScoped<ProcessAccessAuthorization>();
         services.AddScoped<ProcessActionAuthorization>();
+        services.AddScoped<DeadlineAccessAuthorization>();
+        services.AddScoped<DeadlineActionAuthorization>();
         services.AddScoped<CreateClientUseCase>();
         services.AddScoped<DeactivateClientUseCase>();
         services.AddScoped<GetClientUseCase>();
@@ -191,6 +204,9 @@ public static class DependencyInjection
         services.AddScoped<GetLegalProcessUseCase>();
         services.AddScoped<ListLegalProcessesUseCase>();
         services.AddScoped<UpdateLegalProcessUseCase>();
+        services.AddScoped<CreateLegalDeadlineUseCase>();
+        services.AddScoped<GetLegalDeadlineUseCase>();
+        services.AddScoped<ListLegalDeadlinesUseCase>();
 
         return services;
     }
