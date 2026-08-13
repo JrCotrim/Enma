@@ -15,6 +15,7 @@ using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
 using Enma.Application.Processes.GetById;
 using Enma.Application.Processes.List;
+using Enma.Application.Processes.Update;
 using Enma.Application.Security;
 using Enma.Application.Users;
 using Enma.Infrastructure.Email;
@@ -153,6 +154,9 @@ public static class DependencyInjection
         services.AddScoped<
             ILegalProcessCreationPersistence,
             LegalProcessCreationPersistence>();
+        services.AddScoped<
+            ILegalProcessMutationPersistence,
+            LegalProcessMutationPersistence>();
         services.AddScoped<ILegalProcessReadQueries, LegalProcessReadQueries>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
@@ -183,6 +187,7 @@ public static class DependencyInjection
         services.AddScoped<CreateLegalProcessUseCase>();
         services.AddScoped<GetLegalProcessUseCase>();
         services.AddScoped<ListLegalProcessesUseCase>();
+        services.AddScoped<UpdateLegalProcessUseCase>();
 
         return services;
     }

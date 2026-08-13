@@ -21,6 +21,9 @@ public sealed class ProcessActionAuthorizationTests
     [InlineData(ProcessAction.Create, OrganizationRole.Owner, true)]
     [InlineData(ProcessAction.Create, OrganizationRole.Administrator, true)]
     [InlineData(ProcessAction.Create, OrganizationRole.Member, false)]
+    [InlineData(ProcessAction.Update, OrganizationRole.Owner, true)]
+    [InlineData(ProcessAction.Update, OrganizationRole.Administrator, true)]
+    [InlineData(ProcessAction.Update, OrganizationRole.Member, false)]
     public async Task AuthorizeAsync_WithLiveRole_AppliesExplicitActionRule(
         ProcessAction action,
         OrganizationRole role,
@@ -55,19 +58,19 @@ public sealed class ProcessActionAuthorizationTests
             await authorization.AuthorizeAsync(
                 UserId,
                 OrganizationAId,
-                ProcessAction.Create);
+                ProcessAction.Update);
         lookup.FirstRole = OrganizationRole.Administrator;
         ProcessActionAuthorizationResult administratorResult =
             await authorization.AuthorizeAsync(
                 UserId,
                 OrganizationAId,
-                ProcessAction.Create);
+                ProcessAction.Update);
         lookup.FirstRole = OrganizationRole.Member;
         ProcessActionAuthorizationResult changedBackResult =
             await authorization.AuthorizeAsync(
                 UserId,
                 OrganizationAId,
-                ProcessAction.Create);
+                ProcessAction.Update);
 
         Assert.Equal(ProcessActionAuthorizationResult.Denied, memberResult);
         Assert.Equal(ProcessActionAuthorizationResult.Allowed, administratorResult);
@@ -93,6 +96,10 @@ public sealed class ProcessActionAuthorizationTests
             UserId,
             OrganizationAId,
             ProcessAction.Create);
+        ProcessActionAuthorizationResult updateA = await authorization.AuthorizeAsync(
+            UserId,
+            OrganizationAId,
+            ProcessAction.Update);
         ProcessActionAuthorizationResult viewB = await authorization.AuthorizeAsync(
             UserId,
             OrganizationBId,
@@ -101,11 +108,17 @@ public sealed class ProcessActionAuthorizationTests
             UserId,
             OrganizationBId,
             ProcessAction.Create);
+        ProcessActionAuthorizationResult updateB = await authorization.AuthorizeAsync(
+            UserId,
+            OrganizationBId,
+            ProcessAction.Update);
 
         Assert.Equal(ProcessActionAuthorizationResult.Allowed, viewA);
         Assert.Equal(ProcessActionAuthorizationResult.Denied, createA);
+        Assert.Equal(ProcessActionAuthorizationResult.Denied, updateA);
         Assert.Equal(ProcessActionAuthorizationResult.Allowed, viewB);
         Assert.Equal(ProcessActionAuthorizationResult.Allowed, createB);
+        Assert.Equal(ProcessActionAuthorizationResult.Allowed, updateB);
     }
 
     [Fact]
@@ -180,10 +193,14 @@ public sealed class ProcessActionAuthorizationTests
     }
 
     [Fact]
-    public void ActionContract_PublicValues_ContainsOnlyViewAndCreate()
+    public void ActionContract_PublicValues_ContainsOnlyApprovedActions()
     {
         Assert.Equal(
-            [nameof(ProcessAction.View), nameof(ProcessAction.Create)],
+            [
+                nameof(ProcessAction.View),
+                nameof(ProcessAction.Create),
+                nameof(ProcessAction.Update)
+            ],
             Enum.GetNames<ProcessAction>());
     }
 

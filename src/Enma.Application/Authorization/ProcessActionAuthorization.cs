@@ -54,6 +54,8 @@ public sealed class ProcessActionAuthorization
                 OrganizationRole.Member) => ProcessActionAuthorizationResult.Allowed,
             (ProcessAction.Create, OrganizationRole.Owner or
                 OrganizationRole.Administrator) => ProcessActionAuthorizationResult.Allowed,
+            (ProcessAction.Update, OrganizationRole.Owner or
+                OrganizationRole.Administrator) => ProcessActionAuthorizationResult.Allowed,
             _ => ProcessActionAuthorizationResult.Denied
         };
     }
