@@ -9,6 +9,7 @@ import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
 import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
 import { OrganizationRoute } from '../features/organizations/OrganizationRoute'
 import { OrganizationsPage } from '../features/organizations/OrganizationsPage'
+import { ProcessesPage } from '../features/processes/ProcessesPage'
 import { HomePage } from '../pages/HomePage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { App } from './App'
@@ -58,6 +59,10 @@ export function createAppRoutes(
                         {
                           path: 'clients/:clientId',
                           element: <ClientDetailsPage />,
+                        },
+                        {
+                          path: 'processes',
+                          element: <ProcessesPage />,
                         },
                       ],
                     },

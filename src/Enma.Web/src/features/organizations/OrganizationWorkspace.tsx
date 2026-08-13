@@ -60,6 +60,14 @@ export function OrganizationWorkspace() {
         >
           Clientes
         </NavLink>
+        <NavLink
+          className={({ isActive }) =>
+            `workspace-navigation-link${isActive ? ' is-active' : ''}`
+          }
+          to="processes"
+        >
+          Processos
+        </NavLink>
       </nav>
 
       <Outlet key={currentOrganization.id} />
