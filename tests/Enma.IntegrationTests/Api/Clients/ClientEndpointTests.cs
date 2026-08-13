@@ -95,6 +95,20 @@ public sealed class ClientEndpointTests : IAsyncLifetime
                 nameof(ListClientsResponse.PageSize)
             ],
             GetPropertyNames<ListClientsResponse>());
+        Assert.Equal(
+            [
+                nameof(ActiveClientLookupItemResponse.Id),
+                nameof(ActiveClientLookupItemResponse.Name)
+            ],
+            GetPropertyNames<ActiveClientLookupItemResponse>());
+        Assert.Equal(
+            [
+                nameof(ActiveClientLookupResponse.Items),
+                nameof(ActiveClientLookupResponse.PageNumber),
+                nameof(ActiveClientLookupResponse.PageSize),
+                nameof(ActiveClientLookupResponse.HasNext)
+            ],
+            GetPropertyNames<ActiveClientLookupResponse>());
 
         string[] forbiddenNames =
         [
@@ -112,7 +126,9 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             typeof(UpdateClientRequest),
             typeof(CreateClientResponse),
             typeof(ClientResponse),
-            typeof(ListClientsResponse)
+            typeof(ListClientsResponse),
+            typeof(ActiveClientLookupItemResponse),
+            typeof(ActiveClientLookupResponse)
         ];
 
         foreach (Type contractType in contractTypes)
@@ -131,12 +147,17 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         string path = GetClientPath(Guid.NewGuid(), Guid.NewGuid());
 
         using HttpResponseMessage getResponse = await client.GetAsync(path);
+        using HttpResponseMessage lookupResponse = await client.GetAsync(
+            GetClientLookupPath(Guid.NewGuid()));
         using HttpResponseMessage createResponse = await client.PostAsJsonAsync(
             GetClientsPath(Guid.NewGuid()),
             new { name = "Anonymous Client" });
 
         await AssertEmptyResponseAsync(
             getResponse,
+            HttpStatusCode.Unauthorized);
+        await AssertEmptyResponseAsync(
+            lookupResponse,
             HttpStatusCode.Unauthorized);
         await AssertEmptyResponseAsync(
             createResponse,
@@ -157,6 +178,9 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         using HttpResponseMessage listResponse = await SendGetAsync(
             GetClientsPath(organization.Id),
             rawHandle);
+        using HttpResponseMessage lookupResponse = await SendGetAsync(
+            GetClientLookupPath(organization.Id),
+            rawHandle);
         using HttpResponseMessage createResponse = await SendMutationAsync(
             HttpMethod.Post,
             GetClientsPath(organization.Id),
@@ -166,6 +190,9 @@ public sealed class ClientEndpointTests : IAsyncLifetime
 
         await AssertEmptyResponseAsync(
             listResponse,
+            HttpStatusCode.Forbidden);
+        await AssertEmptyResponseAsync(
+            lookupResponse,
             HttpStatusCode.Forbidden);
         await AssertEmptyResponseAsync(
             createResponse,
@@ -738,6 +765,216 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             id => id == clientB1.Id || id == clientB2.Id);
     }
 
+    [Theory]
+    [InlineData(OrganizationRole.Owner)]
+    [InlineData(OrganizationRole.Administrator)]
+    [InlineData(OrganizationRole.Member)]
+    public async Task LookupActiveClients_WithClientViewRole_ReturnsActiveClients(
+        OrganizationRole role)
+    {
+        User user = CreateUser($"lookup-{role}");
+        Organization organization = CreateOrganization($"Lookup {role}");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            role);
+        ClientEntity activeClient = CreateClient(
+            organization,
+            $"{role} Active Client",
+            1);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [activeClient]);
+
+        using HttpResponseMessage response = await SendGetAsync(
+            GetClientLookupPath(organization.Id),
+            rawHandle);
+        ActiveClientLookupResponse? result =
+            await response.Content.ReadFromJsonAsync<ActiveClientLookupResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.NotNull(result);
+        ActiveClientLookupItemResponse item = Assert.Single(result.Items);
+        Assert.Equal(activeClient.Id, item.Id);
+        Assert.Equal(activeClient.Name, item.Name);
+    }
+
+    [Fact]
+    public async Task LookupActiveClients_WithDualMembershipPaginationAndSearch_IsActiveTenantBoundAndDiscoverable()
+    {
+        User user = CreateUser("lookup-discoverability");
+        Organization organizationA = CreateOrganization("Lookup A");
+        Organization organizationB = CreateOrganization("Lookup B");
+        OrganizationMembership membershipA = CreateMembership(
+            user,
+            organizationA,
+            OrganizationRole.Member);
+        OrganizationMembership membershipB = CreateMembership(
+            user,
+            organizationB,
+            OrganizationRole.Member);
+        ClientEntity[] pagedClients = Enumerable.Range(1, 22)
+            .Select(index => CreateClient(
+                organizationA,
+                $"Active Client {index:D2}",
+                30 - index))
+            .ToArray();
+        ClientEntity specialClient = CreateClient(
+            organizationA,
+            "Zulu Literal %_\\ TARGET",
+            2);
+        ClientEntity inactiveClient = CreateClient(
+            organizationA,
+            "Inactive Lookup Client",
+            1);
+        inactiveClient.Deactivate();
+        ClientEntity crossTenantClient = CreateClient(
+            organizationB,
+            specialClient.Name,
+            1);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organizationA, organizationB],
+            [membershipA, membershipB],
+            pagedClients
+                .Append(specialClient)
+                .Append(inactiveClient)
+                .Append(crossTenantClient)
+                .ToArray());
+
+        using HttpResponseMessage firstPageResponse = await SendGetAsync(
+            GetClientLookupPath(organizationA.Id),
+            rawHandle);
+        using HttpResponseMessage secondPageResponse = await SendGetAsync(
+            $"{GetClientLookupPath(organizationA.Id)}?pageNumber=2&pageSize=20",
+            rawHandle);
+        ActiveClientLookupResponse? firstPage =
+            await firstPageResponse.Content
+                .ReadFromJsonAsync<ActiveClientLookupResponse>();
+        ActiveClientLookupResponse? secondPage =
+            await secondPageResponse.Content
+                .ReadFromJsonAsync<ActiveClientLookupResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, firstPageResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, secondPageResponse.StatusCode);
+        Assert.True(firstPageResponse.Headers.CacheControl?.NoStore);
+        Assert.NotNull(firstPage);
+        Assert.NotNull(secondPage);
+        Assert.Equal(1, firstPage.PageNumber);
+        Assert.Equal(20, firstPage.PageSize);
+        Assert.Equal(20, firstPage.Items.Count);
+        Assert.True(firstPage.HasNext);
+        Assert.Equal(2, secondPage.PageNumber);
+        Assert.Equal(20, secondPage.PageSize);
+        Assert.Equal(3, secondPage.Items.Count);
+        Assert.False(secondPage.HasNext);
+        Assert.Contains(secondPage.Items, item => item.Id == specialClient.Id);
+        Assert.DoesNotContain(
+            firstPage.Items.Concat(secondPage.Items),
+            item => item.Id == inactiveClient.Id ||
+                item.Id == crossTenantClient.Id);
+
+        string caseInsensitiveSearch = Uri.EscapeDataString(
+            "  zulu literal %_\\ target  ");
+        using HttpResponseMessage searchResponse = await SendGetAsync(
+            $"{GetClientLookupPath(organizationA.Id)}?search={caseInsensitiveSearch}",
+            rawHandle);
+        ActiveClientLookupResponse? searchResult =
+            await searchResponse.Content
+                .ReadFromJsonAsync<ActiveClientLookupResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, searchResponse.StatusCode);
+        Assert.NotNull(searchResult);
+        Assert.Equal(specialClient.Id, Assert.Single(searchResult.Items).Id);
+
+        using HttpResponseMessage wildcardSearchResponse = await SendGetAsync(
+            $"{GetClientLookupPath(organizationA.Id)}?search={Uri.EscapeDataString("%_\\")}",
+            rawHandle);
+        ActiveClientLookupResponse? wildcardSearchResult =
+            await wildcardSearchResponse.Content
+                .ReadFromJsonAsync<ActiveClientLookupResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, wildcardSearchResponse.StatusCode);
+        Assert.NotNull(wildcardSearchResult);
+        Assert.Equal(
+            specialClient.Id,
+            Assert.Single(wildcardSearchResult.Items).Id);
+
+        using HttpResponseMessage crossTenantSearchResponse = await SendGetAsync(
+            $"{GetClientLookupPath(organizationA.Id)}?search={Uri.EscapeDataString(crossTenantClient.Name)}",
+            rawHandle);
+        ActiveClientLookupResponse? crossTenantSearchResult =
+            await crossTenantSearchResponse.Content
+                .ReadFromJsonAsync<ActiveClientLookupResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, crossTenantSearchResponse.StatusCode);
+        Assert.NotNull(crossTenantSearchResult);
+        Assert.Equal(specialClient.Id, Assert.Single(crossTenantSearchResult.Items).Id);
+        Assert.DoesNotContain(
+            crossTenantSearchResult.Items,
+            item => item.Id == crossTenantClient.Id);
+
+        await using (EnmaDbContext dbContext = fixture.CreateDbContext())
+        {
+            ClientEntity persistedSpecialClient = await dbContext.Clients
+                .SingleAsync(candidate => candidate.Id == specialClient.Id);
+            persistedSpecialClient.Deactivate();
+            await dbContext.SaveChangesAsync();
+        }
+
+        using HttpResponseMessage afterDeactivationResponse = await SendGetAsync(
+            $"{GetClientLookupPath(organizationA.Id)}?search={caseInsensitiveSearch}",
+            rawHandle);
+        ActiveClientLookupResponse? afterDeactivationResult =
+            await afterDeactivationResponse.Content
+                .ReadFromJsonAsync<ActiveClientLookupResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, afterDeactivationResponse.StatusCode);
+        Assert.NotNull(afterDeactivationResult);
+        Assert.Empty(afterDeactivationResult.Items);
+    }
+
+    [Fact]
+    public async Task LookupActiveClients_WithLiveMembershipRevocation_DeniesWithoutRelogin()
+    {
+        User user = CreateUser("lookup-live-membership");
+        Organization organization = CreateOrganization("Lookup Live Membership");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Member);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            []);
+
+        using HttpResponseMessage allowedResponse = await SendGetAsync(
+            GetClientLookupPath(organization.Id),
+            rawHandle);
+
+        Assert.Equal(HttpStatusCode.OK, allowedResponse.StatusCode);
+
+        await using (EnmaDbContext dbContext = fixture.CreateDbContext())
+        {
+            OrganizationMembership persistedMembership =
+                await dbContext.OrganizationMemberships.SingleAsync();
+            persistedMembership.Deactivate();
+            await dbContext.SaveChangesAsync();
+        }
+
+        using HttpResponseMessage deniedResponse = await SendGetAsync(
+            GetClientLookupPath(organization.Id),
+            rawHandle);
+
+        await AssertEmptyResponseAsync(
+            deniedResponse,
+            HttpStatusCode.Forbidden);
+    }
+
     [Fact]
     public async Task ClientMutations_MissingOrInvalidCsrf_ReturnBadRequestBeforeAnyMutation()
     {
@@ -821,10 +1058,22 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         using HttpResponseMessage listResponse = await SendGetAsync(
             $"{GetClientsPath(organization.Id)}?pageNumber=0&pageSize=101",
             rawHandle);
+        using HttpResponseMessage lookupPaginationResponse = await SendGetAsync(
+            $"{GetClientLookupPath(organization.Id)}?pageNumber=1&pageSize=101",
+            rawHandle);
+        using HttpResponseMessage lookupSearchResponse = await SendGetAsync(
+            $"{GetClientLookupPath(organization.Id)}?search={new string('x', 151)}",
+            rawHandle);
 
         await AssertProblemResponseAsync(createResponse, HttpStatusCode.BadRequest);
         await AssertProblemResponseAsync(updateResponse, HttpStatusCode.BadRequest);
         await AssertProblemResponseAsync(listResponse, HttpStatusCode.BadRequest);
+        await AssertProblemResponseAsync(
+            lookupPaginationResponse,
+            HttpStatusCode.BadRequest);
+        await AssertProblemResponseAsync(
+            lookupSearchResponse,
+            HttpStatusCode.BadRequest);
         ClientEntity persisted = await GetPersistedClientAsync(existingClient.Id);
         Assert.Equal("Valid Client", persisted.Name);
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -1105,6 +1354,11 @@ public sealed class ClientEndpointTests : IAsyncLifetime
     private static string GetClientPath(Guid organizationId, Guid clientId)
     {
         return $"{GetClientsPath(organizationId)}/{clientId:D}";
+    }
+
+    private static string GetClientLookupPath(Guid organizationId)
+    {
+        return $"{GetClientsPath(organizationId)}/lookup";
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

@@ -6,6 +6,7 @@ using Enma.Application.Clients.Create;
 using Enma.Application.Clients.Deactivate;
 using Enma.Application.Clients.GetById;
 using Enma.Application.Clients.List;
+using Enma.Application.Clients.Lookup;
 using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
 using Enma.Application.Organizations;
@@ -200,6 +201,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             .GetRequiredService<IClientMutationPersistence>();
         IClientReadQueries firstReadQueries = firstScope.ServiceProvider
             .GetRequiredService<IClientReadQueries>();
+        IActiveClientLookupQueries firstLookupQueries = firstScope.ServiceProvider
+            .GetRequiredService<IActiveClientLookupQueries>();
         CreateClientUseCase firstCreateUseCase = firstScope.ServiceProvider
             .GetRequiredService<CreateClientUseCase>();
         DeactivateClientUseCase firstDeactivateUseCase = firstScope.ServiceProvider
@@ -208,6 +211,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             .GetRequiredService<GetClientUseCase>();
         ListClientsUseCase firstListUseCase = firstScope.ServiceProvider
             .GetRequiredService<ListClientsUseCase>();
+        SearchActiveClientsUseCase firstLookupUseCase = firstScope.ServiceProvider
+            .GetRequiredService<SearchActiveClientsUseCase>();
         ReactivateClientUseCase firstReactivateUseCase = firstScope.ServiceProvider
             .GetRequiredService<ReactivateClientUseCase>();
         UpdateClientUseCase firstUpdateUseCase = firstScope.ServiceProvider
@@ -216,6 +221,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.IsType<ClientCreationPersistence>(firstCreationPersistence);
         Assert.IsType<ClientMutationPersistence>(firstMutationPersistence);
         Assert.IsType<ClientReadQueries>(firstReadQueries);
+        Assert.IsType<ActiveClientLookupQueries>(firstLookupQueries);
         Assert.Same(
             firstAuthorization,
             firstScope.ServiceProvider
@@ -232,6 +238,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstReadQueries,
             firstScope.ServiceProvider.GetRequiredService<IClientReadQueries>());
         Assert.Same(
+            firstLookupQueries,
+            firstScope.ServiceProvider
+                .GetRequiredService<IActiveClientLookupQueries>());
+        Assert.Same(
             firstCreateUseCase,
             firstScope.ServiceProvider.GetRequiredService<CreateClientUseCase>());
         Assert.Same(
@@ -244,6 +254,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.Same(
             firstListUseCase,
             firstScope.ServiceProvider.GetRequiredService<ListClientsUseCase>());
+        Assert.Same(
+            firstLookupUseCase,
+            firstScope.ServiceProvider
+                .GetRequiredService<SearchActiveClientsUseCase>());
         Assert.Same(
             firstReactivateUseCase,
             firstScope.ServiceProvider
@@ -270,6 +284,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstReadQueries,
             secondScope.ServiceProvider.GetRequiredService<IClientReadQueries>());
         Assert.NotSame(
+            firstLookupQueries,
+            secondScope.ServiceProvider
+                .GetRequiredService<IActiveClientLookupQueries>());
+        Assert.NotSame(
             firstCreateUseCase,
             secondScope.ServiceProvider.GetRequiredService<CreateClientUseCase>());
         Assert.NotSame(
@@ -282,6 +300,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.NotSame(
             firstListUseCase,
             secondScope.ServiceProvider.GetRequiredService<ListClientsUseCase>());
+        Assert.NotSame(
+            firstLookupUseCase,
+            secondScope.ServiceProvider
+                .GetRequiredService<SearchActiveClientsUseCase>());
         Assert.NotSame(
             firstReactivateUseCase,
             secondScope.ServiceProvider

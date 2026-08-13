@@ -7,6 +7,7 @@ using Enma.Application.Clients.Create;
 using Enma.Application.Clients.Deactivate;
 using Enma.Application.Clients.GetById;
 using Enma.Application.Clients.List;
+using Enma.Application.Clients.Lookup;
 using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
 using Enma.Application.Organizations;
@@ -151,6 +152,7 @@ public static class DependencyInjection
         services.AddScoped<IClientCreationPersistence, ClientCreationPersistence>();
         services.AddScoped<IClientMutationPersistence, ClientMutationPersistence>();
         services.AddScoped<IClientReadQueries, ClientReadQueries>();
+        services.AddScoped<IActiveClientLookupQueries, ActiveClientLookupQueries>();
         services.AddScoped<
             ILegalProcessCreationPersistence,
             LegalProcessCreationPersistence>();
@@ -182,6 +184,7 @@ public static class DependencyInjection
         services.AddScoped<DeactivateClientUseCase>();
         services.AddScoped<GetClientUseCase>();
         services.AddScoped<ListClientsUseCase>();
+        services.AddScoped<SearchActiveClientsUseCase>();
         services.AddScoped<ReactivateClientUseCase>();
         services.AddScoped<UpdateClientUseCase>();
         services.AddScoped<CreateLegalProcessUseCase>();

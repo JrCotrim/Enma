@@ -9,6 +9,7 @@ using Enma.Application.Clients.Create;
 using Enma.Application.Clients.Deactivate;
 using Enma.Application.Clients.GetById;
 using Enma.Application.Clients.List;
+using Enma.Application.Clients.Lookup;
 using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
 
@@ -54,6 +55,15 @@ public static class ClientEndpoints
             .WithName("ListClients")
             .WithSummary("Lists clients in the contextual organization.")
             .Produces<ListClientsResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        group.MapGet("lookup", LookupAsync)
+            .WithName("LookupActiveClients")
+            .WithSummary("Finds active clients in the contextual organization.")
+            .Produces<ActiveClientLookupResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
@@ -224,6 +234,46 @@ public static class ClientEndpoints
             _ => throw new InvalidOperationException(
                 "The client update returned an unknown status.")
         };
+    }
+
+    private static async Task<IResult> LookupAsync(
+        Guid organizationId,
+        ClaimsPrincipal principal,
+        SearchActiveClientsUseCase useCase,
+        CancellationToken cancellationToken,
+        string? search = null,
+        int pageNumber = 1,
+        int pageSize = SearchActiveClientsUseCase.DefaultPageSize)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        SearchActiveClientsResult result = await useCase.ExecuteAsync(
+            userId,
+            organizationId,
+            search,
+            pageNumber,
+            pageSize,
+            cancellationToken);
+
+        if (result.Status == SearchActiveClientsResultStatus.AccessDenied)
+        {
+            return TypedResults.Forbid();
+        }
+
+        ActiveClientLookupItemResponse[] items = result.Items
+            .Select(client => new ActiveClientLookupItemResponse(
+                client.Id,
+                client.Name))
+            .ToArray();
+
+        return TypedResults.Ok(new ActiveClientLookupResponse(
+            items,
+            result.PageNumber,
+            result.PageSize,
+            result.HasNext));
     }
 
     private static Task<IResult> DeactivateAsync(
