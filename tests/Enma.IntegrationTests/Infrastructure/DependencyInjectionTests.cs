@@ -10,9 +10,12 @@ using Enma.Application.Clients.Lookup;
 using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
 using Enma.Application.Deadlines;
+using Enma.Application.Deadlines.Complete;
 using Enma.Application.Deadlines.Create;
 using Enma.Application.Deadlines.GetById;
 using Enma.Application.Deadlines.List;
+using Enma.Application.Deadlines.Reopen;
+using Enma.Application.Deadlines.Update;
 using Enma.Application.Organizations;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
@@ -64,17 +67,26 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             .GetRequiredService<IDeadlineOrganizationOwnershipLookup>();
         ILegalDeadlineCreationPersistence firstCreation = firstScope.ServiceProvider
             .GetRequiredService<ILegalDeadlineCreationPersistence>();
+        ILegalDeadlineMutationPersistence firstMutation = firstScope.ServiceProvider
+            .GetRequiredService<ILegalDeadlineMutationPersistence>();
         ILegalDeadlineReadQueries firstQueries = firstScope.ServiceProvider
             .GetRequiredService<ILegalDeadlineReadQueries>();
+        CompleteLegalDeadlineUseCase firstComplete = firstScope.ServiceProvider
+            .GetRequiredService<CompleteLegalDeadlineUseCase>();
         CreateLegalDeadlineUseCase firstCreate = firstScope.ServiceProvider
             .GetRequiredService<CreateLegalDeadlineUseCase>();
         GetLegalDeadlineUseCase firstGet = firstScope.ServiceProvider
             .GetRequiredService<GetLegalDeadlineUseCase>();
         ListLegalDeadlinesUseCase firstList = firstScope.ServiceProvider
             .GetRequiredService<ListLegalDeadlinesUseCase>();
+        ReopenLegalDeadlineUseCase firstReopen = firstScope.ServiceProvider
+            .GetRequiredService<ReopenLegalDeadlineUseCase>();
+        UpdateLegalDeadlineUseCase firstUpdate = firstScope.ServiceProvider
+            .GetRequiredService<UpdateLegalDeadlineUseCase>();
 
         Assert.IsType<DeadlineOrganizationOwnershipLookup>(firstOwnership);
         Assert.IsType<LegalDeadlineCreationPersistence>(firstCreation);
+        Assert.IsType<LegalDeadlineMutationPersistence>(firstMutation);
         Assert.IsType<LegalDeadlineReadQueries>(firstQueries);
         Assert.Same(
             firstAccess,
@@ -93,9 +105,17 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstScope.ServiceProvider
                 .GetRequiredService<ILegalDeadlineCreationPersistence>());
         Assert.Same(
+            firstMutation,
+            firstScope.ServiceProvider
+                .GetRequiredService<ILegalDeadlineMutationPersistence>());
+        Assert.Same(
             firstQueries,
             firstScope.ServiceProvider
                 .GetRequiredService<ILegalDeadlineReadQueries>());
+        Assert.Same(
+            firstComplete,
+            firstScope.ServiceProvider
+                .GetRequiredService<CompleteLegalDeadlineUseCase>());
         Assert.Same(
             firstCreate,
             firstScope.ServiceProvider
@@ -108,6 +128,14 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstList,
             firstScope.ServiceProvider
                 .GetRequiredService<ListLegalDeadlinesUseCase>());
+        Assert.Same(
+            firstReopen,
+            firstScope.ServiceProvider
+                .GetRequiredService<ReopenLegalDeadlineUseCase>());
+        Assert.Same(
+            firstUpdate,
+            firstScope.ServiceProvider
+                .GetRequiredService<UpdateLegalDeadlineUseCase>());
 
         await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
 
@@ -128,9 +156,17 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             secondScope.ServiceProvider
                 .GetRequiredService<ILegalDeadlineCreationPersistence>());
         Assert.NotSame(
+            firstMutation,
+            secondScope.ServiceProvider
+                .GetRequiredService<ILegalDeadlineMutationPersistence>());
+        Assert.NotSame(
             firstQueries,
             secondScope.ServiceProvider
                 .GetRequiredService<ILegalDeadlineReadQueries>());
+        Assert.NotSame(
+            firstComplete,
+            secondScope.ServiceProvider
+                .GetRequiredService<CompleteLegalDeadlineUseCase>());
         Assert.NotSame(
             firstCreate,
             secondScope.ServiceProvider
@@ -143,6 +179,14 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstList,
             secondScope.ServiceProvider
                 .GetRequiredService<ListLegalDeadlinesUseCase>());
+        Assert.NotSame(
+            firstReopen,
+            secondScope.ServiceProvider
+                .GetRequiredService<ReopenLegalDeadlineUseCase>());
+        Assert.NotSame(
+            firstUpdate,
+            secondScope.ServiceProvider
+                .GetRequiredService<UpdateLegalDeadlineUseCase>());
     }
 
     [Fact]

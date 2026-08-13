@@ -21,6 +21,15 @@ public sealed class DeadlineActionAuthorizationTests
     [InlineData(DeadlineAction.Create, OrganizationRole.Owner, true)]
     [InlineData(DeadlineAction.Create, OrganizationRole.Administrator, true)]
     [InlineData(DeadlineAction.Create, OrganizationRole.Member, false)]
+    [InlineData(DeadlineAction.Update, OrganizationRole.Owner, true)]
+    [InlineData(DeadlineAction.Update, OrganizationRole.Administrator, true)]
+    [InlineData(DeadlineAction.Update, OrganizationRole.Member, false)]
+    [InlineData(DeadlineAction.Complete, OrganizationRole.Owner, true)]
+    [InlineData(DeadlineAction.Complete, OrganizationRole.Administrator, true)]
+    [InlineData(DeadlineAction.Complete, OrganizationRole.Member, false)]
+    [InlineData(DeadlineAction.Reopen, OrganizationRole.Owner, true)]
+    [InlineData(DeadlineAction.Reopen, OrganizationRole.Administrator, true)]
+    [InlineData(DeadlineAction.Reopen, OrganizationRole.Member, false)]
     public async Task AuthorizeAsync_WithLiveRole_AppliesExplicitActionRule(
         DeadlineAction action,
         OrganizationRole role,
@@ -54,18 +63,18 @@ public sealed class DeadlineActionAuthorizationTests
         DeadlineActionAuthorizationResult member = await authorization.AuthorizeAsync(
             UserId,
             OrganizationAId,
-            DeadlineAction.Create);
+            DeadlineAction.Complete);
         lookup.FirstRole = OrganizationRole.Administrator;
         DeadlineActionAuthorizationResult administrator =
             await authorization.AuthorizeAsync(
                 UserId,
                 OrganizationAId,
-                DeadlineAction.Create);
+                DeadlineAction.Complete);
         lookup.FirstRole = OrganizationRole.Member;
         DeadlineActionAuthorizationResult demoted = await authorization.AuthorizeAsync(
             UserId,
             OrganizationAId,
-            DeadlineAction.Create);
+            DeadlineAction.Complete);
 
         Assert.Equal(DeadlineActionAuthorizationResult.Denied, member);
         Assert.Equal(DeadlineActionAuthorizationResult.Allowed, administrator);
@@ -83,27 +92,27 @@ public sealed class DeadlineActionAuthorizationTests
             OrganizationRole.Owner);
         DeadlineActionAuthorization authorization = CreateAuthorization(lookup);
 
-        DeadlineActionAuthorizationResult viewA = await authorization.AuthorizeAsync(
+        DeadlineActionAuthorizationResult updateA = await authorization.AuthorizeAsync(
             UserId,
             OrganizationAId,
-            DeadlineAction.View);
-        DeadlineActionAuthorizationResult createA = await authorization.AuthorizeAsync(
+            DeadlineAction.Update);
+        DeadlineActionAuthorizationResult reopenA = await authorization.AuthorizeAsync(
             UserId,
             OrganizationAId,
-            DeadlineAction.Create);
-        DeadlineActionAuthorizationResult viewB = await authorization.AuthorizeAsync(
+            DeadlineAction.Reopen);
+        DeadlineActionAuthorizationResult updateB = await authorization.AuthorizeAsync(
             UserId,
             OrganizationBId,
-            DeadlineAction.View);
-        DeadlineActionAuthorizationResult createB = await authorization.AuthorizeAsync(
+            DeadlineAction.Update);
+        DeadlineActionAuthorizationResult reopenB = await authorization.AuthorizeAsync(
             UserId,
             OrganizationBId,
-            DeadlineAction.Create);
+            DeadlineAction.Reopen);
 
-        Assert.Equal(DeadlineActionAuthorizationResult.Allowed, viewA);
-        Assert.Equal(DeadlineActionAuthorizationResult.Denied, createA);
-        Assert.Equal(DeadlineActionAuthorizationResult.Allowed, viewB);
-        Assert.Equal(DeadlineActionAuthorizationResult.Allowed, createB);
+        Assert.Equal(DeadlineActionAuthorizationResult.Denied, updateA);
+        Assert.Equal(DeadlineActionAuthorizationResult.Denied, reopenA);
+        Assert.Equal(DeadlineActionAuthorizationResult.Allowed, updateB);
+        Assert.Equal(DeadlineActionAuthorizationResult.Allowed, reopenB);
     }
 
     [Theory]
@@ -162,10 +171,16 @@ public sealed class DeadlineActionAuthorizationTests
     }
 
     [Fact]
-    public void ActionContract_PublicValues_ContainsOnlyViewAndCreate()
+    public void ActionContract_PublicValues_ContainsLockedActionSet()
     {
         Assert.Equal(
-            [nameof(DeadlineAction.View), nameof(DeadlineAction.Create)],
+            [
+                nameof(DeadlineAction.View),
+                nameof(DeadlineAction.Create),
+                nameof(DeadlineAction.Update),
+                nameof(DeadlineAction.Complete),
+                nameof(DeadlineAction.Reopen)
+            ],
             Enum.GetNames<DeadlineAction>());
     }
 

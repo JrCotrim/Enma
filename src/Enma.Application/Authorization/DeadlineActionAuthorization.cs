@@ -54,6 +54,10 @@ public sealed class DeadlineActionAuthorization
                 OrganizationRole.Member) => DeadlineActionAuthorizationResult.Allowed,
             (DeadlineAction.Create, OrganizationRole.Owner or
                 OrganizationRole.Administrator) => DeadlineActionAuthorizationResult.Allowed,
+            (DeadlineAction.Update or
+                DeadlineAction.Complete or
+                DeadlineAction.Reopen, OrganizationRole.Owner or
+                OrganizationRole.Administrator) => DeadlineActionAuthorizationResult.Allowed,
             _ => DeadlineActionAuthorizationResult.Denied
         };
     }
