@@ -150,6 +150,16 @@ public sealed class LegalProcessPersistenceTests(
             150,
             entityType.FindProperty(nameof(LegalProcess.Title))!.GetMaxLength());
 
+        IKey alternateKey = Assert.Single(
+            entityType.GetKeys(),
+            key => !key.IsPrimaryKey());
+        Assert.Equal(
+            "ak_legal_processes_organization_id_id",
+            alternateKey.GetName());
+        Assert.Equal(
+            [nameof(LegalProcess.OrganizationId), nameof(LegalProcess.Id)],
+            alternateKey.Properties.Select(property => property.Name).ToArray());
+
         IIndex index = Assert.Single(entityType.GetIndexes());
         Assert.Equal(
             "ix_legal_processes_organization_id_client_id",
@@ -202,6 +212,12 @@ public sealed class LegalProcessPersistenceTests(
                 "clients",
                 "ak_clients_organization_id_id",
                 "UNIQUE"));
+        Assert.Equal(
+            "organization_id,id",
+            await GetConstraintColumnsAsync(
+                "legal_processes",
+                "ak_legal_processes_organization_id_id",
+                "UNIQUE"));
 
         string? legalProcessIndex = await GetIndexDefinitionAsync(
             "legal_processes",
@@ -213,6 +229,11 @@ public sealed class LegalProcessPersistenceTests(
             "ak_clients_organization_id_id");
         Assert.NotNull(clientAlternateKeyIndex);
         Assert.Contains("(organization_id, id)", clientAlternateKeyIndex);
+        string? legalProcessAlternateKeyIndex = await GetIndexDefinitionAsync(
+            "legal_processes",
+            "ak_legal_processes_organization_id_id");
+        Assert.NotNull(legalProcessAlternateKeyIndex);
+        Assert.Contains("(organization_id, id)", legalProcessAlternateKeyIndex);
         Assert.Null(await GetIndexDefinitionAsync(
             "clients",
             "ix_clients_organization_id"));

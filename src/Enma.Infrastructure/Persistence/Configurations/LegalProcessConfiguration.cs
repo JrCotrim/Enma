@@ -43,6 +43,13 @@ public sealed class LegalProcessConfiguration
             .HasColumnType("timestamp with time zone")
             .IsRequired();
 
+        builder.HasAlternateKey(legalProcess => new
+            {
+                legalProcess.OrganizationId,
+                legalProcess.Id
+            })
+            .HasName("ak_legal_processes_organization_id_id");
+
         builder.HasIndex(legalProcess => new
             {
                 legalProcess.OrganizationId,
