@@ -5,6 +5,7 @@ using Enma.Api.Deployment;
 using Enma.Api.Endpoints;
 using Enma.Api.Endpoints.Authentication;
 using Enma.Api.Endpoints.Clients;
+using Enma.Api.Endpoints.Deadlines;
 using Enma.Api.Endpoints.Onboarding;
 using Enma.Api.Endpoints.Organizations;
 using Enma.Api.Endpoints.Processes;
@@ -164,6 +165,7 @@ app.MapOrganizationEndpoints();
 app.MapCurrentUserOrganizationEndpoints();
 app.MapClientEndpoints();
 app.MapLegalProcessEndpoints();
+app.MapLegalDeadlineEndpoints();
 
 app.Run();
 
