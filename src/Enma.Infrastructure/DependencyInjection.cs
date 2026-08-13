@@ -11,6 +11,10 @@ using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
+using Enma.Application.Processes;
+using Enma.Application.Processes.Create;
+using Enma.Application.Processes.GetById;
+using Enma.Application.Processes.List;
 using Enma.Application.Security;
 using Enma.Application.Users;
 using Enma.Infrastructure.Email;
@@ -137,9 +141,19 @@ public static class DependencyInjection
         services.AddScoped<
             IClientOrganizationOwnershipLookup,
             ClientOrganizationOwnershipLookup>();
+        services.AddScoped<
+            IProcessOrganizationOwnershipLookup,
+            ProcessOrganizationOwnershipLookup>();
+        services.AddScoped<
+            IActiveClientInOrganizationLookup,
+            ActiveClientInOrganizationLookup>();
         services.AddScoped<IClientCreationPersistence, ClientCreationPersistence>();
         services.AddScoped<IClientMutationPersistence, ClientMutationPersistence>();
         services.AddScoped<IClientReadQueries, ClientReadQueries>();
+        services.AddScoped<
+            ILegalProcessCreationPersistence,
+            LegalProcessCreationPersistence>();
+        services.AddScoped<ILegalProcessReadQueries, LegalProcessReadQueries>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
             ICurrentUserOrganizationQueries,
@@ -158,12 +172,17 @@ public static class DependencyInjection
         services.AddScoped<GetCurrentUserOrganizationsUseCase>();
         services.AddScoped<ClientAccessAuthorization>();
         services.AddScoped<ClientActionAuthorization>();
+        services.AddScoped<ProcessAccessAuthorization>();
+        services.AddScoped<ProcessActionAuthorization>();
         services.AddScoped<CreateClientUseCase>();
         services.AddScoped<DeactivateClientUseCase>();
         services.AddScoped<GetClientUseCase>();
         services.AddScoped<ListClientsUseCase>();
         services.AddScoped<ReactivateClientUseCase>();
         services.AddScoped<UpdateClientUseCase>();
+        services.AddScoped<CreateLegalProcessUseCase>();
+        services.AddScoped<GetLegalProcessUseCase>();
+        services.AddScoped<ListLegalProcessesUseCase>();
 
         return services;
     }

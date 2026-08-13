@@ -9,6 +9,10 @@ using Enma.Application.Clients.List;
 using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
 using Enma.Application.Organizations;
+using Enma.Application.Processes;
+using Enma.Application.Processes.Create;
+using Enma.Application.Processes.GetById;
+using Enma.Application.Processes.List;
 using Enma.Application.Security;
 using Enma.Application.Users;
 using Enma.Infrastructure;
@@ -30,6 +34,126 @@ namespace Enma.IntegrationTests.Infrastructure;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 {
+    [Fact]
+    public async Task AddInfrastructure_RegistersLegalProcessServicesWithSafeScopedLifetime()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddInfrastructure(fixture.ConnectionString, CreateConfiguration());
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+
+        ProcessAccessAuthorization firstAccessAuthorization = firstScope
+            .ServiceProvider
+            .GetRequiredService<ProcessAccessAuthorization>();
+        ProcessActionAuthorization firstActionAuthorization = firstScope
+            .ServiceProvider
+            .GetRequiredService<ProcessActionAuthorization>();
+        IProcessOrganizationOwnershipLookup firstOwnershipLookup = firstScope
+            .ServiceProvider
+            .GetRequiredService<IProcessOrganizationOwnershipLookup>();
+        IActiveClientInOrganizationLookup firstActiveClientLookup = firstScope
+            .ServiceProvider
+            .GetRequiredService<IActiveClientInOrganizationLookup>();
+        ILegalProcessCreationPersistence firstCreationPersistence = firstScope
+            .ServiceProvider
+            .GetRequiredService<ILegalProcessCreationPersistence>();
+        ILegalProcessReadQueries firstReadQueries = firstScope.ServiceProvider
+            .GetRequiredService<ILegalProcessReadQueries>();
+        CreateLegalProcessUseCase firstCreateUseCase = firstScope.ServiceProvider
+            .GetRequiredService<CreateLegalProcessUseCase>();
+        GetLegalProcessUseCase firstGetUseCase = firstScope.ServiceProvider
+            .GetRequiredService<GetLegalProcessUseCase>();
+        ListLegalProcessesUseCase firstListUseCase = firstScope.ServiceProvider
+            .GetRequiredService<ListLegalProcessesUseCase>();
+
+        Assert.IsType<ProcessOrganizationOwnershipLookup>(firstOwnershipLookup);
+        Assert.IsType<ActiveClientInOrganizationLookup>(firstActiveClientLookup);
+        Assert.IsType<LegalProcessCreationPersistence>(firstCreationPersistence);
+        Assert.IsType<LegalProcessReadQueries>(firstReadQueries);
+        Assert.Same(
+            firstAccessAuthorization,
+            firstScope.ServiceProvider
+                .GetRequiredService<ProcessAccessAuthorization>());
+        Assert.Same(
+            firstActionAuthorization,
+            firstScope.ServiceProvider
+                .GetRequiredService<ProcessActionAuthorization>());
+        Assert.Same(
+            firstOwnershipLookup,
+            firstScope.ServiceProvider
+                .GetRequiredService<IProcessOrganizationOwnershipLookup>());
+        Assert.Same(
+            firstActiveClientLookup,
+            firstScope.ServiceProvider
+                .GetRequiredService<IActiveClientInOrganizationLookup>());
+        Assert.Same(
+            firstCreationPersistence,
+            firstScope.ServiceProvider
+                .GetRequiredService<ILegalProcessCreationPersistence>());
+        Assert.Same(
+            firstReadQueries,
+            firstScope.ServiceProvider
+                .GetRequiredService<ILegalProcessReadQueries>());
+        Assert.Same(
+            firstCreateUseCase,
+            firstScope.ServiceProvider
+                .GetRequiredService<CreateLegalProcessUseCase>());
+        Assert.Same(
+            firstGetUseCase,
+            firstScope.ServiceProvider
+                .GetRequiredService<GetLegalProcessUseCase>());
+        Assert.Same(
+            firstListUseCase,
+            firstScope.ServiceProvider
+                .GetRequiredService<ListLegalProcessesUseCase>());
+
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+
+        Assert.NotSame(
+            firstAccessAuthorization,
+            secondScope.ServiceProvider
+                .GetRequiredService<ProcessAccessAuthorization>());
+        Assert.NotSame(
+            firstActionAuthorization,
+            secondScope.ServiceProvider
+                .GetRequiredService<ProcessActionAuthorization>());
+        Assert.NotSame(
+            firstOwnershipLookup,
+            secondScope.ServiceProvider
+                .GetRequiredService<IProcessOrganizationOwnershipLookup>());
+        Assert.NotSame(
+            firstActiveClientLookup,
+            secondScope.ServiceProvider
+                .GetRequiredService<IActiveClientInOrganizationLookup>());
+        Assert.NotSame(
+            firstCreationPersistence,
+            secondScope.ServiceProvider
+                .GetRequiredService<ILegalProcessCreationPersistence>());
+        Assert.NotSame(
+            firstReadQueries,
+            secondScope.ServiceProvider
+                .GetRequiredService<ILegalProcessReadQueries>());
+        Assert.NotSame(
+            firstCreateUseCase,
+            secondScope.ServiceProvider
+                .GetRequiredService<CreateLegalProcessUseCase>());
+        Assert.NotSame(
+            firstGetUseCase,
+            secondScope.ServiceProvider
+                .GetRequiredService<GetLegalProcessUseCase>());
+        Assert.NotSame(
+            firstListUseCase,
+            secondScope.ServiceProvider
+                .GetRequiredService<ListLegalProcessesUseCase>());
+    }
+
     [Fact]
     public async Task AddInfrastructure_RegistersClientUseCasesWithSafeScopedLifetime()
     {
