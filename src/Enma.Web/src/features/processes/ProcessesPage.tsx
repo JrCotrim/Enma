@@ -873,7 +873,14 @@ export function ProcessesPage() {
                 <tbody>
                   {currentListState.response.items.map((legalProcess) => (
                     <tr key={legalProcess.id}>
-                      <td data-label="Título">{legalProcess.title}</td>
+                      <td data-label="Título">
+                        <Link
+                          className="process-detail-link"
+                          to={`/organizations/${currentOrganization.id}/processes/${legalProcess.id}`}
+                        >
+                          {legalProcess.title}
+                        </Link>
+                      </td>
                       <td data-label="Cliente">{legalProcess.clientName}</td>
                       <td data-label="Criado em">
                         {formatLegalProcessCreatedAt(legalProcess.createdAt)}

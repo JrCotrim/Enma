@@ -6,8 +6,10 @@ import {
 import type {
   CreateLegalProcessRequest,
   CreateLegalProcessResponse,
+  LegalProcess,
   LegalProcessListItem,
   LegalProcessListResponse,
+  UpdateLegalProcessRequest,
 } from './legalProcessTypes'
 
 export type LegalProcessRequestFailure =
@@ -23,9 +25,7 @@ export class LegalProcessRequestError extends Error {
   }
 }
 
-function parseLegalProcessListItem(
-  value: unknown,
-): LegalProcessListItem | undefined {
+function parseLegalProcess(value: unknown): LegalProcess | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined
   }
@@ -36,9 +36,11 @@ function parseLegalProcessListItem(
     typeof candidate.id !== 'string' ||
     candidate.id.length === 0 ||
     typeof candidate.title !== 'string' ||
+    candidate.title.length === 0 ||
     typeof candidate.clientId !== 'string' ||
     candidate.clientId.length === 0 ||
     typeof candidate.clientName !== 'string' ||
+    candidate.clientName.length === 0 ||
     typeof candidate.createdAt !== 'string' ||
     Number.isNaN(Date.parse(candidate.createdAt))
   ) {
@@ -63,7 +65,7 @@ function parseLegalProcessListResponse(
 
   const candidate = value as Record<string, unknown>
   const items = Array.isArray(candidate.items)
-    ? candidate.items.map(parseLegalProcessListItem)
+    ? candidate.items.map(parseLegalProcess)
     : undefined
 
   if (
@@ -125,6 +127,13 @@ function throwForStatus(status: number): never {
 
 function getLegalProcessesEndpoint(organizationId: string): string {
   return `/api/organizations/${encodeURIComponent(organizationId)}/processes`
+}
+
+function getLegalProcessEndpoint(
+  organizationId: string,
+  processId: string,
+): string {
+  return `${getLegalProcessesEndpoint(organizationId)}/${encodeURIComponent(processId)}`
 }
 
 export async function listLegalProcesses(
@@ -204,4 +213,66 @@ export async function createLegalProcess(
   }
 
   return parseCreateLegalProcessResponse(await response.json())
+}
+
+export async function getLegalProcess(
+  organizationId: string,
+  processId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<LegalProcess> {
+  const response = await fetchWithSession(
+    getLegalProcessEndpoint(organizationId, processId),
+    {
+      method: 'GET',
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status !== 200) {
+    throwForStatus(response.status)
+  }
+
+  const legalProcess = parseLegalProcess(await response.json())
+
+  if (!legalProcess || legalProcess.id.toLowerCase() !== processId.toLowerCase()) {
+    throw new LegalProcessRequestError('unexpected')
+  }
+
+  return legalProcess
+}
+
+export async function updateLegalProcess(
+  organizationId: string,
+  processId: string,
+  title: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const requestToken = await getCsrfToken()
+  const body: UpdateLegalProcessRequest = { title }
+  const response = await fetchWithSession(
+    getLegalProcessEndpoint(organizationId, processId),
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': requestToken,
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status !== 204) {
+    if (response.status === 400) {
+      clearCsrfToken()
+    }
+
+    throwForStatus(response.status)
+  }
 }

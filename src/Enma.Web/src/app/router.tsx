@@ -10,6 +10,7 @@ import { OrganizationProvider } from '../features/organizations/OrganizationProv
 import { OrganizationRoute } from '../features/organizations/OrganizationRoute'
 import { OrganizationsPage } from '../features/organizations/OrganizationsPage'
 import { ProcessesPage } from '../features/processes/ProcessesPage'
+import { ProcessDetailsPage } from '../features/processes/ProcessDetailsPage'
 import { HomePage } from '../pages/HomePage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { App } from './App'
@@ -63,6 +64,10 @@ export function createAppRoutes(
                         {
                           path: 'processes',
                           element: <ProcessesPage />,
+                        },
+                        {
+                          path: 'processes/:processId',
+                          element: <ProcessDetailsPage />,
                         },
                       ],
                     },

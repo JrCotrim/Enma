@@ -1,10 +1,12 @@
-export interface LegalProcessListItem {
+export interface LegalProcess {
   readonly id: string
   readonly title: string
   readonly clientId: string
   readonly clientName: string
   readonly createdAt: string
 }
+
+export type LegalProcessListItem = LegalProcess
 
 export interface LegalProcessListResponse {
   readonly items: readonly LegalProcessListItem[]
@@ -14,6 +16,10 @@ export interface LegalProcessListResponse {
 
 export interface CreateLegalProcessRequest {
   readonly clientId: string
+  readonly title: string
+}
+
+export interface UpdateLegalProcessRequest {
   readonly title: string
 }
 

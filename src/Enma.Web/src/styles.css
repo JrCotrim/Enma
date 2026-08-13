@@ -135,6 +135,7 @@ h1 {
 .process-create-form input:focus-visible,
 .client-result-button:focus-visible,
 .client-detail-link:focus-visible,
+.process-detail-link:focus-visible,
 .organization-switcher select:focus-visible,
 .organization-link:focus-visible,
 .workspace-navigation-link:focus-visible,
@@ -340,6 +341,10 @@ h1 {
   margin-top: 2rem;
 }
 
+.process-details-page {
+  margin-top: 2rem;
+}
+
 .clients-header {
   display: flex;
   align-items: flex-start;
@@ -362,6 +367,14 @@ h1 {
   margin-top: 1.5rem;
 }
 
+.process-details-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
 .client-details-header h2 {
   margin: 0;
   overflow-wrap: anywhere;
@@ -370,7 +383,21 @@ h1 {
   font-weight: 500;
 }
 
+.process-details-header h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 500;
+}
+
 .client-detail-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.75rem;
+}
+
+.process-detail-actions {
   display: flex;
   flex: 0 0 auto;
   gap: 0.75rem;
@@ -418,8 +445,18 @@ h1 {
   text-underline-offset: 0.2em;
 }
 
+.process-detail-link {
+  color: #174d39;
+  font-weight: 750;
+  text-underline-offset: 0.2em;
+}
+
 .client-edit-form,
 .client-confirmation {
+  max-width: 42rem;
+}
+
+.process-edit-form {
   max-width: 42rem;
 }
 
@@ -427,7 +464,8 @@ h1 {
   line-height: 1.5;
 }
 
-.client-properties {
+.client-properties,
+.process-properties {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
@@ -438,13 +476,15 @@ h1 {
   background: #d8d2c4;
 }
 
-.client-properties div {
+.client-properties div,
+.process-properties div {
   min-width: 0;
   padding: 1.25rem;
   background: #fff;
 }
 
-.client-properties dt {
+.client-properties dt,
+.process-properties dt {
   color: #547064;
   font-size: 0.85rem;
   font-weight: 750;
@@ -452,7 +492,8 @@ h1 {
   text-transform: uppercase;
 }
 
-.client-properties dd {
+.client-properties dd,
+.process-properties dd {
   margin: 0.5rem 0 0;
   overflow-wrap: anywhere;
 }
@@ -488,6 +529,14 @@ h1 {
 }
 
 .client-mutation-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.process-mutation-error {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -840,7 +889,9 @@ h1 {
   .clients-state-actions,
   .client-create-error,
   .client-detail-actions,
-  .client-mutation-error {
+  .client-mutation-error,
+  .process-detail-actions,
+  .process-mutation-error {
     align-items: stretch;
     flex-direction: column;
   }
@@ -865,11 +916,14 @@ h1 {
   }
 
   .client-detail-actions,
-  .client-detail-actions .secondary-button {
+  .client-detail-actions .secondary-button,
+  .process-detail-actions,
+  .process-detail-actions .secondary-button {
     width: 100%;
   }
 
-  .client-properties {
+  .client-properties,
+  .process-properties {
     grid-template-columns: 1fr;
   }
 
