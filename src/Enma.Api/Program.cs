@@ -9,6 +9,7 @@ using Enma.Api.Endpoints.Deadlines;
 using Enma.Api.Endpoints.Onboarding;
 using Enma.Api.Endpoints.Organizations;
 using Enma.Api.Endpoints.Processes;
+using Enma.Api.Endpoints.Tasks;
 using Enma.Api.ExceptionHandling;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations.GetById;
@@ -167,6 +168,7 @@ app.MapOrganizationMemberEndpoints();
 app.MapClientEndpoints();
 app.MapLegalProcessEndpoints();
 app.MapLegalDeadlineEndpoints();
+app.MapLegalTaskEndpoints();
 
 app.Run();
 
