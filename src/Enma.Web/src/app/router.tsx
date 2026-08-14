@@ -4,6 +4,7 @@ import { LoginPage } from '../features/authentication/LoginPage'
 import { ProtectedRoute } from '../features/authentication/SessionStatus'
 import { ClientsPage } from '../features/clients/ClientsPage'
 import { ClientDetailsPage } from '../features/clients/ClientDetailsPage'
+import { DeadlinesPage } from '../features/deadlines/DeadlinesPage'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
 import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
 import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
@@ -68,6 +69,10 @@ export function createAppRoutes(
                         {
                           path: 'processes/:processId',
                           element: <ProcessDetailsPage />,
+                        },
+                        {
+                          path: 'deadlines',
+                          element: <DeadlinesPage />,
                         },
                       ],
                     },

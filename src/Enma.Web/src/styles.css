@@ -134,6 +134,9 @@ h1 {
 .client-lookup-form input:focus-visible,
 .process-create-form input:focus-visible,
 .client-result-button:focus-visible,
+.process-lookup-form input:focus-visible,
+.deadline-create-form input:focus-visible,
+.process-result-button:focus-visible,
 .client-detail-link:focus-visible,
 .process-detail-link:focus-visible,
 .organization-switcher select:focus-visible,
@@ -315,6 +318,7 @@ h1 {
 
 .workspace-navigation {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 2rem;
   border-bottom: 1px solid #d8d2c4;
@@ -825,6 +829,232 @@ h1 {
   margin-top: 1.5rem;
 }
 
+.deadlines-page {
+  margin-top: 2rem;
+}
+
+.deadlines-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.deadlines-header h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 500;
+}
+
+.deadlines-description {
+  margin: 0.75rem 0 0;
+  color: #547064;
+  line-height: 1.5;
+}
+
+.deadline-create-panel,
+.deadlines-state {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.deadline-create-panel > h3,
+.deadlines-state h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.5rem;
+  font-weight: 500;
+}
+
+.process-lookup-form,
+.deadline-create-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.process-lookup-form label,
+.deadline-create-form label {
+  color: #34483f;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.process-lookup-form input,
+.deadline-create-form input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #aaa99f;
+  border-radius: 0.5rem;
+  color: #18221d;
+  background: #fff;
+  font: inherit;
+}
+
+.process-lookup-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+}
+
+.process-lookup-status,
+.selected-process {
+  margin: 1rem 0 0;
+  line-height: 1.5;
+}
+
+.selected-process {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.selected-process p {
+  margin: 0;
+}
+
+.process-lookup-status .secondary-button {
+  margin-top: 0.75rem;
+}
+
+.process-lookup-results ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.process-result-button {
+  display: grid;
+  width: 100%;
+  gap: 0.25rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid #aaa99f;
+  border-radius: 0.5rem;
+  color: #18221d;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.process-result-button small {
+  color: #547064;
+}
+
+.process-result-button[aria-pressed="true"] {
+  border-color: #174d39;
+  color: #174d39;
+  background: #eaf5ef;
+  font-weight: 750;
+}
+
+.process-result-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.load-more-processes {
+  margin-top: 1rem;
+}
+
+.deadline-form-actions,
+.deadlines-state-actions,
+.deadline-create-error {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.deadline-create-error {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.deadline-form-actions .primary-button,
+.deadlines-header .primary-button {
+  margin-top: 0;
+}
+
+.deadlines-state p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.deadlines-state h3 + p {
+  margin-top: 0.5rem;
+}
+
+.deadlines-state .secondary-button,
+.deadlines-state-actions {
+  margin-top: 1rem;
+}
+
+.deadlines-state-actions .home-link {
+  align-self: center;
+  margin: 0;
+}
+
+.deadlines-table-wrapper {
+  margin-top: 1.5rem;
+}
+
+.deadlines-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.deadlines-table th,
+.deadlines-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #d8d2c4;
+  text-align: left;
+}
+
+.deadlines-table th {
+  color: #34483f;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.deadlines-table td {
+  overflow-wrap: anywhere;
+}
+
+.deadline-status {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 750;
+}
+
+.deadline-status.is-pending {
+  color: #70551c;
+  background: #f8efcf;
+}
+
+.deadline-status.is-completed {
+  color: #285541;
+  background: #e0f1e8;
+}
+
+.deadlines-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -851,6 +1081,7 @@ h1 {
   .organization-card,
   .clients-header,
   .processes-header,
+  .deadlines-header,
   .client-details-header {
     flex-direction: column;
   }
@@ -885,6 +1116,10 @@ h1 {
     width: 100%;
   }
 
+  .deadlines-header .primary-button {
+    width: 100%;
+  }
+
   .client-form-actions,
   .clients-state-actions,
   .client-create-error,
@@ -898,12 +1133,24 @@ h1 {
 
   .process-form-actions,
   .processes-state-actions,
-  .process-create-error {
+  .process-create-error,
+  .deadline-form-actions,
+  .deadlines-state-actions,
+  .deadline-create-error {
     align-items: stretch;
     flex-direction: column;
   }
 
+  .selected-process {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .client-lookup-search-row {
+    grid-template-columns: 1fr;
+  }
+
+  .process-lookup-search-row {
     grid-template-columns: 1fr;
   }
 
@@ -912,6 +1159,10 @@ h1 {
   }
 
   .processes-table-wrapper {
+    overflow: visible;
+  }
+
+  .deadlines-table-wrapper {
     overflow: visible;
   }
 
@@ -943,6 +1194,14 @@ h1 {
     clip: rect(0, 0, 0, 0);
   }
 
+  .deadlines-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
   .clients-table,
   .clients-table tbody,
   .clients-table tr,
@@ -957,6 +1216,35 @@ h1 {
   .processes-table td {
     display: block;
     width: 100%;
+  }
+
+  .deadlines-table,
+  .deadlines-table tbody,
+  .deadlines-table tr,
+  .deadlines-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .deadlines-table tr {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #d8d2c4;
+  }
+
+  .deadlines-table td {
+    display: grid;
+    grid-template-columns: minmax(6rem, 0.4fr) minmax(0, 1fr);
+    gap: 1rem;
+    padding: 0.6rem 0;
+    border: 0;
+  }
+
+  .deadlines-table td::before {
+    color: #34483f;
+    content: attr(data-label);
+    font-size: 0.8rem;
+    font-weight: 750;
+    text-transform: uppercase;
   }
 
   .processes-table tr {
@@ -1006,6 +1294,10 @@ h1 {
   }
 
   .processes-pagination {
+    flex-wrap: wrap;
+  }
+
+  .deadlines-pagination {
     flex-wrap: wrap;
   }
 }
