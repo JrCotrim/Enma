@@ -6,6 +6,7 @@ using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
+using Enma.Domain.Tasks;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -25,6 +26,8 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     public DbSet<LegalDeadline> LegalDeadlines => Set<LegalDeadline>();
 
     public DbSet<LegalProcess> LegalProcesses => Set<LegalProcess>();
+
+    public DbSet<LegalTask> LegalTasks => Set<LegalTask>();
 
     public DbSet<User> Users => Set<User>();
 

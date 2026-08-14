@@ -90,7 +90,9 @@ public sealed class OrganizationMembershipMigrationTests(
 
         await MigrateAsync();
 
-        Assert.Equal(tablesBefore, await GetPublicTablesAsync());
+        Assert.Equal(
+            tablesBefore.Append("legal_tasks").OrderBy(table => table),
+            await GetPublicTablesAsync());
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         Organization organization = await dbContext.Organizations.SingleAsync();
         User user = await dbContext.Users.SingleAsync();
