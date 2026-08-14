@@ -934,7 +934,14 @@ export function DeadlinesPage() {
                 <tbody>
                   {currentListState.response.items.map((deadline) => (
                     <tr key={deadline.id}>
-                      <td data-label="Título">{deadline.title}</td>
+                      <td data-label="Título">
+                        <Link
+                          className="deadline-detail-link"
+                          to={`/organizations/${currentOrganization.id}/deadlines/${deadline.id}`}
+                        >
+                          {deadline.title}
+                        </Link>
+                      </td>
                       <td data-label="Processo">{deadline.processTitle}</td>
                       <td data-label="Cliente">{deadline.clientName}</td>
                       <td data-label="Vencimento">

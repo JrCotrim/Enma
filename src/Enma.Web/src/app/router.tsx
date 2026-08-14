@@ -5,6 +5,7 @@ import { ProtectedRoute } from '../features/authentication/SessionStatus'
 import { ClientsPage } from '../features/clients/ClientsPage'
 import { ClientDetailsPage } from '../features/clients/ClientDetailsPage'
 import { DeadlinesPage } from '../features/deadlines/DeadlinesPage'
+import { DeadlineDetailsPage } from '../features/deadlines/DeadlineDetailsPage'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
 import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
 import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
@@ -73,6 +74,10 @@ export function createAppRoutes(
                         {
                           path: 'deadlines',
                           element: <DeadlinesPage />,
+                        },
+                        {
+                          path: 'deadlines/:deadlineId',
+                          element: <DeadlineDetailsPage />,
                         },
                       ],
                     },

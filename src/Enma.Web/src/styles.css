@@ -349,6 +349,10 @@ h1 {
   margin-top: 2rem;
 }
 
+.deadline-details-page {
+  margin-top: 2rem;
+}
+
 .clients-header {
   display: flex;
   align-items: flex-start;
@@ -379,6 +383,14 @@ h1 {
   margin-top: 1.5rem;
 }
 
+.deadline-details-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
 .client-details-header h2 {
   margin: 0;
   overflow-wrap: anywhere;
@@ -395,6 +407,14 @@ h1 {
   font-weight: 500;
 }
 
+.deadline-details-header h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 500;
+}
+
 .client-detail-actions {
   display: flex;
   flex: 0 0 auto;
@@ -402,6 +422,12 @@ h1 {
 }
 
 .process-detail-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.75rem;
+}
+
+.deadline-detail-actions {
   display: flex;
   flex: 0 0 auto;
   gap: 0.75rem;
@@ -455,6 +481,12 @@ h1 {
   text-underline-offset: 0.2em;
 }
 
+.deadline-detail-link {
+  color: #174d39;
+  font-weight: 750;
+  text-underline-offset: 0.2em;
+}
+
 .client-edit-form,
 .client-confirmation {
   max-width: 42rem;
@@ -469,7 +501,8 @@ h1 {
 }
 
 .client-properties,
-.process-properties {
+.process-properties,
+.deadline-properties {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
@@ -481,14 +514,16 @@ h1 {
 }
 
 .client-properties div,
-.process-properties div {
+.process-properties div,
+.deadline-properties div {
   min-width: 0;
   padding: 1.25rem;
   background: #fff;
 }
 
 .client-properties dt,
-.process-properties dt {
+.process-properties dt,
+.deadline-properties dt {
   color: #547064;
   font-size: 0.85rem;
   font-weight: 750;
@@ -497,7 +532,8 @@ h1 {
 }
 
 .client-properties dd,
-.process-properties dd {
+.process-properties dd,
+.deadline-properties dd {
   margin: 0.5rem 0 0;
   overflow-wrap: anywhere;
 }
@@ -546,6 +582,18 @@ h1 {
   justify-content: space-between;
   gap: 1rem;
   margin-top: 1.5rem;
+}
+
+.deadline-mutation-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.deadline-edit-form {
+  max-width: 42rem;
 }
 
 .text-button {
@@ -1082,7 +1130,8 @@ h1 {
   .clients-header,
   .processes-header,
   .deadlines-header,
-  .client-details-header {
+  .client-details-header,
+  .deadline-details-header {
     flex-direction: column;
   }
 
@@ -1126,7 +1175,9 @@ h1 {
   .client-detail-actions,
   .client-mutation-error,
   .process-detail-actions,
-  .process-mutation-error {
+  .process-mutation-error,
+  .deadline-detail-actions,
+  .deadline-mutation-error {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1169,12 +1220,16 @@ h1 {
   .client-detail-actions,
   .client-detail-actions .secondary-button,
   .process-detail-actions,
-  .process-detail-actions .secondary-button {
+  .process-detail-actions .secondary-button,
+  .deadline-detail-actions,
+  .deadline-detail-actions .secondary-button,
+  .deadline-detail-actions .primary-button {
     width: 100%;
   }
 
   .client-properties,
-  .process-properties {
+  .process-properties,
+  .deadline-properties {
     grid-template-columns: 1fr;
   }
 

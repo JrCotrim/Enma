@@ -3,12 +3,14 @@ import {
   fetchWithSession,
   type UnauthorizedHandler,
 } from '../authentication/sessionClient'
-import { isValidDateOnly } from './legalDeadlineFormatting'
+import { isValidDateOnly, isValidGuid } from './legalDeadlineFormatting'
 import type {
   CreateLegalDeadlineRequest,
   CreateLegalDeadlineResponse,
+  LegalDeadline,
   LegalDeadlineListItem,
   LegalDeadlineListResponse,
+  UpdateLegalDeadlineRequest,
 } from './legalDeadlineTypes'
 
 export type LegalDeadlineRequestFailure =
@@ -16,6 +18,7 @@ export type LegalDeadlineRequestFailure =
   | 'forbidden'
   | 'not-found'
   | 'bad-request'
+  | 'conflict'
   | 'unexpected'
 
 export class LegalDeadlineRequestError extends Error {
@@ -95,6 +98,42 @@ function parseLegalDeadlineListResponse(
   }
 }
 
+function isValidTimestamp(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    !Number.isNaN(new Date(value).getTime())
+  )
+}
+
+function parseLegalDeadline(value: unknown): LegalDeadline {
+  const item = parseLegalDeadlineListItem(value)
+
+  if (!item || typeof value !== 'object' || value === null) {
+    throw new LegalDeadlineRequestError('unexpected')
+  }
+
+  const candidate = value as Record<string, unknown>
+  const hasConsistentCompletion =
+    (item.state === 'Pending' && candidate.completedAt === null) ||
+    (item.state === 'Completed' && isValidTimestamp(candidate.completedAt))
+
+  if (
+    !isValidGuid(item.id) ||
+    !isValidGuid(item.processId) ||
+    !isValidTimestamp(candidate.createdAt) ||
+    !hasConsistentCompletion
+  ) {
+    throw new LegalDeadlineRequestError('unexpected')
+  }
+
+  return {
+    ...item,
+    createdAt: candidate.createdAt,
+    completedAt: candidate.completedAt as string | null,
+  }
+}
+
 function parseCreateLegalDeadlineResponse(
   value: unknown,
 ): CreateLegalDeadlineResponse {
@@ -128,11 +167,54 @@ function throwForStatus(status: number): never {
     throw new LegalDeadlineRequestError('bad-request')
   }
 
+  if (status === 409) {
+    throw new LegalDeadlineRequestError('conflict')
+  }
+
   throw new LegalDeadlineRequestError('unexpected')
 }
 
 function getLegalDeadlinesEndpoint(organizationId: string): string {
   return `/api/organizations/${encodeURIComponent(organizationId)}/deadlines`
+}
+
+function getLegalDeadlineEndpoint(
+  organizationId: string,
+  deadlineId: string,
+): string {
+  return `${getLegalDeadlinesEndpoint(organizationId)}/${encodeURIComponent(deadlineId)}`
+}
+
+async function sendLegalDeadlineMutation(
+  endpoint: string,
+  method: 'PUT' | 'POST',
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+  body?: UpdateLegalDeadlineRequest,
+): Promise<void> {
+  const requestToken = await getCsrfToken()
+  const response = await fetchWithSession(
+    endpoint,
+    {
+      method,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        'X-CSRF-TOKEN': requestToken,
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status !== 204) {
+    if (response.status === 400) {
+      clearCsrfToken()
+    }
+
+    throwForStatus(response.status)
+  }
 }
 
 export async function listLegalDeadlines(
@@ -213,4 +295,73 @@ export async function createLegalDeadline(
   }
 
   return parseCreateLegalDeadlineResponse(await response.json())
+}
+
+export async function getLegalDeadline(
+  organizationId: string,
+  deadlineId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<LegalDeadline> {
+  const response = await fetchWithSession(
+    getLegalDeadlineEndpoint(organizationId, deadlineId),
+    {
+      method: 'GET',
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status !== 200) {
+    throwForStatus(response.status)
+  }
+
+  return parseLegalDeadline(await response.json())
+}
+
+export function updateLegalDeadline(
+  organizationId: string,
+  deadlineId: string,
+  title: string,
+  dueDate: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const body: UpdateLegalDeadlineRequest = { title, dueDate }
+  return sendLegalDeadlineMutation(
+    getLegalDeadlineEndpoint(organizationId, deadlineId),
+    'PUT',
+    onUnauthorized,
+    signal,
+    body,
+  )
+}
+
+export function completeLegalDeadline(
+  organizationId: string,
+  deadlineId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendLegalDeadlineMutation(
+    `${getLegalDeadlineEndpoint(organizationId, deadlineId)}/complete`,
+    'POST',
+    onUnauthorized,
+    signal,
+  )
+}
+
+export function reopenLegalDeadline(
+  organizationId: string,
+  deadlineId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendLegalDeadlineMutation(
+    `${getLegalDeadlineEndpoint(organizationId, deadlineId)}/reopen`,
+    'POST',
+    onUnauthorized,
+    signal,
+  )
 }

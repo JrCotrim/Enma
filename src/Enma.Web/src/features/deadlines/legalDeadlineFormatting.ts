@@ -1,7 +1,18 @@
 const dateOnlyPattern = /^(\d{4})-(\d{2})-(\d{2})$/
+const guidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+const timestampFormatter = new Intl.DateTimeFormat('pt-BR', {
+  dateStyle: 'short',
+  timeStyle: 'short',
+})
 
 function isLeapYear(year: number): boolean {
   return year % 400 === 0 || (year % 4 === 0 && year % 100 !== 0)
+}
+
+export function isValidGuid(value: string): boolean {
+  return guidPattern.test(value)
 }
 
 export function isValidDateOnly(value: string): boolean {
@@ -39,4 +50,8 @@ export function formatLegalDeadlineDueDate(dueDate: string): string {
 
   const [year, month, day] = dueDate.split('-')
   return `${day}/${month}/${year}`
+}
+
+export function formatLegalDeadlineTimestamp(timestamp: string): string {
+  return timestampFormatter.format(new Date(timestamp))
 }

@@ -16,6 +16,11 @@ export interface LegalDeadlineListResponse {
   readonly pageSize: number
 }
 
+export interface LegalDeadline extends LegalDeadlineListItem {
+  readonly createdAt: string
+  readonly completedAt: string | null
+}
+
 export interface CreateLegalDeadlineRequest {
   readonly processId: string
   readonly title: string
@@ -24,6 +29,11 @@ export interface CreateLegalDeadlineRequest {
 
 export interface CreateLegalDeadlineResponse {
   readonly id: string
+}
+
+export interface UpdateLegalDeadlineRequest {
+  readonly title: string
+  readonly dueDate: string
 }
 
 export interface LegalProcessLookupItem {
