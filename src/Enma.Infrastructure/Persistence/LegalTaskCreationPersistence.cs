@@ -32,28 +32,17 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
                 IsolationLevel.ReadCommitted,
                 cancellationToken);
 
-        Guid[] membershipIds = GetOrderedMembershipIds(request);
-        List<OrganizationMembership> memberships =
-            await LockMembershipsAsync(
-                dbContext,
-                request.OrganizationId,
-                membershipIds,
-                cancellationToken);
-        Guid[] userIds = memberships
-            .Select(membership => membership.UserId)
-            .Distinct()
-            .OrderBy(userId => userId)
-            .ToArray();
-        List<User> users = await LockUsersAsync(
+        LegalTaskLockedIdentities identities = await LegalTaskIdentityLocking.LockAsync(
             dbContext,
-            userIds,
+            request.OrganizationId,
+            GetMembershipIds(request),
             cancellationToken);
-        IReadOnlyDictionary<Guid, User> usersById = users.ToDictionary(
-            user => user.Id);
         IReadOnlyDictionary<Guid, LegalTaskCreationMemberState> statesById =
-            memberships.ToDictionary(
+            identities.MembershipsById.Values.ToDictionary(
                 membership => membership.Id,
-                membership => CreateMemberState(membership, usersById));
+                membership => CreateMemberState(
+                    membership,
+                    identities.UsersById));
 
         statesById.TryGetValue(
             request.ActorMembershipId,
@@ -87,7 +76,7 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
         return LegalTaskCreationPersistenceResult.Succeeded(legalTask.Id);
     }
 
-    private static Guid[] GetOrderedMembershipIds(
+    private static IEnumerable<Guid> GetMembershipIds(
         LegalTaskCreationPersistenceRequest request)
     {
         return request.AssigneeMembershipId is Guid assigneeMembershipId
@@ -96,45 +85,6 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
                 .OrderBy(membershipId => membershipId)
                 .ToArray()
             : [request.ActorMembershipId];
-    }
-
-    private static Task<List<OrganizationMembership>> LockMembershipsAsync(
-        EnmaDbContext dbContext,
-        Guid organizationId,
-        Guid[] membershipIds,
-        CancellationToken cancellationToken)
-    {
-        return dbContext.OrganizationMemberships
-            .FromSqlInterpolated(
-                $"""
-                SELECT * FROM organization_memberships
-                WHERE organization_id = {organizationId}
-                  AND id = ANY ({membershipIds})
-                ORDER BY id
-                FOR UPDATE
-                """)
-            .ToListAsync(cancellationToken);
-    }
-
-    private static Task<List<User>> LockUsersAsync(
-        EnmaDbContext dbContext,
-        Guid[] userIds,
-        CancellationToken cancellationToken)
-    {
-        if (userIds.Length == 0)
-        {
-            return Task.FromResult(new List<User>());
-        }
-
-        return dbContext.Users
-            .FromSqlInterpolated(
-                $"""
-                SELECT * FROM users
-                WHERE id = ANY ({userIds})
-                ORDER BY id
-                FOR UPDATE
-                """)
-            .ToListAsync(cancellationToken);
     }
 
     private static LegalTaskCreationMemberState CreateMemberState(

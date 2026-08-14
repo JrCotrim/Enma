@@ -28,9 +28,13 @@ using Enma.Application.Processes.Lookup;
 using Enma.Application.Processes.Update;
 using Enma.Application.Security;
 using Enma.Application.Tasks;
+using Enma.Application.Tasks.Assignment;
+using Enma.Application.Tasks.Complete;
 using Enma.Application.Tasks.Create;
 using Enma.Application.Tasks.GetById;
 using Enma.Application.Tasks.List;
+using Enma.Application.Tasks.Reopen;
+using Enma.Application.Tasks.Update;
 using Enma.Application.Users;
 using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
@@ -189,6 +193,9 @@ public static class DependencyInjection
         services.AddScoped<
             ILegalTaskCreationPersistence,
             LegalTaskCreationPersistence>();
+        services.AddScoped<
+            ILegalTaskMutationPersistence,
+            LegalTaskMutationPersistence>();
         services.AddScoped<ILegalTaskReadQueries, LegalTaskReadQueries>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
@@ -217,6 +224,7 @@ public static class DependencyInjection
         services.AddScoped<DeadlineAccessAuthorization>();
         services.AddScoped<DeadlineActionAuthorization>();
         services.AddScoped<LegalTaskViewAuthorization>();
+        services.AddScoped<LegalTaskMutationAuthorization>();
         services.AddScoped<CreateClientUseCase>();
         services.AddScoped<DeactivateClientUseCase>();
         services.AddScoped<GetClientUseCase>();
@@ -236,8 +244,12 @@ public static class DependencyInjection
         services.AddScoped<ReopenLegalDeadlineUseCase>();
         services.AddScoped<UpdateLegalDeadlineUseCase>();
         services.AddScoped<CreateLegalTaskUseCase>();
+        services.AddScoped<ChangeLegalTaskAssigneeUseCase>();
+        services.AddScoped<CompleteLegalTaskUseCase>();
         services.AddScoped<GetLegalTaskUseCase>();
         services.AddScoped<ListLegalTasksUseCase>();
+        services.AddScoped<ReopenLegalTaskUseCase>();
+        services.AddScoped<UpdateLegalTaskUseCase>();
 
         return services;
     }
