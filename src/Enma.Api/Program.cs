@@ -163,6 +163,7 @@ app.MapLogoutEndpoint();
 app.MapRegisterOrganizationOwnerEndpoint();
 app.MapOrganizationEndpoints();
 app.MapCurrentUserOrganizationEndpoints();
+app.MapOrganizationMemberEndpoints();
 app.MapClientEndpoints();
 app.MapLegalProcessEndpoints();
 app.MapLegalDeadlineEndpoints();

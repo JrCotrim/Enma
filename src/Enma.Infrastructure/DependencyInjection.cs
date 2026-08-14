@@ -19,6 +19,7 @@ using Enma.Application.Deadlines.Reopen;
 using Enma.Application.Deadlines.Update;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
+using Enma.Application.Organizations.Members.Lookup;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
 using Enma.Application.Processes.GetById;
@@ -186,6 +187,9 @@ public static class DependencyInjection
             ICurrentUserOrganizationQueries,
             CurrentUserOrganizationQueries>();
         services.AddScoped<
+            IOrganizationMemberLookupQueries,
+            OrganizationMemberLookupQueries>();
+        services.AddScoped<
             IOrganizationMembershipRepository,
             OrganizationMembershipRepository>();
         services.AddScoped<IUnitOfWork>(
@@ -197,6 +201,7 @@ public static class DependencyInjection
         services.AddScoped<VerifyEmailUseCase>();
         services.AddScoped<OrganizationAccessAuthorization>();
         services.AddScoped<GetCurrentUserOrganizationsUseCase>();
+        services.AddScoped<SearchActiveOrganizationMembersUseCase>();
         services.AddScoped<ClientAccessAuthorization>();
         services.AddScoped<ClientActionAuthorization>();
         services.AddScoped<ProcessAccessAuthorization>();
