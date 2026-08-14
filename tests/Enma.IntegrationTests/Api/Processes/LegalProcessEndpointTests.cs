@@ -103,6 +103,21 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
                 nameof(ListLegalProcessesResponse.PageSize)
             ],
             GetPropertyNames<ListLegalProcessesResponse>());
+        Assert.Equal(
+            [
+                nameof(LegalProcessLookupItemResponse.Id),
+                nameof(LegalProcessLookupItemResponse.Title),
+                nameof(LegalProcessLookupItemResponse.ClientName)
+            ],
+            GetPropertyNames<LegalProcessLookupItemResponse>());
+        Assert.Equal(
+            [
+                nameof(LegalProcessLookupResponse.Items),
+                nameof(LegalProcessLookupResponse.PageNumber),
+                nameof(LegalProcessLookupResponse.PageSize),
+                nameof(LegalProcessLookupResponse.HasNext)
+            ],
+            GetPropertyNames<LegalProcessLookupResponse>());
 
         string[] forbiddenNames =
         [
@@ -111,7 +126,8 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             "UserId",
             "Role",
             "Membership",
-            "IsActive"
+            "IsActive",
+            "ClientIsActive"
         ];
         Type[] contractTypes =
         [
@@ -119,7 +135,9 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             typeof(UpdateLegalProcessRequest),
             typeof(CreateLegalProcessResponse),
             typeof(LegalProcessResponse),
-            typeof(ListLegalProcessesResponse)
+            typeof(ListLegalProcessesResponse),
+            typeof(LegalProcessLookupItemResponse),
+            typeof(LegalProcessLookupResponse)
         ];
 
         foreach (Type contractType in contractTypes)
@@ -140,6 +158,8 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
 
         using HttpResponseMessage listResponse = await client.GetAsync(
             GetProcessesPath(organizationId));
+        using HttpResponseMessage lookupResponse = await client.GetAsync(
+            GetProcessLookupPath(organizationId));
         using HttpResponseMessage getResponse = await client.GetAsync(
             GetProcessPath(organizationId, processId));
         using HttpResponseMessage createResponse = await client.PostAsJsonAsync(
@@ -150,6 +170,7 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             new { title = "Anonymous Update" });
 
         await AssertEmptyResponseAsync(listResponse, HttpStatusCode.Unauthorized);
+        await AssertEmptyResponseAsync(lookupResponse, HttpStatusCode.Unauthorized);
         await AssertEmptyResponseAsync(getResponse, HttpStatusCode.Unauthorized);
         await AssertEmptyResponseAsync(createResponse, HttpStatusCode.Unauthorized);
         await AssertEmptyResponseAsync(updateResponse, HttpStatusCode.Unauthorized);
@@ -170,6 +191,9 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         using HttpResponseMessage listResponse = await SendGetAsync(
             GetProcessesPath(organization.Id),
             rawHandle);
+        using HttpResponseMessage lookupResponse = await SendGetAsync(
+            GetProcessLookupPath(organization.Id),
+            rawHandle);
         using HttpResponseMessage getResponse = await SendGetAsync(
             GetProcessPath(organization.Id, Guid.NewGuid()),
             rawHandle);
@@ -187,6 +211,7 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             new { title = "Denied Update" });
 
         await AssertEmptyResponseAsync(listResponse, HttpStatusCode.Forbidden);
+        await AssertEmptyResponseAsync(lookupResponse, HttpStatusCode.Forbidden);
         await AssertEmptyResponseAsync(getResponse, HttpStatusCode.Forbidden);
         await AssertEmptyResponseAsync(createResponse, HttpStatusCode.Forbidden);
         await AssertEmptyResponseAsync(updateResponse, HttpStatusCode.Forbidden);
@@ -232,6 +257,9 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         using HttpResponseMessage listResponse = await SendGetAsync(
             GetProcessesPath(organization.Id),
             rawHandle);
+        using HttpResponseMessage lookupResponse = await SendGetAsync(
+            GetProcessLookupPath(organization.Id),
+            rawHandle);
         using HttpResponseMessage createResponse = await SendMutationAsync(
             HttpMethod.Post,
             GetProcessesPath(organization.Id),
@@ -261,6 +289,8 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         Assert.True(getResponse.Headers.CacheControl?.NoStore);
         Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
         Assert.True(listResponse.Headers.CacheControl?.NoStore);
+        Assert.Equal(HttpStatusCode.OK, lookupResponse.StatusCode);
+        Assert.True(lookupResponse.Headers.CacheControl?.NoStore);
         Assert.Equal(expectedMutationStatus, createResponse.StatusCode);
         Assert.True(createResponse.Headers.CacheControl?.NoStore);
 
@@ -486,6 +516,12 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         using HttpResponseMessage listBResponse = await SendGetAsync(
             GetProcessesPath(organizationB.Id),
             rawHandle);
+        using HttpResponseMessage lookupAResponse = await SendGetAsync(
+            GetProcessLookupPath(organizationA.Id),
+            rawHandle);
+        using HttpResponseMessage lookupBResponse = await SendGetAsync(
+            GetProcessLookupPath(organizationB.Id),
+            rawHandle);
         using HttpResponseMessage updateResponse = await SendMutationAsync(
             HttpMethod.Put,
             GetProcessPath(organizationA.Id, processA.Id),
@@ -515,12 +551,22 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             .ReadFromJsonAsync<ListLegalProcessesResponse>();
         ListLegalProcessesResponse? listB = await listBResponse.Content
             .ReadFromJsonAsync<ListLegalProcessesResponse>();
+        LegalProcessLookupResponse? lookupA = await lookupAResponse.Content
+            .ReadFromJsonAsync<LegalProcessLookupResponse>();
+        LegalProcessLookupResponse? lookupB = await lookupBResponse.Content
+            .ReadFromJsonAsync<LegalProcessLookupResponse>();
         Assert.Equal(HttpStatusCode.OK, listAResponse.StatusCode);
         Assert.Equal(HttpStatusCode.OK, listBResponse.StatusCode);
         Assert.True(listAResponse.Headers.CacheControl?.NoStore);
         Assert.True(listBResponse.Headers.CacheControl?.NoStore);
+        Assert.Equal(HttpStatusCode.OK, lookupAResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, lookupBResponse.StatusCode);
+        Assert.True(lookupAResponse.Headers.CacheControl?.NoStore);
+        Assert.True(lookupBResponse.Headers.CacheControl?.NoStore);
         Assert.NotNull(listA);
         Assert.NotNull(listB);
+        Assert.NotNull(lookupA);
+        Assert.NotNull(lookupB);
         Assert.Equal(1, listA.PageNumber);
         Assert.Equal(20, listA.PageSize);
         LegalProcessResponse itemA = Assert.Single(listA.Items);
@@ -531,6 +577,13 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         Assert.Equal("Client B", itemB.ClientName);
         Assert.DoesNotContain(listA.Items, item => item.Id == processB.Id);
         Assert.DoesNotContain(listB.Items, item => item.Id == processA.Id);
+        LegalProcessLookupItemResponse lookupItemA = Assert.Single(lookupA.Items);
+        LegalProcessLookupItemResponse lookupItemB = Assert.Single(lookupB.Items);
+        Assert.Equal(processA.Id, lookupItemA.Id);
+        Assert.Equal("Inactive Client A", lookupItemA.ClientName);
+        Assert.Equal(processB.Id, lookupItemB.Id);
+        Assert.DoesNotContain(lookupA.Items, item => item.Id == processB.Id);
+        Assert.DoesNotContain(lookupB.Items, item => item.Id == processA.Id);
         await AssertEmptyResponseAsync(updateResponse, HttpStatusCode.NoContent);
         Assert.Equal(
             "A Updated",
@@ -611,6 +664,133 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         {
             using HttpResponseMessage response = await SendGetAsync(
                 $"{GetProcessesPath(organization.Id)}?{query}",
+                rawHandle);
+            await AssertSafeBadRequestAsync(response);
+        }
+    }
+
+    [Fact]
+    public async Task LookupLegalProcesses_PaginationSearchAndMinimalResponse_ProvideCompleteDiscovery()
+    {
+        User user = CreateUser("lookup-pagination");
+        Organization organization = CreateOrganization("Lookup Pagination");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Member);
+        ClientEntity relatedClient = CreateClient(
+            organization,
+            "Lookup Client Context",
+            30);
+        LegalProcess[] legalProcesses = Enumerable.Range(1, 22)
+            .Select(index => CreateProcess(
+                organization,
+                relatedClient,
+                $"Lookup Process {index:D2}",
+                index))
+            .ToArray();
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient],
+            legalProcesses);
+
+        using HttpResponseMessage defaultResponse = await SendGetAsync(
+            GetProcessLookupPath(organization.Id),
+            rawHandle);
+        using HttpResponseMessage secondPageResponse = await SendGetAsync(
+            $"{GetProcessLookupPath(organization.Id)}?pageNumber=2&pageSize=20",
+            rawHandle);
+        using HttpResponseMessage titleSearchResponse = await SendGetAsync(
+            $"{GetProcessLookupPath(organization.Id)}?search=process%2022",
+            rawHandle);
+        using HttpResponseMessage clientSearchResponse = await SendGetAsync(
+            $"{GetProcessLookupPath(organization.Id)}?search=client%20context",
+            rawHandle);
+        using HttpResponseMessage maximumResponse = await SendGetAsync(
+            $"{GetProcessLookupPath(organization.Id)}?pageSize=100",
+            rawHandle);
+
+        LegalProcessLookupResponse? defaultResult = await defaultResponse.Content
+            .ReadFromJsonAsync<LegalProcessLookupResponse>();
+        LegalProcessLookupResponse? secondPageResult =
+            await secondPageResponse.Content
+                .ReadFromJsonAsync<LegalProcessLookupResponse>();
+        string titleSearchJson = await titleSearchResponse.Content
+            .ReadAsStringAsync();
+        LegalProcessLookupResponse? titleSearchResult = JsonSerializer.Deserialize<
+            LegalProcessLookupResponse>(
+                titleSearchJson,
+                JsonSerializerOptions.Web);
+        LegalProcessLookupResponse? clientSearchResult =
+            await clientSearchResponse.Content
+                .ReadFromJsonAsync<LegalProcessLookupResponse>();
+        LegalProcessLookupResponse? maximumResult = await maximumResponse.Content
+            .ReadFromJsonAsync<LegalProcessLookupResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, defaultResponse.StatusCode);
+        Assert.True(defaultResponse.Headers.CacheControl?.NoStore);
+        Assert.NotNull(defaultResult);
+        Assert.Equal(1, defaultResult.PageNumber);
+        Assert.Equal(20, defaultResult.PageSize);
+        Assert.True(defaultResult.HasNext);
+        Assert.Equal(20, defaultResult.Items.Count);
+
+        Assert.Equal(HttpStatusCode.OK, secondPageResponse.StatusCode);
+        Assert.NotNull(secondPageResult);
+        Assert.Equal(2, secondPageResult.PageNumber);
+        Assert.Equal(20, secondPageResult.PageSize);
+        Assert.False(secondPageResult.HasNext);
+        Assert.Equal(
+            [legalProcesses[20].Id, legalProcesses[21].Id],
+            secondPageResult.Items.Select(item => item.Id));
+
+        Assert.Equal(HttpStatusCode.OK, titleSearchResponse.StatusCode);
+        Assert.NotNull(titleSearchResult);
+        Assert.Equal(
+            legalProcesses[21].Id,
+            Assert.Single(titleSearchResult.Items).Id);
+        Assert.Equal(HttpStatusCode.OK, clientSearchResponse.StatusCode);
+        Assert.NotNull(clientSearchResult);
+        Assert.True(clientSearchResult.HasNext);
+        Assert.Equal(20, clientSearchResult.Items.Count);
+        Assert.Equal(HttpStatusCode.OK, maximumResponse.StatusCode);
+        Assert.NotNull(maximumResult);
+        Assert.Equal(100, maximumResult.PageSize);
+        Assert.False(maximumResult.HasNext);
+        Assert.Equal(22, maximumResult.Items.Count);
+
+        using JsonDocument document = JsonDocument.Parse(titleSearchJson);
+        Assert.Equal(
+            ["items", "pageNumber", "pageSize", "hasNext"],
+            document.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .ToArray());
+        Assert.Equal(
+            ["id", "title", "clientName"],
+            document.RootElement
+                .GetProperty("items")[0]
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .ToArray());
+
+        string[] invalidQueries =
+        [
+            "pageNumber=0",
+            "pageNumber=-1",
+            "pageSize=0",
+            "pageSize=-1",
+            "pageSize=101",
+            "pageNumber=2147483647&pageSize=2",
+            $"search={new string('x', 151)}"
+        ];
+
+        foreach (string query in invalidQueries)
+        {
+            using HttpResponseMessage response = await SendGetAsync(
+                $"{GetProcessLookupPath(organization.Id)}?{query}",
                 rawHandle);
             await AssertSafeBadRequestAsync(response);
         }
@@ -1198,6 +1378,11 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
     private static string GetProcessesPath(Guid organizationId)
     {
         return $"/api/organizations/{organizationId:D}/processes";
+    }
+
+    private static string GetProcessLookupPath(Guid organizationId)
+    {
+        return $"{GetProcessesPath(organizationId)}/lookup";
     }
 
     private static string GetProcessPath(Guid organizationId, Guid processId)

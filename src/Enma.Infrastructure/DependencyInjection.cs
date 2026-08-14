@@ -23,6 +23,7 @@ using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
 using Enma.Application.Processes.GetById;
 using Enma.Application.Processes.List;
+using Enma.Application.Processes.Lookup;
 using Enma.Application.Processes.Update;
 using Enma.Application.Security;
 using Enma.Application.Users;
@@ -171,6 +172,9 @@ public static class DependencyInjection
             LegalProcessMutationPersistence>();
         services.AddScoped<ILegalProcessReadQueries, LegalProcessReadQueries>();
         services.AddScoped<
+            ILegalProcessLookupQueries,
+            LegalProcessLookupQueries>();
+        services.AddScoped<
             ILegalDeadlineCreationPersistence,
             LegalDeadlineCreationPersistence>();
         services.AddScoped<
@@ -209,6 +213,7 @@ public static class DependencyInjection
         services.AddScoped<CreateLegalProcessUseCase>();
         services.AddScoped<GetLegalProcessUseCase>();
         services.AddScoped<ListLegalProcessesUseCase>();
+        services.AddScoped<SearchLegalProcessesUseCase>();
         services.AddScoped<UpdateLegalProcessUseCase>();
         services.AddScoped<CreateLegalDeadlineUseCase>();
         services.AddScoped<CompleteLegalDeadlineUseCase>();

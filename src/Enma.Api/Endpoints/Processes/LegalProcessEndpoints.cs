@@ -8,6 +8,7 @@ using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
 using Enma.Application.Processes.GetById;
 using Enma.Application.Processes.List;
+using Enma.Application.Processes.Lookup;
 using Enma.Application.Processes.Update;
 
 namespace Enma.Api.Endpoints.Processes;
@@ -44,6 +45,15 @@ public static class LegalProcessEndpoints
             .WithName("ListLegalProcesses")
             .WithSummary("Lists legal processes in the contextual organization.")
             .Produces<ListLegalProcessesResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        group.MapGet("lookup", LookupAsync)
+            .WithName("LookupLegalProcesses")
+            .WithSummary("Finds legal processes in the contextual organization.")
+            .Produces<LegalProcessLookupResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
@@ -179,6 +189,47 @@ public static class LegalProcessEndpoints
             items,
             result.PageNumber,
             result.PageSize));
+    }
+
+    private static async Task<IResult> LookupAsync(
+        Guid organizationId,
+        ClaimsPrincipal principal,
+        SearchLegalProcessesUseCase useCase,
+        CancellationToken cancellationToken,
+        string? search = null,
+        int pageNumber = 1,
+        int pageSize = SearchLegalProcessesUseCase.DefaultPageSize)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        SearchLegalProcessesResult result = await useCase.ExecuteAsync(
+            userId,
+            organizationId,
+            search,
+            pageNumber,
+            pageSize,
+            cancellationToken);
+
+        if (result.Status == SearchLegalProcessesResultStatus.AccessDenied)
+        {
+            return TypedResults.Forbid();
+        }
+
+        LegalProcessLookupItemResponse[] items = result.Items
+            .Select(legalProcess => new LegalProcessLookupItemResponse(
+                legalProcess.Id,
+                legalProcess.Title,
+                legalProcess.ClientName))
+            .ToArray();
+
+        return TypedResults.Ok(new LegalProcessLookupResponse(
+            items,
+            result.PageNumber,
+            result.PageSize,
+            result.HasNext));
     }
 
     private static async Task<IResult> UpdateAsync(

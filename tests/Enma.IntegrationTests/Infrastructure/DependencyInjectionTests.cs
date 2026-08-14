@@ -21,6 +21,7 @@ using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
 using Enma.Application.Processes.GetById;
 using Enma.Application.Processes.List;
+using Enma.Application.Processes.Lookup;
 using Enma.Application.Processes.Update;
 using Enma.Application.Security;
 using Enma.Application.Users;
@@ -224,12 +225,16 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             .GetRequiredService<ILegalProcessMutationPersistence>();
         ILegalProcessReadQueries firstReadQueries = firstScope.ServiceProvider
             .GetRequiredService<ILegalProcessReadQueries>();
+        ILegalProcessLookupQueries firstLookupQueries = firstScope.ServiceProvider
+            .GetRequiredService<ILegalProcessLookupQueries>();
         CreateLegalProcessUseCase firstCreateUseCase = firstScope.ServiceProvider
             .GetRequiredService<CreateLegalProcessUseCase>();
         GetLegalProcessUseCase firstGetUseCase = firstScope.ServiceProvider
             .GetRequiredService<GetLegalProcessUseCase>();
         ListLegalProcessesUseCase firstListUseCase = firstScope.ServiceProvider
             .GetRequiredService<ListLegalProcessesUseCase>();
+        SearchLegalProcessesUseCase firstLookupUseCase = firstScope.ServiceProvider
+            .GetRequiredService<SearchLegalProcessesUseCase>();
         UpdateLegalProcessUseCase firstUpdateUseCase = firstScope.ServiceProvider
             .GetRequiredService<UpdateLegalProcessUseCase>();
 
@@ -238,6 +243,7 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.IsType<LegalProcessCreationPersistence>(firstCreationPersistence);
         Assert.IsType<LegalProcessMutationPersistence>(firstMutationPersistence);
         Assert.IsType<LegalProcessReadQueries>(firstReadQueries);
+        Assert.IsType<LegalProcessLookupQueries>(firstLookupQueries);
         Assert.Same(
             firstAccessAuthorization,
             firstScope.ServiceProvider
@@ -267,6 +273,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstScope.ServiceProvider
                 .GetRequiredService<ILegalProcessReadQueries>());
         Assert.Same(
+            firstLookupQueries,
+            firstScope.ServiceProvider
+                .GetRequiredService<ILegalProcessLookupQueries>());
+        Assert.Same(
             firstCreateUseCase,
             firstScope.ServiceProvider
                 .GetRequiredService<CreateLegalProcessUseCase>());
@@ -278,6 +288,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstListUseCase,
             firstScope.ServiceProvider
                 .GetRequiredService<ListLegalProcessesUseCase>());
+        Assert.Same(
+            firstLookupUseCase,
+            firstScope.ServiceProvider
+                .GetRequiredService<SearchLegalProcessesUseCase>());
         Assert.Same(
             firstUpdateUseCase,
             firstScope.ServiceProvider
@@ -314,6 +328,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             secondScope.ServiceProvider
                 .GetRequiredService<ILegalProcessReadQueries>());
         Assert.NotSame(
+            firstLookupQueries,
+            secondScope.ServiceProvider
+                .GetRequiredService<ILegalProcessLookupQueries>());
+        Assert.NotSame(
             firstCreateUseCase,
             secondScope.ServiceProvider
                 .GetRequiredService<CreateLegalProcessUseCase>());
@@ -325,6 +343,10 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             firstListUseCase,
             secondScope.ServiceProvider
                 .GetRequiredService<ListLegalProcessesUseCase>());
+        Assert.NotSame(
+            firstLookupUseCase,
+            secondScope.ServiceProvider
+                .GetRequiredService<SearchLegalProcessesUseCase>());
         Assert.NotSame(
             firstUpdateUseCase,
             secondScope.ServiceProvider

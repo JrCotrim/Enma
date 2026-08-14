@@ -38,7 +38,7 @@ public sealed class LegalProcessStrictIdentityTests(
 
     [Theory]
     [MemberData(nameof(UntrustedUserIdentifiers))]
-    public async Task List_WithUntrustedNameIdentifier_FailsClosedBeforeLiveAccessLookup(
+    public async Task ReadRoutes_WithUntrustedNameIdentifier_FailClosedBeforeLiveAccessLookup(
         string[] identifierValues)
     {
         var lookup = new RecordingOrganizationAccessLookup();
@@ -66,12 +66,24 @@ public sealed class LegalProcessStrictIdentityTests(
                 HandleCookies = false
             });
 
-        using HttpResponseMessage response = await client.GetAsync(
-            $"/api/organizations/{Guid.NewGuid():D}/processes");
+        Guid organizationId = Guid.NewGuid();
+        string[] paths =
+        [
+            $"/api/organizations/{organizationId:D}/processes",
+            $"/api/organizations/{organizationId:D}/processes/lookup"
+        ];
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.True(response.Headers.CacheControl?.NoStore);
-        Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
+        foreach (string path in paths)
+        {
+            using HttpResponseMessage response = await client.GetAsync(path);
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.True(response.Headers.CacheControl?.NoStore);
+            Assert.Equal(
+                string.Empty,
+                await response.Content.ReadAsStringAsync());
+        }
+
         Assert.Equal(0, lookup.CallCount);
     }
 
