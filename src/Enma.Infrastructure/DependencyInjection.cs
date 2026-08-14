@@ -27,6 +27,8 @@ using Enma.Application.Processes.List;
 using Enma.Application.Processes.Lookup;
 using Enma.Application.Processes.Update;
 using Enma.Application.Security;
+using Enma.Application.Tasks;
+using Enma.Application.Tasks.Create;
 using Enma.Application.Users;
 using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
@@ -182,6 +184,9 @@ public static class DependencyInjection
             ILegalDeadlineMutationPersistence,
             LegalDeadlineMutationPersistence>();
         services.AddScoped<ILegalDeadlineReadQueries, LegalDeadlineReadQueries>();
+        services.AddScoped<
+            ILegalTaskCreationPersistence,
+            LegalTaskCreationPersistence>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
             ICurrentUserOrganizationQueries,
@@ -226,6 +231,7 @@ public static class DependencyInjection
         services.AddScoped<ListLegalDeadlinesUseCase>();
         services.AddScoped<ReopenLegalDeadlineUseCase>();
         services.AddScoped<UpdateLegalDeadlineUseCase>();
+        services.AddScoped<CreateLegalTaskUseCase>();
 
         return services;
     }

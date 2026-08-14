@@ -22,6 +22,9 @@ public sealed class OrganizationAccessAuthorizationTests
             await authorization.AuthorizeAsync(UserId, OrganizationId);
 
         Assert.Equal(OrganizationAccessAuthorizationStatus.Denied, result.Status);
+        Assert.Null(result.UserId);
+        Assert.Null(result.OrganizationId);
+        Assert.Null(result.MembershipId);
         Assert.Null(result.Role);
     }
 
@@ -39,6 +42,9 @@ public sealed class OrganizationAccessAuthorizationTests
             await authorization.AuthorizeAsync(UserId, OrganizationId);
 
         Assert.Equal(OrganizationAccessAuthorizationStatus.Allowed, result.Status);
+        Assert.Equal(UserId, result.UserId);
+        Assert.Equal(OrganizationId, result.OrganizationId);
+        Assert.Null(result.MembershipId);
         Assert.Equal(role, result.Role);
     }
 
@@ -84,8 +90,11 @@ public sealed class OrganizationAccessAuthorizationTests
                 .GetProperties(BindingFlags.Instance | BindingFlags.Public);
 
         Assert.Equal(
-            [nameof(OrganizationAccessAuthorizationResult.Role),
-                nameof(OrganizationAccessAuthorizationResult.Status)],
+            [nameof(OrganizationAccessAuthorizationResult.MembershipId),
+                nameof(OrganizationAccessAuthorizationResult.OrganizationId),
+                nameof(OrganizationAccessAuthorizationResult.Role),
+                nameof(OrganizationAccessAuthorizationResult.Status),
+                nameof(OrganizationAccessAuthorizationResult.UserId)],
             publicProperties
                 .Select(property => property.Name)
                 .OrderBy(name => name)
@@ -93,6 +102,9 @@ public sealed class OrganizationAccessAuthorizationTests
         Assert.Equal(
             OrganizationAccessAuthorizationStatus.Denied,
             OrganizationAccessAuthorizationResult.Denied.Status);
+        Assert.Null(OrganizationAccessAuthorizationResult.Denied.UserId);
+        Assert.Null(OrganizationAccessAuthorizationResult.Denied.OrganizationId);
+        Assert.Null(OrganizationAccessAuthorizationResult.Denied.MembershipId);
         Assert.Null(OrganizationAccessAuthorizationResult.Denied.Role);
     }
 
@@ -113,6 +125,9 @@ public sealed class OrganizationAccessAuthorizationTests
                 emptyOrganizationId ? Guid.Empty : OrganizationId);
 
         Assert.Equal(OrganizationAccessAuthorizationStatus.Denied, result.Status);
+        Assert.Null(result.UserId);
+        Assert.Null(result.OrganizationId);
+        Assert.Null(result.MembershipId);
         Assert.Null(result.Role);
         Assert.Equal(0, lookup.CallCount);
     }

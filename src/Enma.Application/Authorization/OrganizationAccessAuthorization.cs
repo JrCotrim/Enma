@@ -22,13 +22,18 @@ public sealed class OrganizationAccessAuthorization
             return OrganizationAccessAuthorizationResult.Denied;
         }
 
-        OrganizationRole? role = await _accessLookup.FindActiveRoleAsync(
-            userId,
-            organizationId,
-            cancellationToken);
+        OrganizationAccessLookupResult? access =
+            await _accessLookup.FindActiveAccessAsync(
+                userId,
+                organizationId,
+                cancellationToken);
 
-        return role.HasValue
-            ? OrganizationAccessAuthorizationResult.Allowed(role.Value)
+        return access is not null
+            ? OrganizationAccessAuthorizationResult.Allowed(
+                access.UserId,
+                access.OrganizationId,
+                access.MembershipId,
+                access.Role)
             : OrganizationAccessAuthorizationResult.Denied;
     }
 }

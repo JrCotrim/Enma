@@ -31,4 +31,26 @@ public sealed class OrganizationAccessLookup : IOrganizationAccessLookup
 
         return query.SingleOrDefaultAsync(cancellationToken);
     }
+
+    public Task<OrganizationAccessLookupResult?> FindActiveAccessAsync(
+        Guid userId,
+        Guid organizationId,
+        CancellationToken cancellationToken = default)
+    {
+        IQueryable<OrganizationAccessLookupResult> query =
+            from membership in _dbContext.OrganizationMemberships
+            join organization in _dbContext.Organizations
+                on membership.OrganizationId equals organization.Id
+            where membership.UserId == userId
+                && membership.OrganizationId == organizationId
+                && membership.IsActive
+                && organization.IsActive
+            select new OrganizationAccessLookupResult(
+                membership.UserId,
+                membership.OrganizationId,
+                membership.Id,
+                membership.Role);
+
+        return query.SingleOrDefaultAsync(cancellationToken);
+    }
 }

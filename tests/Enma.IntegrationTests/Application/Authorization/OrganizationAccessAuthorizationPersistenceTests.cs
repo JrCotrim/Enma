@@ -56,7 +56,12 @@ public sealed class OrganizationAccessAuthorizationPersistenceTests(
         OrganizationAccessAuthorizationResult secondResult =
             await authorization.AuthorizeAsync(user.Id, secondOrganization.Id);
 
-        AssertAllowed(firstResult, OrganizationRole.Owner);
+        AssertAllowed(
+            firstResult,
+            user.Id,
+            firstOrganization.Id,
+            membership.Id,
+            OrganizationRole.Owner);
         AssertDenied(secondResult);
     }
 
@@ -95,8 +100,18 @@ public sealed class OrganizationAccessAuthorizationPersistenceTests(
         OrganizationAccessAuthorizationResult secondResult =
             await authorization.AuthorizeAsync(user.Id, secondOrganization.Id);
 
-        AssertAllowed(firstResult, OrganizationRole.Owner);
-        AssertAllowed(secondResult, OrganizationRole.Member);
+        AssertAllowed(
+            firstResult,
+            user.Id,
+            firstOrganization.Id,
+            firstMembership.Id,
+            OrganizationRole.Owner);
+        AssertAllowed(
+            secondResult,
+            user.Id,
+            secondOrganization.Id,
+            secondMembership.Id,
+            OrganizationRole.Member);
     }
 
     [Fact]
@@ -155,8 +170,18 @@ public sealed class OrganizationAccessAuthorizationPersistenceTests(
         OrganizationAccessAuthorizationResult changedResult =
             await authorization.AuthorizeAsync(user.Id, organization.Id);
 
-        AssertAllowed(initialResult, OrganizationRole.Owner);
-        AssertAllowed(changedResult, OrganizationRole.Administrator);
+        AssertAllowed(
+            initialResult,
+            user.Id,
+            organization.Id,
+            membership.Id,
+            OrganizationRole.Owner);
+        AssertAllowed(
+            changedResult,
+            user.Id,
+            organization.Id,
+            membership.Id,
+            OrganizationRole.Administrator);
     }
 
     [Fact]
@@ -191,7 +216,12 @@ public sealed class OrganizationAccessAuthorizationPersistenceTests(
         OrganizationAccessAuthorizationResult deactivatedResult =
             await authorization.AuthorizeAsync(user.Id, organization.Id);
 
-        AssertAllowed(initialResult, OrganizationRole.Member);
+        AssertAllowed(
+            initialResult,
+            user.Id,
+            organization.Id,
+            membership.Id,
+            OrganizationRole.Member);
         AssertDenied(deactivatedResult);
     }
 
@@ -272,15 +302,24 @@ public sealed class OrganizationAccessAuthorizationPersistenceTests(
 
     private static void AssertAllowed(
         OrganizationAccessAuthorizationResult result,
+        Guid expectedUserId,
+        Guid expectedOrganizationId,
+        Guid expectedMembershipId,
         OrganizationRole expectedRole)
     {
         Assert.Equal(OrganizationAccessAuthorizationStatus.Allowed, result.Status);
+        Assert.Equal(expectedUserId, result.UserId);
+        Assert.Equal(expectedOrganizationId, result.OrganizationId);
+        Assert.Equal(expectedMembershipId, result.MembershipId);
         Assert.Equal(expectedRole, result.Role);
     }
 
     private static void AssertDenied(OrganizationAccessAuthorizationResult result)
     {
         Assert.Equal(OrganizationAccessAuthorizationStatus.Denied, result.Status);
+        Assert.Null(result.UserId);
+        Assert.Null(result.OrganizationId);
+        Assert.Null(result.MembershipId);
         Assert.Null(result.Role);
     }
 }
