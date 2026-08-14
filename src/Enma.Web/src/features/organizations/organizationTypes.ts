@@ -4,6 +4,7 @@ export interface OrganizationNavigationItem {
   readonly id: string
   readonly name: string
   readonly role: OrganizationRole
+  readonly membershipId: string
 }
 
 export function getOrganizationRoleLabel(role: OrganizationRole): string {

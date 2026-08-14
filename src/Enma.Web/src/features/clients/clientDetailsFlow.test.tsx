@@ -9,12 +9,14 @@ import type { Client } from './clientTypes'
 
 const organizationA: OrganizationNavigationItem = {
   id: '11111111-1111-4111-8111-111111111111',
+  membershipId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
   name: 'Organização Alfa',
   role: 'Owner',
 }
 
 const organizationB: OrganizationNavigationItem = {
   id: '22222222-2222-4222-8222-222222222222',
+  membershipId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2',
   name: 'Organização Beta',
   role: 'Administrator',
 }

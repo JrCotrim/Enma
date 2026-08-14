@@ -58,7 +58,8 @@ public static class CurrentUserOrganizationEndpoints
         return new CurrentUserOrganizationResponse(
             organization.OrganizationId,
             organization.Name,
-            MapRole(organization.Role));
+            MapRole(organization.Role),
+            organization.MembershipId);
     }
 
     private static string MapRole(OrganizationRole role)

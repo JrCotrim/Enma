@@ -25,7 +25,8 @@ function parseOrganizationNavigationItem(
   if (
     typeof candidate.id !== 'string' ||
     typeof candidate.name !== 'string' ||
-    !isOrganizationRole(candidate.role)
+    !isOrganizationRole(candidate.role) ||
+    typeof candidate.membershipId !== 'string'
   ) {
     return undefined
   }
@@ -34,6 +35,7 @@ function parseOrganizationNavigationItem(
     id: candidate.id,
     name: candidate.name,
     role: candidate.role,
+    membershipId: candidate.membershipId,
   }
 }
 

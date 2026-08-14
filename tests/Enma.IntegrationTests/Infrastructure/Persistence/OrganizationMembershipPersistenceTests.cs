@@ -2,6 +2,7 @@ using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Npgsql;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
@@ -81,6 +82,54 @@ public sealed class OrganizationMembershipPersistenceTests(PostgreSqlFixture fix
                 .SingleAsync();
 
         Assert.False(persistedMembership.IsActive);
+    }
+
+    [Fact]
+    public void OrganizationMembershipModel_WithRelationalIdentity_HasExpectedKeysIndexesAndDeleteBehaviors()
+    {
+        using EnmaDbContext dbContext = fixture.CreateDbContext();
+        IEntityType? entityType = dbContext.Model.FindEntityType(
+            typeof(OrganizationMembership));
+
+        Assert.NotNull(entityType);
+        Assert.Equal(
+            [nameof(OrganizationMembership.Id)],
+            entityType.FindPrimaryKey()!.Properties
+                .Select(property => property.Name)
+                .ToArray());
+
+        IKey alternateKey = Assert.Single(
+            entityType.GetKeys(),
+            key => !key.IsPrimaryKey());
+        Assert.Equal(
+            "ak_organization_memberships_organization_id_id",
+            alternateKey.GetName());
+        Assert.Equal(
+            [
+                nameof(OrganizationMembership.OrganizationId),
+                nameof(OrganizationMembership.Id)
+            ],
+            alternateKey.Properties.Select(property => property.Name).ToArray());
+
+        IIndex organizationUserIndex = Assert.Single(
+            entityType.GetIndexes(),
+            index => index.Properties.Select(property => property.Name)
+                .SequenceEqual(
+                    [
+                        nameof(OrganizationMembership.OrganizationId),
+                        nameof(OrganizationMembership.UserId)
+                    ]));
+        Assert.True(organizationUserIndex.IsUnique);
+        Assert.Equal(
+            "ux_organization_memberships_organization_id_user_id",
+            organizationUserIndex.GetDatabaseName());
+
+        Assert.Equal(2, entityType.GetForeignKeys().Count());
+        Assert.All(
+            entityType.GetForeignKeys(),
+            foreignKey => Assert.Equal(
+                DeleteBehavior.Restrict,
+                foreignKey.DeleteBehavior));
     }
 
     [Fact]

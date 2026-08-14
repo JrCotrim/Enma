@@ -71,11 +71,13 @@ public sealed class CurrentUserOrganizationQueriesTests(
             item => AssertOrganization(
                 item,
                 alpha,
-                OrganizationRole.Owner),
+                OrganizationRole.Owner,
+                alphaMembership),
             item => AssertOrganization(
                 item,
                 zeta,
-                OrganizationRole.Member));
+                OrganizationRole.Member,
+                zetaMembership));
     }
 
     [Fact]
@@ -119,7 +121,18 @@ public sealed class CurrentUserOrganizationQueriesTests(
             await queries.ListAccessibleAsync(user.Id);
 
         CurrentUserOrganizationReadModel item = Assert.Single(result);
-        AssertOrganization(item, active, OrganizationRole.Administrator);
+        AssertOrganization(
+            item,
+            active,
+            OrganizationRole.Administrator,
+            activeMembership);
+        Assert.DoesNotContain(
+            result,
+            organization => organization.MembershipId == inactiveMembership.Id);
+        Assert.DoesNotContain(
+            result,
+            organization => organization.MembershipId ==
+                inactiveOrganizationMembership.Id);
     }
 
     [Fact]
@@ -164,7 +177,9 @@ public sealed class CurrentUserOrganizationQueriesTests(
             await queries.ListAccessibleAsync(user.Id);
 
         Assert.Equal(OrganizationRole.Member, initial.Role);
+        Assert.Equal(membership.Id, initial.MembershipId);
         Assert.Equal(OrganizationRole.Administrator, changed.Role);
+        Assert.Equal(membership.Id, changed.MembershipId);
         Assert.Empty(deactivated);
     }
 
@@ -203,7 +218,9 @@ public sealed class CurrentUserOrganizationQueriesTests(
             await mutationContext.SaveChangesAsync();
         }
 
-        Assert.Single(await queries.ListAccessibleAsync(user.Id));
+        CurrentUserOrganizationReadModel reactivated = Assert.Single(
+            await queries.ListAccessibleAsync(user.Id));
+        Assert.Equal(membership.Id, reactivated.MembershipId);
     }
 
     [Fact]
@@ -253,10 +270,12 @@ public sealed class CurrentUserOrganizationQueriesTests(
     private static void AssertOrganization(
         CurrentUserOrganizationReadModel item,
         Organization organization,
-        OrganizationRole role)
+        OrganizationRole role,
+        OrganizationMembership membership)
     {
         Assert.Equal(organization.Id, item.OrganizationId);
         Assert.Equal(organization.Name, item.Name);
         Assert.Equal(role, item.Role);
+        Assert.Equal(membership.Id, item.MembershipId);
     }
 }

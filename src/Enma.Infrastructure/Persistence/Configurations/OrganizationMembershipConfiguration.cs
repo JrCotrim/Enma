@@ -50,6 +50,13 @@ public sealed class OrganizationMembershipConfiguration
             .HasColumnType("timestamp with time zone")
             .IsRequired();
 
+        builder.HasAlternateKey(membership => new
+            {
+                membership.OrganizationId,
+                membership.Id
+            })
+            .HasName("ak_organization_memberships_organization_id_id");
+
         builder.HasIndex(membership => new
             {
                 membership.OrganizationId,

@@ -18,7 +18,8 @@ public sealed class GetCurrentUserOrganizationsUseCaseTests
             new(
                 Guid.Parse("8f511878-39b1-4130-a41a-60767a75951f"),
                 "Enma Legal",
-                OrganizationRole.Administrator)
+                OrganizationRole.Administrator,
+                Guid.Parse("23a8c178-12e7-46fd-aac7-a8172dfbda7d"))
         ];
         var queries = new FakeCurrentUserOrganizationQueries(expected);
         var useCase = new GetCurrentUserOrganizationsUseCase(queries);
@@ -59,6 +60,7 @@ public sealed class GetCurrentUserOrganizationsUseCaseTests
 
         Assert.Equal(
             [
+                nameof(CurrentUserOrganizationReadModel.MembershipId),
                 nameof(CurrentUserOrganizationReadModel.Name),
                 nameof(CurrentUserOrganizationReadModel.OrganizationId),
                 nameof(CurrentUserOrganizationReadModel.Role)

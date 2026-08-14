@@ -74,7 +74,8 @@ public sealed class CurrentUserOrganizationEndpointTests : IAsyncLifetime
             [
                 nameof(CurrentUserOrganizationResponse.Id),
                 nameof(CurrentUserOrganizationResponse.Name),
-                nameof(CurrentUserOrganizationResponse.Role)
+                nameof(CurrentUserOrganizationResponse.Role),
+                nameof(CurrentUserOrganizationResponse.MembershipId)
             ],
             GetPropertyNames<CurrentUserOrganizationResponse>());
     }
@@ -144,17 +145,36 @@ public sealed class CurrentUserOrganizationEndpointTests : IAsyncLifetime
             await ReadSuccessfulResponseAsync(secondResponse);
         Assert.Collection(
             firstResult.Items,
-            item => AssertOrganization(item, alpha, "Member"),
-            item => AssertOrganization(item, zeta, "Owner"));
+            item => AssertOrganization(
+                item,
+                alpha,
+                "Member",
+                alphaMembership),
+            item => AssertOrganization(
+                item,
+                zeta,
+                "Owner",
+                zetaMembership));
         CurrentUserOrganizationResponse secondItem = Assert.Single(
             secondResult.Items);
-        AssertOrganization(secondItem, second, "Administrator");
+        AssertOrganization(
+            secondItem,
+            second,
+            "Administrator",
+            secondMembership);
         string firstJson = await firstResponse.Content.ReadAsStringAsync();
         Assert.Contains("\"role\":\"Member\"", firstJson);
         Assert.Contains("\"role\":\"Owner\"", firstJson);
         Assert.DoesNotContain("\"role\":1", firstJson);
         Assert.DoesNotContain("\"role\":2", firstJson);
         Assert.DoesNotContain("\"role\":3", firstJson);
+        Assert.Contains(
+            $"\"membershipId\":\"{alphaMembership.Id:D}\"",
+            firstJson);
+        Assert.Contains(
+            $"\"membershipId\":\"{zetaMembership.Id:D}\"",
+            firstJson);
+        Assert.DoesNotContain(firstUser.Id.ToString("D"), firstJson);
     }
 
     [Fact]
@@ -196,7 +216,16 @@ public sealed class CurrentUserOrganizationEndpointTests : IAsyncLifetime
         GetCurrentUserOrganizationsResponse result =
             await ReadSuccessfulResponseAsync(response);
         CurrentUserOrganizationResponse item = Assert.Single(result.Items);
-        AssertOrganization(item, active, "Administrator");
+        AssertOrganization(
+            item,
+            active,
+            "Administrator",
+            activeMembership);
+        string json = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(inactiveMembership.Id.ToString("D"), json);
+        Assert.DoesNotContain(
+            inactiveOrganizationMembership.Id.ToString("D"),
+            json);
     }
 
     [Fact]
@@ -273,10 +302,15 @@ public sealed class CurrentUserOrganizationEndpointTests : IAsyncLifetime
             await ReadSuccessfulResponseAsync(reactivatedResponse);
 
         Assert.Equal("Member", Assert.Single(initial.Items).Role);
+        Assert.Equal(membership.Id, Assert.Single(initial.Items).MembershipId);
         Assert.Equal("Administrator", Assert.Single(changed.Items).Role);
+        Assert.Equal(membership.Id, Assert.Single(changed.Items).MembershipId);
         Assert.Empty(membershipInactive.Items);
         Assert.Empty(organizationInactive.Items);
         Assert.Equal("Administrator", Assert.Single(reactivated.Items).Role);
+        Assert.Equal(
+            membership.Id,
+            Assert.Single(reactivated.Items).MembershipId);
     }
 
     private async Task<string> SeedAuthenticatedUserAsync(
@@ -363,11 +397,13 @@ public sealed class CurrentUserOrganizationEndpointTests : IAsyncLifetime
     private static void AssertOrganization(
         CurrentUserOrganizationResponse item,
         Organization organization,
-        string role)
+        string role,
+        OrganizationMembership membership)
     {
         Assert.Equal(organization.Id, item.Id);
         Assert.Equal(organization.Name, item.Name);
         Assert.Equal(role, item.Role);
+        Assert.Equal(membership.Id, item.MembershipId);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

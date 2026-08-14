@@ -30,7 +30,8 @@ public sealed class CurrentUserOrganizationQueries
             select new CurrentUserOrganizationReadModel(
                 organization.Id,
                 organization.Name,
-                membership.Role);
+                membership.Role,
+                membership.Id);
 
         return await query.ToArrayAsync(cancellationToken);
     }

@@ -6,4 +6,5 @@ public sealed record GetCurrentUserOrganizationsResponse(
 public sealed record CurrentUserOrganizationResponse(
     Guid Id,
     string Name,
-    string Role);
+    string Role,
+    Guid MembershipId);

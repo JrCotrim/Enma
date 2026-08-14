@@ -158,6 +158,7 @@ describe('authentication flow', () => {
             items: [
               {
                 id: '2a6a0642-8e1d-47dd-bb54-3da70a4c638c',
+                membershipId: '832d6000-3d51-4bf7-a09d-e78e98c5ab9a',
                 name: 'Organização Alfa',
                 role: 'Member',
               },

@@ -5,4 +5,5 @@ namespace Enma.Application.Organizations.CurrentUser;
 public sealed record CurrentUserOrganizationReadModel(
     Guid OrganizationId,
     string Name,
-    OrganizationRole Role);
+    OrganizationRole Role,
+    Guid MembershipId);
