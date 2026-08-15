@@ -19,6 +19,7 @@ import type {
   LegalTaskAssigneeFilter,
   LegalTaskListResponse,
   LegalTaskMembershipAssigneeFilter,
+  LegalTaskState,
   LegalTaskStateFilter,
   OrganizationMemberLookupItem,
 } from './legalTaskTypes'
@@ -70,8 +71,8 @@ function isUnauthorizedError(error: unknown): boolean {
   )
 }
 
-function getStateLabel(state: 'Pending' | 'Completed'): string {
-  return state === 'Pending' ? 'Pendente' : 'Concluída'
+function getStateLabel(state: LegalTaskState): string {
+  return state === 'pending' ? 'Pendente' : 'Concluída'
 }
 
 export function TasksPage() {
@@ -793,7 +794,7 @@ export function TasksPage() {
                         {task.assigneeDisplayName ?? 'Não atribuída'}
                       </td>
                       <td data-label="Estado">
-                        <span className={`task-status is-${task.state.toLowerCase()}`}>
+                        <span className={`task-status is-${task.state}`}>
                           {getStateLabel(task.state)}
                         </span>
                       </td>

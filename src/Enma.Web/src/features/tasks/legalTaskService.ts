@@ -87,7 +87,7 @@ function parseLegalTaskListItem(value: unknown): LegalTaskListItem | undefined {
     !hasConsistentAssignee ||
     typeof candidate.createdByMembershipId !== 'string' ||
     !isValidGuid(candidate.createdByMembershipId) ||
-    (candidate.state !== 'Pending' && candidate.state !== 'Completed') ||
+    (candidate.state !== 'pending' && candidate.state !== 'completed') ||
     !isValidTimestamp(candidate.createdAt)
   ) {
     return undefined
@@ -149,8 +149,8 @@ function parseLegalTaskDetail(value: unknown): LegalTaskDetail {
   const candidate = value as Record<string, unknown>
   const item = parseLegalTaskListItem(candidate)
   const completedAtIsValid =
-    (candidate.state === 'Pending' && candidate.completedAt === null) ||
-    (candidate.state === 'Completed' && isValidTimestamp(candidate.completedAt))
+    (candidate.state === 'pending' && candidate.completedAt === null) ||
+    (candidate.state === 'completed' && isValidTimestamp(candidate.completedAt))
 
   if (
     !item ||
@@ -174,7 +174,7 @@ function parseLegalTaskDetail(value: unknown): LegalTaskDetail {
     assigneeDisplayName: item.assigneeDisplayName,
     createdByMembershipId: item.createdByMembershipId,
     createdByDisplayName: candidate.createdByDisplayName,
-    state: item.state === 'Pending' ? 'pending' : 'completed',
+    state: item.state,
     createdAt: item.createdAt,
     completedAt: candidate.completedAt as string | null,
   }

@@ -1,7 +1,6 @@
 import type { LegalProcessLookupItem } from '../deadlines/legalDeadlineTypes'
 
-export type LegalTaskState = 'Pending' | 'Completed'
-export type LegalTaskDetailState = 'pending' | 'completed'
+export type LegalTaskState = 'pending' | 'completed'
 export type LegalTaskStateFilter = 'pending' | 'completed'
 export type LegalTaskMembershipAssigneeFilter = string & {
   readonly legalTaskMembershipAssigneeFilter: unique symbol
@@ -45,7 +44,7 @@ export interface LegalTaskDetail {
   readonly assigneeDisplayName: string | null
   readonly createdByMembershipId: string
   readonly createdByDisplayName: string
-  readonly state: LegalTaskDetailState
+  readonly state: LegalTaskState
   readonly createdAt: string
   readonly completedAt: string | null
 }

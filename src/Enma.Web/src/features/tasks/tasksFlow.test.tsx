@@ -58,7 +58,7 @@ const pendingTask: LegalTaskListItem = {
   assigneeMembershipId: otherMember.id,
   assigneeDisplayName: otherMember.displayName,
   createdByMembershipId: organizationA.membershipId,
-  state: 'Pending',
+  state: 'pending',
   createdAt: '2026-08-15T12:00:00Z',
 }
 
@@ -188,6 +188,29 @@ describe('Tasks D1 flow', () => {
     )
     expect(localStorageSpy).not.toHaveBeenCalled()
     expect(sessionStorageSpy).not.toHaveBeenCalled()
+  })
+
+  it('TaskList_UppercaseApiState_RejectsUnexpectedResponse', async () => {
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch(
+        [memberOrganization],
+        response(200, {
+          items: [{ ...pendingTask, state: 'Pending' }],
+          pageNumber: 1,
+          pageSize: 20,
+          hasNext: false,
+        }),
+      ),
+    )
+
+    renderRoute(`/organizations/${memberOrganization.id}/tasks`)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Não foi possível carregar as tarefas. Tente novamente.',
+    )
+    expect(screen.queryByText(pendingTask.title)).not.toBeInTheDocument()
   })
 
   it('TaskList_LoadingThenSafeErrorsAndEmptyStates_AreMeaningful', async () => {
@@ -380,7 +403,7 @@ describe('Tasks D1 flow', () => {
     const pendingResponse = new Promise<Response>((resolve) => {
       resolvePending = resolve
     })
-    const completedTask = { ...pendingTask, title: 'Tarefa concluída atual', state: 'Completed' as const }
+    const completedTask = { ...pendingTask, title: 'Tarefa concluída atual', state: 'completed' as const }
     vi.stubGlobal(
       'fetch',
       authenticatedFetch(
@@ -635,7 +658,7 @@ describe('Tasks D1 flow', () => {
     const pendingCreate = new Promise<Response>((resolve) => {
       resolveCreate = resolve
     })
-    const completedTask = { ...pendingTask, state: 'Completed' as const }
+    const completedTask = { ...pendingTask, state: 'completed' as const }
     const fetchMock = authenticatedFetch(
       [memberOrganization],
       taskListResponse([completedTask], 2),

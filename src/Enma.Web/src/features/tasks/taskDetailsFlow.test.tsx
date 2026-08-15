@@ -7,10 +7,6 @@ import { createEmailVerificationFlow } from '../email-verification/emailVerifica
 import type { OrganizationNavigationItem } from '../organizations/organizationTypes'
 import type { LegalTaskDetail, OrganizationMemberLookupItem } from './legalTaskTypes'
 
-type ApiTask = Omit<LegalTaskDetail, 'state'> & {
-  readonly state: 'Pending' | 'Completed'
-}
-
 const organizationA: OrganizationNavigationItem = {
   id: '11111111-1111-4111-8111-111111111111',
   membershipId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
@@ -35,7 +31,7 @@ const replacementMember: OrganizationMemberLookupItem = {
   displayName: 'Pessoa Ativa',
 }
 
-const pendingTask: ApiTask = {
+const pendingTask: LegalTaskDetail = {
   id: '55555555-5555-4555-8555-555555555555',
   title: 'Preparar contestação',
   description: 'Revisar os documentos\nsem interpretar HTML.',
@@ -47,16 +43,16 @@ const pendingTask: ApiTask = {
   assigneeDisplayName: otherMember.displayName,
   createdByMembershipId: organizationA.membershipId,
   createdByDisplayName: 'Criadora Histórica',
-  state: 'Pending',
+  state: 'pending',
   createdAt: '2026-08-15T12:00:00Z',
   completedAt: null,
 }
 
-const completedTask: ApiTask = {
+const completedTask: LegalTaskDetail = {
   ...pendingTask,
   id: '77777777-7777-4777-8777-777777777777',
   title: 'Tarefa concluída',
-  state: 'Completed',
+  state: 'completed',
   completedAt: '2026-08-15T15:30:00Z',
 }
 
@@ -86,7 +82,10 @@ function authenticatedFetch(
   return fetchMock
 }
 
-function detailPath(organization: OrganizationNavigationItem, task: ApiTask): string {
+function detailPath(
+  organization: OrganizationNavigationItem,
+  task: LegalTaskDetail,
+): string {
   return `/organizations/${organization.id}/tasks/${task.id}`
 }
 
@@ -129,7 +128,7 @@ afterEach(() => {
 
 describe('Tasks D2 detail flow', () => {
   it('TaskDetail_ApprovedFieldsAndNullableValues_RenderWithCorrectDateSemantics', async () => {
-    const noRelations: ApiTask = {
+    const noRelations: LegalTaskDetail = {
       ...completedTask,
       description: null,
       dueDate: null,
@@ -231,7 +230,7 @@ describe('Tasks D2 detail flow', () => {
   it('TaskEdit_PrefillValidationExactPayloadDuplicateProtectionAndCanonicalRefetch', async () => {
     let resolveUpdate: ((value: Response) => void) | undefined
     const deferred = new Promise<Response>((resolve) => { resolveUpdate = resolve })
-    const updated: ApiTask = {
+    const updated: LegalTaskDetail = {
       ...pendingTask,
       title: 'Título canônico',
       description: null,
@@ -477,8 +476,8 @@ describe('Tasks D2 detail flow', () => {
   it.each(['complete', 'reopen'] as const)('TaskLifecycle_%s_UsesCsrfNoBodyAndCanonicalRefetch', async (kind) => {
     const source = kind === 'complete' ? pendingTask : completedTask
     const canonical = kind === 'complete'
-      ? { ...pendingTask, state: 'Completed' as const, completedAt: completedTask.completedAt }
-      : { ...completedTask, state: 'Pending' as const, completedAt: null }
+      ? { ...pendingTask, state: 'completed' as const, completedAt: completedTask.completedAt }
+      : { ...completedTask, state: 'pending' as const, completedAt: null }
     const fetchMock = authenticatedFetch(
       [organizationA], response(200, source), response(200, { requestToken: `${kind}-token` }), response(204), response(200, canonical),
     )
