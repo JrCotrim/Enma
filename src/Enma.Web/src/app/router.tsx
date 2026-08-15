@@ -13,6 +13,7 @@ import { OrganizationRoute } from '../features/organizations/OrganizationRoute'
 import { OrganizationsPage } from '../features/organizations/OrganizationsPage'
 import { ProcessesPage } from '../features/processes/ProcessesPage'
 import { ProcessDetailsPage } from '../features/processes/ProcessDetailsPage'
+import { TasksPage } from '../features/tasks/TasksPage'
 import { HomePage } from '../pages/HomePage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { App } from './App'
@@ -78,6 +79,10 @@ export function createAppRoutes(
                         {
                           path: 'deadlines/:deadlineId',
                           element: <DeadlineDetailsPage />,
+                        },
+                        {
+                          path: 'tasks',
+                          element: <TasksPage />,
                         },
                       ],
                     },

@@ -76,6 +76,14 @@ export function OrganizationWorkspace() {
         >
           Prazos
         </NavLink>
+        <NavLink
+          className={({ isActive }) =>
+            `workspace-navigation-link${isActive ? ' is-active' : ''}`
+          }
+          to="tasks"
+        >
+          Tarefas
+        </NavLink>
       </nav>
 
       <Outlet key={currentOrganization.id} />
