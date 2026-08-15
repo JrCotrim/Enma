@@ -14,6 +14,7 @@ import { OrganizationsPage } from '../features/organizations/OrganizationsPage'
 import { ProcessesPage } from '../features/processes/ProcessesPage'
 import { ProcessDetailsPage } from '../features/processes/ProcessDetailsPage'
 import { TasksPage } from '../features/tasks/TasksPage'
+import { TaskDetailsPage } from '../features/tasks/TaskDetailsPage'
 import { HomePage } from '../pages/HomePage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { App } from './App'
@@ -83,6 +84,10 @@ export function createAppRoutes(
                         {
                           path: 'tasks',
                           element: <TasksPage />,
+                        },
+                        {
+                          path: 'tasks/:taskId',
+                          element: <TaskDetailsPage />,
                         },
                       ],
                     },

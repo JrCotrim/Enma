@@ -776,7 +776,14 @@ export function TasksPage() {
                 <tbody>
                   {currentListState.response.items.map((task) => (
                     <tr key={task.id}>
-                      <td data-label="Título">{task.title}</td>
+                      <td data-label="Título">
+                        <Link
+                          className="task-detail-link"
+                          to={`/organizations/${currentOrganization.id}/tasks/${task.id}`}
+                        >
+                          {task.title}
+                        </Link>
+                      </td>
                       <td data-label="Prazo">{formatLegalTaskDueDate(task.dueDate)}</td>
                       <td data-label="Processo">
                         {task.processTitle ?? 'Tarefa geral'}

@@ -7,9 +7,12 @@ import { isValidDateOnly, isValidGuid } from '../deadlines/legalDeadlineFormatti
 import type {
   CreateLegalTaskRequest,
   CreateLegalTaskResponse,
+  ChangeLegalTaskAssigneeRequest,
+  LegalTaskDetail,
   LegalTaskListItem,
   LegalTaskListQuery,
   LegalTaskListResponse,
+  UpdateLegalTaskRequest,
 } from './legalTaskTypes'
 
 export type LegalTaskRequestFailure =
@@ -17,6 +20,8 @@ export type LegalTaskRequestFailure =
   | 'forbidden'
   | 'not-found'
   | 'bad-request'
+  | 'conflict'
+  | 'related-process-unavailable'
   | 'related-assignee-unavailable'
   | 'unexpected'
 
@@ -136,6 +141,45 @@ function parseLegalTaskListResponse(value: unknown): LegalTaskListResponse {
   }
 }
 
+function parseLegalTaskDetail(value: unknown): LegalTaskDetail {
+  if (typeof value !== 'object' || value === null) {
+    throw new LegalTaskRequestError('unexpected')
+  }
+
+  const candidate = value as Record<string, unknown>
+  const item = parseLegalTaskListItem(candidate)
+  const completedAtIsValid =
+    (candidate.state === 'Pending' && candidate.completedAt === null) ||
+    (candidate.state === 'Completed' && isValidTimestamp(candidate.completedAt))
+
+  if (
+    !item ||
+    !isNullableString(candidate.description) ||
+    typeof candidate.createdByDisplayName !== 'string' ||
+    candidate.createdByDisplayName.length === 0 ||
+    !completedAtIsValid
+  ) {
+    throw new LegalTaskRequestError('unexpected')
+  }
+
+  return {
+    id: item.id,
+    title: item.title,
+    description: candidate.description,
+    dueDate: item.dueDate,
+    processId: item.processId,
+    processTitle: item.processTitle,
+    clientName: item.clientName,
+    assigneeMembershipId: item.assigneeMembershipId,
+    assigneeDisplayName: item.assigneeDisplayName,
+    createdByMembershipId: item.createdByMembershipId,
+    createdByDisplayName: candidate.createdByDisplayName,
+    state: item.state === 'Pending' ? 'pending' : 'completed',
+    createdAt: item.createdAt,
+    completedAt: candidate.completedAt as string | null,
+  }
+}
+
 function parseCreateResponse(value: unknown): CreateLegalTaskResponse {
   if (typeof value !== 'object' || value === null) {
     throw new LegalTaskRequestError('unexpected')
@@ -154,7 +198,56 @@ function throwForStatus(status: number): never {
   if (status === 403) throw new LegalTaskRequestError('forbidden')
   if (status === 404) throw new LegalTaskRequestError('not-found')
   if (status === 400) throw new LegalTaskRequestError('bad-request')
+  if (status === 409) throw new LegalTaskRequestError('conflict')
   throw new LegalTaskRequestError('unexpected')
+}
+
+function getTaskEndpoint(organizationId: string, taskId: string): string {
+  return `${getTasksEndpoint(organizationId)}/${encodeURIComponent(taskId)}`
+}
+
+async function sendLegalTaskMutation(
+  endpoint: string,
+  method: 'PUT' | 'POST',
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+  body?: UpdateLegalTaskRequest | ChangeLegalTaskAssigneeRequest,
+  notFoundFailure: LegalTaskRequestFailure = 'not-found',
+): Promise<void> {
+  const requestToken = await getCsrfToken()
+  const response = await fetchWithSession(
+    endpoint,
+    {
+      method,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        'X-CSRF-TOKEN': requestToken,
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status === 204) return
+
+  if (response.status === 400) {
+    clearCsrfToken()
+    try {
+      const problem = (await response.json()) as Record<string, unknown>
+      if (problem.title === 'Related assignee unavailable') {
+        throw new LegalTaskRequestError('related-assignee-unavailable')
+      }
+    } catch (error) {
+      if (error instanceof LegalTaskRequestError) throw error
+    }
+  }
+
+  if (response.status === 404) {
+    throw new LegalTaskRequestError(notFoundFailure)
+  }
+  throwForStatus(response.status)
 }
 
 function getTasksEndpoint(organizationId: string): string {
@@ -230,4 +323,80 @@ export async function createLegalTask(
   }
 
   return parseCreateResponse(await response.json())
+}
+
+export async function getLegalTask(
+  organizationId: string,
+  taskId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<LegalTaskDetail> {
+  const response = await fetchWithSession(
+    getTaskEndpoint(organizationId, taskId),
+    { method: 'GET', cache: 'no-store', signal },
+    onUnauthorized,
+  )
+  if (response.status !== 200) throwForStatus(response.status)
+  return parseLegalTaskDetail(await response.json())
+}
+
+export function updateLegalTask(
+  organizationId: string,
+  taskId: string,
+  body: UpdateLegalTaskRequest,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendLegalTaskMutation(
+    getTaskEndpoint(organizationId, taskId),
+    'PUT',
+    onUnauthorized,
+    signal,
+    body,
+    'related-process-unavailable',
+  )
+}
+
+export function changeLegalTaskAssignee(
+  organizationId: string,
+  taskId: string,
+  assigneeMembershipId: string | null,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendLegalTaskMutation(
+    `${getTaskEndpoint(organizationId, taskId)}/assignee`,
+    'PUT',
+    onUnauthorized,
+    signal,
+    { assigneeMembershipId },
+  )
+}
+
+export function completeLegalTask(
+  organizationId: string,
+  taskId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendLegalTaskMutation(
+    `${getTaskEndpoint(organizationId, taskId)}/complete`,
+    'POST',
+    onUnauthorized,
+    signal,
+  )
+}
+
+export function reopenLegalTask(
+  organizationId: string,
+  taskId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendLegalTaskMutation(
+    `${getTaskEndpoint(organizationId, taskId)}/reopen`,
+    'POST',
+    onUnauthorized,
+    signal,
+  )
 }
