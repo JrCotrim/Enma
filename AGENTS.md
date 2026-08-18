@@ -1,177 +1,249 @@
 # ENMA Repository Instructions
 
-## Project Context
+## Project
 
-ENMA is a multi-tenant SaaS platform for law firm management. The backend uses ASP.NET Core, and the planned frontend will use React and TypeScript. PostgreSQL is the planned database. The solution initially follows a modular monolith architecture.
+ENMA is a multi-tenant legal SaaS application built with ASP.NET Core, React, PostgreSQL, and Docker.
 
-The current projects are:
+Treat the repository as the source of truth for structure, versions, commands, conventions, and established architectural decisions.
 
-- `Enma.Api`
-- `Enma.Application`
-- `Enma.Domain`
-- `Enma.Infrastructure`
-- `Enma.UnitTests`
-- `Enma.Web`
+Before introducing a new pattern, inspect how the repository already solves the same class of problem. Prefer consistency over unnecessary novelty.
 
-## Architecture Boundaries
+## Operating principles
 
-- `Enma.Domain` contains entities and business rules.
-- `Enma.Application` contains use cases and abstractions.
-- `Enma.Infrastructure` contains persistence and external integrations.
-- `Enma.Api` contains the HTTP entry point and application composition.
-- `Enma.UnitTests` contains unit tests.
-- `Enma.Domain` must not depend on any other project.
-- `Enma.Application` may depend on `Enma.Domain`.
-- `Enma.Infrastructure` may depend on `Enma.Application` and `Enma.Domain`.
-- `Enma.Api` may depend on `Enma.Application` and `Enma.Infrastructure`.
-- Do not add dependencies between projects without explicit authorization.
+- Keep work scoped to the requested objective.
+- Inspect targeted files first; expand only when evidence requires it.
+- Prefer existing abstractions, scripts, tests, and conventions.
+- Do not perform broad repository analysis for localized work.
+- Do not repeat large unchanged files, full diffs, or repository documentation without need.
+- Keep planning proportional to task complexity.
+- Preserve existing behavior unless the task intentionally changes it.
+- Report unrelated issues separately instead of silently expanding scope.
+- Preserve all existing user work.
 
-## Scope Discipline
+## Architecture
 
-- Change only the files authorized by the task prompt.
-- Do not use a task as an opportunity for unrelated refactoring.
-- Do not fix out-of-scope issues without authorization.
-- Report any out-of-scope issues discovered in the final report.
-- Preserve all pre-existing user changes.
-- Run `git status --short` before editing.
-- Never overwrite or revert user work without authorization.
-- Do not create premature abstractions or speculative architecture.
-- Prefer the simplest solution that fully satisfies the requirements.
+Preserve established layer boundaries.
 
-## Code Standards
+- Domain MUST remain independent of EF Core, ASP.NET Core, HTTP, PostgreSQL, and external-provider implementations.
+- Application MUST contain use-case logic and abstractions without depending on Infrastructure implementations.
+- Infrastructure may implement inward-facing contracts but MUST NOT leak persistence/provider concerns into Domain or Application.
+- API endpoints/controllers MUST remain thin and MUST NOT own business rules.
+- Frontend MUST NOT enforce backend business or security invariants.
+- Do not bypass an established abstraction for convenience.
+- Do not introduce a second architectural pattern for a problem already solved consistently.
+- Avoid speculative abstractions and infrastructure without a current requirement.
 
-- Write code, namespaces, identifiers, internal messages, tests, and technical comments in English.
-- Use PascalCase for types and public members.
-- Use camelCase for variables and parameters.
-- Prefer file-scoped namespaces.
-- Use nullable reference types when the project is already configured for them.
-- Do not use the null-forgiving operator in production code to hide nullability problems.
-- Keep classes focused and methods small.
-- Avoid comments that merely repeat the code.
-- Preserve domain encapsulation.
-- Do not expose public setters on entities unless necessary.
-- Do not add external packages when the standard platform adequately solves the problem.
-- Do not install or update packages without explicit authorization.
-- Do not change public APIs or existing rules without authorization and corresponding tests.
+If the current code conflicts with these rules, investigate and report the conflict before attempting a broad rewrite.
 
-## Testing Rules
+## Multi-tenancy
 
-- Every new business rule must have tests.
-- Every bug fix must include a test that reproduces the problem.
-- Tests must be deterministic.
-- Tests must not depend on the current time, the network, or execution order.
-- Name tests using the `Method_Scenario_ExpectedResult` pattern.
-- Do not remove, skip, or weaken tests to make the build pass.
-- Do not add trivial tests such as `Assert.True(true)`.
-- Tasks that change persistence, EF Core mappings, migrations, repositories, or database behavior must run `scripts/verify.ps1 -IntegrationTests`.
-- Tasks that change dependencies must additionally use `-SecurityAudit`.
-- Ordinary domain or application tasks do not require Docker-based integration tests unless they are relevant.
-- Run the complete validation before finishing the task.
+Tenant isolation is a mandatory security invariant.
 
-## Security Rules
+For tenant-owned data:
 
-- Never add passwords, tokens, keys, real connection strings, or sensitive data.
-- Never log legal documents or personal information.
-- Do not weaken validation or authorization to simplify implementation.
-- Validate inputs at the appropriate boundaries.
-- Report any vulnerable dependencies discovered.
-- Run a package security audit whenever a task changes dependencies.
+- Resolve tenant context from authoritative server-side state.
+- Reads MUST NOT expose another tenant's data.
+- Writes MUST NOT create, modify, associate, or delete another tenant's data.
+- Never rely on frontend filtering for isolation.
+- Never trust a client-supplied tenant identifier when authenticated context should determine it.
+- Validate relationships between tenant-owned entities before persistence.
+- Resource-by-ID access requires object-level authorization.
+- Background jobs, reports, exports, batch operations, and administrative flows MUST preserve tenant boundaries.
+- Filter tenant data in the database whenever practical; do not load cross-tenant datasets and filter them in memory.
 
-## Git Rules
+Any credible cross-tenant exposure is a blocking security issue.
 
-- Never run `git commit`.
-- Never run `git push`.
-- Never create, switch, merge, or delete branches.
-- Never run `git reset --hard`, `git clean`, destructive checkout commands, or equivalent operations.
-- Do not add files to the staging area.
-- Use only read-only Git inspection commands unless explicitly authorized otherwise.
-- The user will create the commit only after reviewing the ChatGPT result.
+Tenant-sensitive behavior requires tests proving that one tenant cannot read or mutate another tenant's resources.
 
-## Required Workflow
+## Authentication and authorization
 
-1. Read the prompt and internally confirm the scope.
-2. Run `git status --short`.
-3. Inspect only the necessary files.
-4. Implement the smallest correct change.
-5. Add or update tests.
-6. Run `scripts/verify.ps1`.
-7. Fix failures that are within scope.
-8. Repeat validation until it passes.
-9. Review the final diff, including both tracked and untracked changes.
-10. Deliver the required report.
-11. Do not create a commit.
+Authentication and authorization are separate concerns.
 
-If `scripts/verify.ps1` cannot be run, execute the equivalent commands manually. Do not hide out-of-scope failures. Stop and report when a requirement would cause a change outside the authorized scope.
+- Enforce both at authoritative server-side boundaries.
+- Authentication alone never implies authorization.
+- Apply least privilege.
+- Check object-level authorization for resource access by identifier.
+- Use authoritative current state for security decisions.
+- Do not rely on hidden/disabled frontend actions as authorization.
+- Consider stale state and concurrency when they can invalidate an authentication or authorization decision.
 
-## Frontend Workflow
+Changes involving identity, credentials, sessions, memberships, roles, permissions, security tokens, authorization, or tenant resolution are security-sensitive and require stronger review and negative-path testing.
 
-For changes under `src/Enma.Web`, run the following commands from that directory:
+## API and input boundaries
 
-1. `npm ci`
-2. `npm run typecheck`
-3. `npm run lint`
-4. `npm run test:run`
-5. `npm run build`
-6. `npm audit`
+Treat all external input as untrusted.
 
-## Required Final Report
+- Validate input at the appropriate boundary.
+- Preserve public contracts unless change is intentional.
+- Avoid mass-assignment patterns.
+- Use dedicated request/response contracts when consistent with the codebase.
+- Do not expose persistence entities or sensitive internal models directly.
+- Handle validation, not-found, conflict, authentication, authorization, rate-limit, and unexpected failures consistently.
+- Do not expose stack traces, database details, secrets, or unnecessary implementation details.
+- Propagate cancellation where supported by the existing architecture.
 
-Every final Codex response must use exactly these sections:
+## Persistence and data integrity
 
-## Summary
+Before changing persistence behavior, inspect the relevant model, mappings, repositories, constraints, indexes, and migrations.
 
-Provide an objective summary of the implementation.
+- Preserve referential integrity.
+- Use database-enforced invariants when correctness must survive concurrency.
+- Preserve established unit-of-work and transaction boundaries.
+- Consider rollback and concurrency for multi-step or contested operations.
+- Avoid N+1 queries, unnecessary materialization, and unbounded result sets.
+- Filter and project in the database when practical.
+- Use tracking only when mutation/persistence semantics require it.
+- Avoid raw SQL unless justified; parameterize all raw database access.
+- Preserve cancellation propagation for asynchronous persistence operations.
 
-## Files
+### Migrations
 
-List files created, changed, and removed, and confirm whether any other file was modified.
+Migrations are high-risk changes.
 
-## Decisions
+- Inspect generated migrations and the model snapshot.
+- Review affected columns, types, defaults, constraints, indexes, foreign keys, and delete behavior.
+- Consider existing production data and deployment ordering.
+- Do not silently drop, truncate, recreate, or transform important data.
+- Do not rewrite historical migrations that may already have been applied unless explicitly authorized and known safe.
+- Prefer a new migration when history may already exist.
+- Avoid redundant indexes.
+- Production application startup MUST NOT automatically apply migrations unless that architectural decision is explicitly changed and reviewed.
 
-Describe relevant technical decisions.
+## Security and sensitive data
 
-## Validation
+Prefer secure-by-default and fail-closed behavior where continuing would weaken a security invariant.
 
-List the commands executed and their results.
+Never place real secrets or sensitive customer/legal data in source code, tracked configuration, commits, tests, screenshots, examples, logs, exception messages, or shareable diagnostics.
 
-## Build
+Never log or expose:
 
-Report the number of errors and warnings.
+- passwords or password hashes;
+- authentication headers;
+- session secrets or raw session handles;
+- verification/reset tokens;
+- API keys;
+- connection-string credentials;
+- other bearer secrets.
 
-## Tests
+Use synthetic data in tests and examples.
 
-Report total, passed, failed, and skipped tests.
+Review relevant changes for broken access control, IDOR, authentication/authorization bypass, cross-tenant exposure, injection, unsafe deserialization, excessive data exposure, insecure configuration, sensitive logging, security-sensitive race conditions, and unnecessary/vulnerable dependencies.
 
-## Security
+Security controls MUST exist at authoritative backend boundaries.
 
-Describe the audit performed, or clearly explain why it did not apply.
+## Logging and errors
 
-## Git
+- Do not log secrets, credentials, tokens, authentication headers, or sensitive legal/customer data.
+- Avoid logging whole request/domain objects when they may contain sensitive fields.
+- Prefer structured diagnostics with safe identifiers and correlation/trace IDs.
+- Do not expose internal exception details to clients.
+- Do not swallow exceptions without a justified recovery strategy.
+- Avoid duplicate logging of the same failure across layers without operational value.
 
-Report the results of `git diff --check`, `git diff --stat`, and `git status --short`.
+## Performance
 
-## Diff
+Prefer simple, measurable performance decisions.
 
-Include changes to both tracked and untracked files. Untracked files do not appear in the standard `git diff` output. For every untracked file, include its complete content or generate a diff against an empty file using a safe command equivalent to:
+- Paginate potentially large collections.
+- Avoid unbounded queries, N+1 access, unnecessary `Include`, materialization, tracking, and network calls.
+- Retrieve only required data.
+- Review indexes against real constraints and query patterns.
+- Do not add caching, queues, background processing, denormalization, or parallelism without demonstrated need.
+- Do not sacrifice correctness, security, or maintainability for speculative micro-optimizations.
+- For significant performance work, use measurement, query analysis, profiling, load tests, or benchmarks when practical.
 
-```text
-git diff --no-index -- /dev/null <file>
-```
+## Testing and validation
 
-Exit code 1 from `git diff --no-index` is expected when differences are found and does not indicate a failure. Do not omit any new file from the report.
+Validation MUST be proportional to scope and risk.
 
-Include the complete diff when it is reasonably sized. When the volume is too large, provide a detailed per-file summary and explicitly identify every file whose complete diff was omitted.
+- Add or update tests when behavior changes.
+- Test negative/error paths when relevant.
+- Security-sensitive changes require adversarial/negative coverage.
+- Tenant-sensitive changes require cross-tenant isolation coverage.
+- Persistence, EF Core, migration, PostgreSQL, transaction, or database-concurrency changes require appropriate real-database integration tests.
+- Dependency changes require the repository's established security/vulnerability audit.
+- Never remove, skip, weaken, or rewrite meaningful tests merely to obtain a passing result.
+- Never report an unexecuted check as passed.
 
-## Limitations
+Use the repository-scoped `enma-verify` skill for the detailed validation workflow instead of duplicating validation procedures here.
 
-List limitations, validation not performed, and out-of-scope issues discovered.
+## Dependencies
 
-## Prohibited Final Actions
+Before changing dependencies:
 
-Codex must never:
+- confirm the change is necessary;
+- prefer capabilities already present;
+- avoid overlapping libraries;
+- assess maintenance, security, licensing, and operational impact;
+- do not perform broad upgrades as a side effect of unrelated work;
+- do not change versions solely because newer versions exist.
 
-- Commit changes.
-- Push changes.
-- Claim that a validation was run when it was not.
-- Hide errors, warnings, or out-of-scope changes.
-- Declare success when the build or tests failed.
+## Scope discipline
+
+- Modify only what the objective requires.
+- Do not refactor, rename, reorganize, or clean up unrelated areas.
+- Do not replace established implementations based only on local preference.
+- Do not introduce infrastructure for hypothetical future requirements.
+- Treat broader improvements as follow-up work unless explicitly requested.
+
+## Git safety
+
+Treat the current working tree as user-owned work.
+
+Before modifying files, inspect relevant Git state and preserve tracked and untracked changes.
+
+Do not stage, commit, push, merge, rebase, amend, create/delete branches, modify remotes, reset, clean, restore, checkout destructively, or discard work unless explicitly requested or authorized.
+
+Never use destructive Git operations such as `git reset --hard` or `git clean` without explicit authorization.
+
+When a commit is explicitly requested:
+
+- inspect the final diff;
+- ensure required validation passed;
+- keep the commit conceptually focused;
+- exclude unrelated files and sensitive artifacts;
+- use a clear message describing the logical change.
+
+Do not push unless explicitly requested.
+
+## Stop conditions
+
+Stop and report before continuing when:
+
+- the task requires a broad architectural rewrite that was not requested;
+- existing user changes conflict with required modifications;
+- destructive migration/data-loss behavior appears necessary without approval;
+- an established security invariant would need to be weakened;
+- tenant isolation or required authorization cannot be established safely;
+- a security-sensitive requirement is materially ambiguous;
+- repository state makes the intended change unsafe;
+- unrelated production changes would be required merely to make validation pass.
+
+Do not silently work around these conditions.
+
+## Review and completion
+
+A significant module is not complete immediately after implementation.
+
+Use the repository-scoped `enma-review` skill for evidence-driven technical review and mandatory module-completion architecture/security review.
+
+Blocking correctness, security, authorization, tenant-isolation, data-integrity, or destructive-migration findings MUST be resolved or explicitly accepted before module completion.
+
+Do not expand a review with hypothetical improvements merely to make it look thorough.
+
+## Completion report
+
+Keep completion reports concise and proportional.
+
+Always report:
+
+- objective completed;
+- important files changed;
+- validation performed and result;
+- unresolved blockers, risks, or environment limitations.
+
+Report architecture, database/migration, authentication, authorization, multi-tenancy, security, dependency, performance, or deployment impact only when relevant.
+
+For significant modules, include the final `enma-review` decision.
+
+Do not reproduce this file, full diffs, full source files, or verbose logs unless necessary.
