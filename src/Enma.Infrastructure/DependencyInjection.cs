@@ -19,6 +19,8 @@ using Enma.Application.Deadlines.GetById;
 using Enma.Application.Deadlines.List;
 using Enma.Application.Deadlines.Reopen;
 using Enma.Application.Deadlines.Update;
+using Enma.Application.Documents.Inspection;
+using Enma.Application.Documents.Staging;
 using Enma.Application.Documents.Storage;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
@@ -39,6 +41,8 @@ using Enma.Application.Tasks.List;
 using Enma.Application.Tasks.Reopen;
 using Enma.Application.Tasks.Update;
 using Enma.Application.Users;
+using Enma.Infrastructure.Documents.Inspection;
+using Enma.Infrastructure.Documents.Staging;
 using Enma.Infrastructure.Documents.Storage;
 using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
@@ -116,6 +120,12 @@ public static class DependencyInjection
         services.AddSingleton<
             ILegalDocumentStorage,
             S3LegalDocumentStorage>();
+        services.AddSingleton<
+            ILegalDocumentContentStager,
+            TempFileLegalDocumentContentStager>();
+        services.AddSingleton<
+            ILegalDocumentContentInspector,
+            LegalDocumentContentInspector>();
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<object>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<ILoginDummyPasswordHashProvider>(serviceProvider =>
