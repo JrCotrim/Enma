@@ -17,6 +17,15 @@ public sealed class LegalDocumentStorageObjectNotFoundException
     }
 }
 
+public sealed class LegalDocumentStorageObjectKeyConflictException
+    : LegalDocumentStorageException
+{
+    public LegalDocumentStorageObjectKeyConflictException()
+        : base("The document storage object key is already in use.")
+    {
+    }
+}
+
 public sealed class LegalDocumentStorageUnavailableException
     : LegalDocumentStorageException
 {

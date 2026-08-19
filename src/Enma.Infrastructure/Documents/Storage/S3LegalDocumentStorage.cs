@@ -23,15 +23,14 @@ public sealed class S3LegalDocumentStorage : ILegalDocumentStorage
         bucketName = options.Value.BucketName;
     }
 
-    public async Task<LegalDocumentStorageObjectKey> StoreAsync(
+    public async Task StoreAsync(
+        LegalDocumentStorageObjectKey objectKey,
         Stream content,
         long contentLength,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(objectKey);
         ValidateInputStream(content, contentLength);
-
-        LegalDocumentStorageObjectKey objectKey =
-            LegalDocumentStorageObjectKey.CreateNew();
 
         var request = new PutObjectRequest
         {
@@ -39,17 +38,21 @@ public sealed class S3LegalDocumentStorage : ILegalDocumentStorage
             Key = objectKey.Value,
             InputStream = content,
             AutoCloseStream = false,
-            AutoResetStreamPosition = false
+            AutoResetStreamPosition = false,
+            IfNoneMatch = "*"
         };
 
         try
         {
             await s3Client.PutObjectAsync(request, cancellationToken);
-            return objectKey;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (AmazonS3Exception exception) when (IsObjectKeyConflict(exception))
+        {
+            throw new LegalDocumentStorageObjectKeyConflictException();
         }
         catch (AmazonServiceException)
         {
@@ -168,6 +171,12 @@ public sealed class S3LegalDocumentStorage : ILegalDocumentStorage
                 "The declared document storage content length must match the remaining stream length.",
                 nameof(contentLength));
         }
+    }
+
+    private static bool IsObjectKeyConflict(AmazonS3Exception exception)
+    {
+        return exception.StatusCode is HttpStatusCode.PreconditionFailed
+            or HttpStatusCode.Conflict;
     }
 
     private static bool IsObjectNotFound(AmazonS3Exception exception)

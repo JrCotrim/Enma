@@ -1,7 +1,10 @@
 using Amazon.S3;
 using Enma.Application.Documents.Storage;
+using Enma.Application.Documents.Upload;
 using Enma.Infrastructure;
 using Enma.Infrastructure.Documents.Storage;
+using Enma.Infrastructure.Documents.Upload;
+using Enma.Infrastructure.Persistence;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -137,6 +140,70 @@ public sealed class DocumentStorageDependencyInjectionTests(PostgreSqlFixture fi
         Assert.IsType<S3LegalDocumentStorage>(firstStorage);
         Assert.Same(firstClient, secondClient);
         Assert.Same(firstStorage, secondStorage);
+    }
+
+    [Fact]
+    public async Task AddInfrastructure_DocumentUploadGraph_UsesScopedCoordinatorAndUseCase()
+    {
+        IConfiguration configuration = CreateValidDocumentStorageConfiguration();
+
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddInfrastructure(fixture.ConnectionString, configuration);
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+
+        await using AsyncServiceScope firstScope = serviceProvider.CreateAsyncScope();
+        await using AsyncServiceScope secondScope = serviceProvider.CreateAsyncScope();
+
+        ILegalDocumentMetadataUploadTransaction firstMetadataTransaction = firstScope
+            .ServiceProvider
+            .GetRequiredService<ILegalDocumentMetadataUploadTransaction>();
+        ILegalDocumentUploadPersistence firstUploadPersistence = firstScope
+            .ServiceProvider
+            .GetRequiredService<ILegalDocumentUploadPersistence>();
+        UploadLegalDocumentUseCase firstUseCase = firstScope.ServiceProvider
+            .GetRequiredService<UploadLegalDocumentUseCase>();
+        ILegalDocumentStorage firstStorage = firstScope.ServiceProvider
+            .GetRequiredService<ILegalDocumentStorage>();
+
+        Assert.IsType<LegalDocumentMetadataUploadTransaction>(
+            firstMetadataTransaction);
+        Assert.IsType<LegalDocumentUploadPersistence>(firstUploadPersistence);
+        Assert.Same(
+            firstMetadataTransaction,
+            firstScope.ServiceProvider
+                .GetRequiredService<ILegalDocumentMetadataUploadTransaction>());
+        Assert.Same(
+            firstUploadPersistence,
+            firstScope.ServiceProvider
+                .GetRequiredService<ILegalDocumentUploadPersistence>());
+        Assert.Same(
+            firstUseCase,
+            firstScope.ServiceProvider
+                .GetRequiredService<UploadLegalDocumentUseCase>());
+
+        Assert.NotSame(
+            firstMetadataTransaction,
+            secondScope.ServiceProvider
+                .GetRequiredService<ILegalDocumentMetadataUploadTransaction>());
+        Assert.NotSame(
+            firstUploadPersistence,
+            secondScope.ServiceProvider
+                .GetRequiredService<ILegalDocumentUploadPersistence>());
+        Assert.NotSame(
+            firstUseCase,
+            secondScope.ServiceProvider
+                .GetRequiredService<UploadLegalDocumentUseCase>());
+        Assert.Same(
+            firstStorage,
+            secondScope.ServiceProvider
+                .GetRequiredService<ILegalDocumentStorage>());
     }
 
     private static IConfiguration CreateValidDocumentStorageConfiguration()

@@ -53,7 +53,11 @@ public sealed class S3LegalDocumentStorageIntegrationTests : IAsyncLifetime
         byte[] payload = "ENMA private legal document storage test"u8.ToArray();
         using var input = new MemoryStream(payload, writable: false);
 
-        LegalDocumentStorageObjectKey objectKey = await storage.StoreAsync(
+        LegalDocumentStorageObjectKey objectKey =
+            LegalDocumentStorageObjectKey.CreateNew();
+
+        await storage.StoreAsync(
+            objectKey,
             input,
             payload.LongLength,
             CancellationToken.None);
@@ -96,11 +100,18 @@ public sealed class S3LegalDocumentStorageIntegrationTests : IAsyncLifetime
         using var firstInput = new MemoryStream(payload, writable: false);
         using var secondInput = new MemoryStream(payload, writable: false);
 
-        LegalDocumentStorageObjectKey firstKey = await storage.StoreAsync(
+        LegalDocumentStorageObjectKey firstKey =
+            LegalDocumentStorageObjectKey.CreateNew();
+        LegalDocumentStorageObjectKey secondKey =
+            LegalDocumentStorageObjectKey.CreateNew();
+
+        await storage.StoreAsync(
+            firstKey,
             firstInput,
             payload.LongLength,
             CancellationToken.None);
-        LegalDocumentStorageObjectKey secondKey = await storage.StoreAsync(
+        await storage.StoreAsync(
+            secondKey,
             secondInput,
             payload.LongLength,
             CancellationToken.None);
@@ -123,12 +134,65 @@ public sealed class S3LegalDocumentStorageIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Store_ExistingObjectKey_DoesNotOverwriteExistingObject()
+    {
+        LegalDocumentStorageObjectKey objectKey =
+            LegalDocumentStorageObjectKey.CreateNew();
+        byte[] originalPayload = "original private object"u8.ToArray();
+        byte[] replacementPayload = "replacement must be rejected"u8.ToArray();
+
+        using var originalInput =
+            new MemoryStream(originalPayload, writable: false);
+        using var replacementInput =
+            new MemoryStream(replacementPayload, writable: false);
+
+        await storage.StoreAsync(
+            objectKey,
+            originalInput,
+            originalPayload.LongLength,
+            CancellationToken.None);
+
+        try
+        {
+            await Assert.ThrowsAsync<
+                LegalDocumentStorageObjectKeyConflictException>(
+                () => storage.StoreAsync(
+                    objectKey,
+                    replacementInput,
+                    replacementPayload.LongLength,
+                    CancellationToken.None));
+
+            await using ILegalDocumentStorageReadHandle handle =
+                await storage.OpenReadAsync(
+                    objectKey,
+                    CancellationToken.None);
+            using var copy = new MemoryStream();
+
+            await handle.Content.CopyToAsync(
+                copy,
+                CancellationToken.None);
+
+            Assert.Equal(originalPayload, copy.ToArray());
+        }
+        finally
+        {
+            await storage.DeleteIfExistsAsync(
+                objectKey,
+                CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public async Task DeleteIfExists_ExistingThenMissing_RemainsIdempotent()
     {
         byte[] payload = "delete compensation test"u8.ToArray();
         using var input = new MemoryStream(payload, writable: false);
 
-        LegalDocumentStorageObjectKey objectKey = await storage.StoreAsync(
+        LegalDocumentStorageObjectKey objectKey =
+            LegalDocumentStorageObjectKey.CreateNew();
+
+        await storage.StoreAsync(
+            objectKey,
             input,
             payload.LongLength,
             CancellationToken.None);
@@ -186,7 +250,11 @@ public sealed class S3LegalDocumentStorageIntegrationTests : IAsyncLifetime
         byte[] payload = "private object"u8.ToArray();
         using var input = new MemoryStream(payload, writable: false);
 
-        LegalDocumentStorageObjectKey objectKey = await storage.StoreAsync(
+        LegalDocumentStorageObjectKey objectKey =
+            LegalDocumentStorageObjectKey.CreateNew();
+
+        await storage.StoreAsync(
+            objectKey,
             input,
             payload.LongLength,
             CancellationToken.None);
@@ -252,6 +320,7 @@ public sealed class S3LegalDocumentStorageIntegrationTests : IAsyncLifetime
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => storage.StoreAsync(
+                LegalDocumentStorageObjectKey.CreateNew(),
                 input,
                 payload.LongLength,
                 cancellationTokenSource.Token));

@@ -2,7 +2,8 @@ namespace Enma.Application.Documents.Storage;
 
 public interface ILegalDocumentStorage
 {
-    Task<LegalDocumentStorageObjectKey> StoreAsync(
+    Task StoreAsync(
+        LegalDocumentStorageObjectKey objectKey,
         Stream content,
         long contentLength,
         CancellationToken cancellationToken = default);

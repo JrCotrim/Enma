@@ -22,6 +22,7 @@ using Enma.Application.Deadlines.Update;
 using Enma.Application.Documents.Inspection;
 using Enma.Application.Documents.Staging;
 using Enma.Application.Documents.Storage;
+using Enma.Application.Documents.Upload;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
 using Enma.Application.Organizations.Members.Lookup;
@@ -44,6 +45,7 @@ using Enma.Application.Users;
 using Enma.Infrastructure.Documents.Inspection;
 using Enma.Infrastructure.Documents.Staging;
 using Enma.Infrastructure.Documents.Storage;
+using Enma.Infrastructure.Documents.Upload;
 using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
@@ -126,6 +128,12 @@ public static class DependencyInjection
         services.AddSingleton<
             ILegalDocumentContentInspector,
             LegalDocumentContentInspector>();
+        services.AddScoped<
+            ILegalDocumentMetadataUploadTransaction,
+            LegalDocumentMetadataUploadTransaction>();
+        services.AddScoped<
+            ILegalDocumentUploadPersistence,
+            LegalDocumentUploadPersistence>();
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<object>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<ILoginDummyPasswordHashProvider>(serviceProvider =>
@@ -292,6 +300,7 @@ public static class DependencyInjection
         services.AddScoped<ListLegalTasksUseCase>();
         services.AddScoped<ReopenLegalTaskUseCase>();
         services.AddScoped<UpdateLegalTaskUseCase>();
+        services.AddScoped<UploadLegalDocumentUseCase>();
 
         return services;
     }
