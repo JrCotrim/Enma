@@ -4,6 +4,7 @@ using Enma.Application.Users;
 using Enma.Domain.Authentication;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
+using Enma.Domain.Documents;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 using Enma.Domain.Tasks;
@@ -22,6 +23,8 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     public DbSet<Organization> Organizations => Set<Organization>();
 
     public DbSet<Client> Clients => Set<Client>();
+
+    public DbSet<LegalDocument> LegalDocuments => Set<LegalDocument>();
 
     public DbSet<LegalDeadline> LegalDeadlines => Set<LegalDeadline>();
 
