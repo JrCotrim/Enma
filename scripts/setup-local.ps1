@@ -62,7 +62,13 @@ function Read-LocalEnvironment {
         "POSTGRES_DB",
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",
-        "POSTGRES_PORT"
+        "POSTGRES_PORT",
+        "MINIO_ROOT_USER",
+        "MINIO_ROOT_PASSWORD",
+        "MINIO_APP_ACCESS_KEY",
+        "MINIO_APP_SECRET_KEY",
+        "MINIO_API_PORT",
+        "MINIO_CONSOLE_PORT"
     )
     $settings = @{}
     $lineNumber = 0
@@ -107,6 +113,139 @@ function Read-LocalEnvironment {
     return $settings
 }
 
+function Get-ValidatedPort {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Settings,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Key
+    )
+
+    $port = 0
+    if ($Settings[$Key] -notmatch "^\d+$" -or
+        -not [int]::TryParse($Settings[$Key], [ref]$port)) {
+        throw "$Key must be numeric."
+    }
+
+    if ($port -lt 1 -or $port -gt 65535) {
+        throw "$Key must be between 1 and 65535."
+    }
+
+    return $port
+}
+
+function Wait-ForHealthyContainer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DisplayName
+    )
+
+    $maximumHealthChecks = 60
+    $healthCheckIntervalSeconds = 2
+
+    Write-Host ""
+    Write-Host "==> Wait for $DisplayName health check"
+
+    for ($attempt = 1; $attempt -le $maximumHealthChecks; $attempt++) {
+        $containerStateOutput = Invoke-CheckedCommand `
+            -Title "Inspect $DisplayName container (attempt $attempt of $maximumHealthChecks)" `
+            -Command "docker" `
+            -Arguments @(
+                "inspect",
+                "--format",
+                "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
+                $ContainerName
+            ) `
+            -CaptureOutput
+
+        $containerState = ($containerStateOutput | Select-Object -Last 1).ToString().Trim()
+        $stateParts = $containerState.Split("|")
+        if ($stateParts.Length -ne 2) {
+            throw "Unable to determine the $DisplayName container state."
+        }
+
+        $runtimeState = $stateParts[0]
+        $healthState = $stateParts[1]
+        Write-Host "$DisplayName container state: $runtimeState; health: $healthState."
+
+        if ($runtimeState -eq "running" -and $healthState -eq "healthy") {
+            return
+        }
+
+        if ($runtimeState -in @("dead", "exited", "removing") -or
+            $healthState -eq "unhealthy") {
+            throw "$DisplayName failed to become healthy (state: $runtimeState; health: $healthState)."
+        }
+
+        Start-Sleep -Seconds $healthCheckIntervalSeconds
+    }
+
+    throw "$DisplayName did not become healthy within the allowed timeout."
+}
+
+function Wait-ForSuccessfulOneShotContainer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DisplayName
+    )
+
+    $maximumChecks = 60
+    $checkIntervalSeconds = 2
+
+    Write-Host ""
+    Write-Host "==> Wait for $DisplayName"
+
+    for ($attempt = 1; $attempt -le $maximumChecks; $attempt++) {
+        $containerStateOutput = Invoke-CheckedCommand `
+            -Title "Inspect $DisplayName container (attempt $attempt of $maximumChecks)" `
+            -Command "docker" `
+            -Arguments @(
+                "inspect",
+                "--format",
+                "{{.State.Status}}|{{.State.ExitCode}}",
+                $ContainerName
+            ) `
+            -CaptureOutput
+
+        $containerState = ($containerStateOutput | Select-Object -Last 1).ToString().Trim()
+        $stateParts = $containerState.Split("|")
+        if ($stateParts.Length -ne 2) {
+            throw "Unable to determine the $DisplayName container state."
+        }
+
+        $runtimeState = $stateParts[0]
+        $exitCode = 0
+
+        if ($runtimeState -eq "exited") {
+            if (-not [int]::TryParse($stateParts[1], [ref]$exitCode)) {
+                throw "Unable to determine the $DisplayName exit code."
+            }
+
+            if ($exitCode -eq 0) {
+                Write-Host "$DisplayName completed successfully."
+                return
+            }
+
+            throw "$DisplayName failed with exit code $exitCode."
+        }
+
+        if ($runtimeState -in @("dead", "removing")) {
+            throw "$DisplayName entered unexpected state '$runtimeState'."
+        }
+
+        Start-Sleep -Seconds $checkIntervalSeconds
+    }
+
+    throw "$DisplayName did not complete within the allowed timeout."
+}
+
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $locationChanged = $false
 $scriptExitCode = 0
@@ -144,74 +283,61 @@ try {
 
     $settings = Read-LocalEnvironment -Path $environmentPath
 
-    $postgresPort = 0
-    if ($settings["POSTGRES_PORT"] -notmatch "^\d+$" -or
-        -not [int]::TryParse($settings["POSTGRES_PORT"], [ref]$postgresPort)) {
-        throw "POSTGRES_PORT must be numeric."
+    $postgresPort = Get-ValidatedPort `
+        -Settings $settings `
+        -Key "POSTGRES_PORT"
+    $minioApiPort = Get-ValidatedPort `
+        -Settings $settings `
+        -Key "MINIO_API_PORT"
+    $minioConsolePort = Get-ValidatedPort `
+        -Settings $settings `
+        -Key "MINIO_CONSOLE_PORT"
+
+    if ($minioApiPort -eq $minioConsolePort -or
+        $minioApiPort -eq $postgresPort -or
+        $minioConsolePort -eq $postgresPort) {
+        throw "POSTGRES_PORT, MINIO_API_PORT, and MINIO_CONSOLE_PORT must be distinct."
     }
 
-    if ($postgresPort -lt 1 -or $postgresPort -gt 65535) {
-        throw "POSTGRES_PORT must be between 1 and 65535."
+    if ($settings["MINIO_ROOT_USER"] -eq $settings["MINIO_APP_ACCESS_KEY"]) {
+        throw "MINIO_ROOT_USER and MINIO_APP_ACCESS_KEY must be different identities."
+    }
+
+    if ($settings["MINIO_ROOT_PASSWORD"].Length -lt 8 -or
+        $settings["MINIO_APP_SECRET_KEY"].Length -lt 8) {
+        throw "MinIO development secrets must be at least 8 characters long."
+    }
+
+    if ($settings["MINIO_ROOT_PASSWORD"] -eq $settings["MINIO_APP_SECRET_KEY"]) {
+        throw "MinIO root and application secrets must be different."
     }
 
     Invoke-CheckedCommand -Title "Confirm Docker availability" -Command "docker" -Arguments @(
         "version"
     )
 
-    Invoke-CheckedCommand -Title "Start local PostgreSQL" -Command "docker" -Arguments @(
+    Invoke-CheckedCommand -Title "Start local PostgreSQL and private MinIO" -Command "docker" -Arguments @(
         "compose",
         "--env-file",
         ".env",
         "up",
         "-d",
-        "postgres"
+        "postgres",
+        "minio",
+        "minio-bootstrap"
     )
 
-    $maximumHealthChecks = 60
-    $healthCheckIntervalSeconds = 2
-    $postgresHealthy = $false
+    Wait-ForHealthyContainer `
+        -ContainerName "enma-postgres" `
+        -DisplayName "PostgreSQL"
 
-    Write-Host ""
-    Write-Host "==> Wait for PostgreSQL health check"
+    Wait-ForHealthyContainer `
+        -ContainerName "enma-minio" `
+        -DisplayName "MinIO"
 
-    for ($attempt = 1; $attempt -le $maximumHealthChecks; $attempt++) {
-        $containerStateOutput = Invoke-CheckedCommand `
-            -Title "Inspect PostgreSQL container (attempt $attempt of $maximumHealthChecks)" `
-            -Command "docker" `
-            -Arguments @(
-                "inspect",
-                "--format",
-                "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
-                "enma-postgres"
-            ) `
-            -CaptureOutput
-
-        $containerState = ($containerStateOutput | Select-Object -Last 1).ToString().Trim()
-        $stateParts = $containerState.Split("|")
-        if ($stateParts.Length -ne 2) {
-            throw "Unable to determine the PostgreSQL container state."
-        }
-
-        $runtimeState = $stateParts[0]
-        $healthState = $stateParts[1]
-        Write-Host "PostgreSQL container state: $runtimeState; health: $healthState."
-
-        if ($runtimeState -eq "running" -and $healthState -eq "healthy") {
-            $postgresHealthy = $true
-            break
-        }
-
-        if ($runtimeState -in @("dead", "exited", "removing") -or
-            $healthState -eq "unhealthy") {
-            throw "PostgreSQL failed to become healthy (state: $runtimeState; health: $healthState)."
-        }
-
-        Start-Sleep -Seconds $healthCheckIntervalSeconds
-    }
-
-    if (-not $postgresHealthy) {
-        throw "PostgreSQL did not become healthy within the allowed timeout."
-    }
+    Wait-ForSuccessfulOneShotContainer `
+        -ContainerName "enma-minio-bootstrap" `
+        -DisplayName "MinIO bootstrap"
 
     $connectionString = (
         "Host=localhost;Port={0};Database={1};Username={2};Password={3}" -f
@@ -226,6 +352,33 @@ try {
         "set",
         "ConnectionStrings:Database",
         $connectionString,
+        "--project",
+        ".\src\Enma.Api\Enma.Api.csproj"
+    )
+
+    Invoke-CheckedCommand -Title "Configure the API document-storage access key User Secret" -Command "dotnet" -Arguments @(
+        "user-secrets",
+        "set",
+        "DocumentStorage:AccessKey",
+        $settings["MINIO_APP_ACCESS_KEY"],
+        "--project",
+        ".\src\Enma.Api\Enma.Api.csproj"
+    )
+
+    Invoke-CheckedCommand -Title "Configure the API document-storage secret key User Secret" -Command "dotnet" -Arguments @(
+        "user-secrets",
+        "set",
+        "DocumentStorage:SecretKey",
+        $settings["MINIO_APP_SECRET_KEY"],
+        "--project",
+        ".\src\Enma.Api\Enma.Api.csproj"
+    )
+
+    Invoke-CheckedCommand -Title "Configure the API document-storage endpoint User Secret" -Command "dotnet" -Arguments @(
+        "user-secrets",
+        "set",
+        "DocumentStorage:ServiceUrl",
+        ("http://127.0.0.1:{0}" -f $minioApiPort),
         "--project",
         ".\src\Enma.Api\Enma.Api.csproj"
     )
@@ -270,7 +423,7 @@ try {
     Write-Host "Local environment setup completed."
     Write-Host "Start the API with:"
     Write-Host 'dotnet run --project ".\src\Enma.Api\Enma.Api.csproj"'
-    Write-Host "The API will use the database connection string stored in .NET User Secrets."
+    Write-Host "The API will use database and private document-storage settings stored in local configuration/User Secrets."
 }
 catch {
     if ($_.Exception.Data.Contains("ExitCode")) {

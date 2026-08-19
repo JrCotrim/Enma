@@ -35,6 +35,111 @@ function Invoke-CheckedCommand {
     }
 }
 
+function Wait-ForHealthyContainer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DisplayName
+    )
+
+    $maximumHealthChecks = 60
+    $healthCheckIntervalSeconds = 2
+
+    Write-Host ""
+    Write-Host "==> Wait for $DisplayName health check"
+
+    for ($attempt = 1; $attempt -le $maximumHealthChecks; $attempt++) {
+        $containerState = & docker inspect `
+            --format `
+            "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}" `
+            $ContainerName
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Unable to inspect $DisplayName container."
+        }
+
+        $stateParts = $containerState.ToString().Trim().Split("|")
+        if ($stateParts.Length -ne 2) {
+            throw "Unable to determine the $DisplayName container state."
+        }
+
+        $runtimeState = $stateParts[0]
+        $healthState = $stateParts[1]
+
+        if ($runtimeState -eq "running" -and $healthState -eq "healthy") {
+            Write-Host "$DisplayName is healthy."
+            return
+        }
+
+        if ($runtimeState -in @("dead", "exited", "removing") -or
+            $healthState -eq "unhealthy") {
+            throw "$DisplayName failed to become healthy (state: $runtimeState; health: $healthState)."
+        }
+
+        Start-Sleep -Seconds $healthCheckIntervalSeconds
+    }
+
+    throw "$DisplayName did not become healthy within the allowed timeout."
+}
+
+function Wait-ForSuccessfulOneShotContainer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ContainerName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DisplayName
+    )
+
+    $maximumChecks = 60
+    $checkIntervalSeconds = 2
+
+    Write-Host ""
+    Write-Host "==> Wait for $DisplayName"
+
+    for ($attempt = 1; $attempt -le $maximumChecks; $attempt++) {
+        $containerState = & docker inspect `
+            --format `
+            "{{.State.Status}}|{{.State.ExitCode}}" `
+            $ContainerName
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Unable to inspect $DisplayName container."
+        }
+
+        $stateParts = $containerState.ToString().Trim().Split("|")
+        if ($stateParts.Length -ne 2) {
+            throw "Unable to determine the $DisplayName container state."
+        }
+
+        $runtimeState = $stateParts[0]
+        $exitCode = 0
+
+        if ($runtimeState -eq "exited") {
+            if (-not [int]::TryParse($stateParts[1], [ref]$exitCode)) {
+                throw "Unable to determine the $DisplayName exit code."
+            }
+
+            if ($exitCode -eq 0) {
+                Write-Host "$DisplayName completed successfully."
+                return
+            }
+
+            throw "$DisplayName failed with exit code $exitCode."
+        }
+
+        if ($runtimeState -in @("dead", "removing")) {
+            throw "$DisplayName entered unexpected state '$runtimeState'."
+        }
+
+        Start-Sleep -Seconds $checkIntervalSeconds
+    }
+
+    throw "$DisplayName did not complete within the allowed timeout."
+}
+
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $solutionPath = Join-Path $repositoryRoot "Enma.slnx"
 $unitTestProjectPath = Join-Path $repositoryRoot "tests\Enma.UnitTests\Enma.UnitTests.csproj"
@@ -95,6 +200,40 @@ try {
     )
 
     if ($IntegrationTests) {
+        $localEnvironmentPath = Join-Path $repositoryRoot ".env"
+        $exampleEnvironmentPath = Join-Path $repositoryRoot ".env.example"
+        $composeEnvironmentPath = if (Test-Path -LiteralPath $localEnvironmentPath -PathType Leaf) {
+            $localEnvironmentPath
+        }
+        elseif (Test-Path -LiteralPath $exampleEnvironmentPath -PathType Leaf) {
+            $exampleEnvironmentPath
+        }
+        else {
+            throw "Integration tests require .env or .env.example for private MinIO."
+        }
+
+        Invoke-CheckedCommand -Title "Confirm Docker availability" -Command "docker" -Arguments @(
+            "version"
+        )
+
+        Invoke-CheckedCommand -Title "Start private MinIO integration dependency" -Command "docker" -Arguments @(
+            "compose",
+            "--env-file",
+            $composeEnvironmentPath,
+            "up",
+            "-d",
+            "minio",
+            "minio-bootstrap"
+        )
+
+        Wait-ForHealthyContainer `
+            -ContainerName "enma-minio" `
+            -DisplayName "MinIO"
+
+        Wait-ForSuccessfulOneShotContainer `
+            -ContainerName "enma-minio-bootstrap" `
+            -DisplayName "MinIO bootstrap"
+
         Invoke-CheckedCommand -Title "Integration tests" -Command "dotnet" -Arguments @(
             "test",
             ".\tests\Enma.IntegrationTests\Enma.IntegrationTests.csproj",

@@ -1,3 +1,5 @@
+using Amazon.Runtime;
+using Amazon.S3;
 using System.Net.Http.Headers;
 using Enma.Application.Abstractions;
 using Enma.Application.Authorization;
@@ -17,6 +19,7 @@ using Enma.Application.Deadlines.GetById;
 using Enma.Application.Deadlines.List;
 using Enma.Application.Deadlines.Reopen;
 using Enma.Application.Deadlines.Update;
+using Enma.Application.Documents.Storage;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
 using Enma.Application.Organizations.Members.Lookup;
@@ -36,6 +39,7 @@ using Enma.Application.Tasks.List;
 using Enma.Application.Tasks.Reopen;
 using Enma.Application.Tasks.Update;
 using Enma.Application.Users;
+using Enma.Infrastructure.Documents.Storage;
 using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
@@ -78,12 +82,40 @@ public static class DependencyInjection
             .AddOptions<EmailVerificationSendBudgetOptions>()
             .Bind(configuration.GetSection(
                 EmailVerificationSendBudgetOptions.SectionName));
+        services
+            .AddOptions<DocumentStorageOptions>()
+            .Bind(configuration.GetSection(
+                DocumentStorageOptions.SectionName));
         services.AddSingleton<
             IValidateOptions<EmailVerificationDeliveryOptions>,
             EmailVerificationDeliveryOptionsValidator>();
         services.AddSingleton<
             IValidateOptions<EmailVerificationSendBudgetOptions>,
             EmailVerificationSendBudgetOptionsValidator>();
+        services.AddSingleton<
+            IValidateOptions<DocumentStorageOptions>,
+            DocumentStorageOptionsValidator>();
+        services.AddSingleton<IAmazonS3>(serviceProvider =>
+        {
+            DocumentStorageOptions options = serviceProvider
+                .GetRequiredService<IOptions<DocumentStorageOptions>>()
+                .Value;
+
+            var credentials = new BasicAWSCredentials(
+                options.AccessKey,
+                options.SecretKey);
+            var clientConfiguration = new AmazonS3Config
+            {
+                ServiceURL = options.ServiceUrl,
+                ForcePathStyle = options.ForcePathStyle,
+                AuthenticationRegion = options.Region
+            };
+
+            return new AmazonS3Client(credentials, clientConfiguration);
+        });
+        services.AddSingleton<
+            ILegalDocumentStorage,
+            S3LegalDocumentStorage>();
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<object>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<ILoginDummyPasswordHashProvider>(serviceProvider =>
