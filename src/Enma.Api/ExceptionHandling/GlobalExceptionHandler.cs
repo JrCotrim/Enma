@@ -1,4 +1,8 @@
 using System.Diagnostics;
+using Enma.Application.Documents.Inspection;
+using Enma.Application.Documents.Staging;
+using Enma.Application.Documents.Storage;
+using Enma.Application.Documents.Upload;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Organizations.GetById;
 using Enma.Application.Validation;
@@ -36,6 +40,17 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
 
         (int statusCode, string title, string detail) = exception switch
         {
+            LegalDocumentUploadOutcomeUnknownException => (
+                StatusCodes.Status500InternalServerError,
+                "Document upload outcome unknown",
+                "The upload may have succeeded, but its outcome could not be confirmed. Do not retry automatically; check the document list before taking further action."),
+            LegalDocumentContentStagingUnavailableException or
+            LegalDocumentContentInspectionUnavailableException or
+            LegalDocumentStorageException or
+            LegalDocumentUploadCompensationUnavailableException => (
+                StatusCodes.Status503ServiceUnavailable,
+                "Document upload unavailable",
+                "The document upload service is temporarily unavailable."),
             OrganizationNotFoundException => (
                 StatusCodes.Status404NotFound,
                 "Organization not found",

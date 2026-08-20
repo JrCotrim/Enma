@@ -5,12 +5,17 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Enma.Api.Contracts.Documents;
 using Enma.Application.Authentication;
+using Enma.Application.Documents.Inspection;
+using Enma.Application.Documents.Staging;
 using Enma.Application.Documents.Storage;
+using Enma.Application.Documents.Upload;
 using Enma.Domain.Authentication;
 using Enma.Domain.Documents;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 using Enma.Domain.Users;
+using Enma.Infrastructure.Documents.Staging;
+using Enma.Infrastructure.Documents.Upload;
 using Enma.Infrastructure.Persistence;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -18,6 +23,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Net.Http.Headers;
+using HttpMediaTypeHeaderValue = System.Net.Http.Headers.MediaTypeHeaderValue;
 using ClientEntity = Enma.Domain.Clients.Client;
 
 namespace Enma.IntegrationTests.Api.Documents;
@@ -25,7 +31,10 @@ namespace Enma.IntegrationTests.Api.Documents;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class LegalDocumentEndpointTests : IAsyncLifetime
 {
+    private const string CsrfPath = "/api/auth/csrf";
     private const string SessionCookieName = "__Host-enma_session";
+    private const string AntiforgeryCookieName = "__Host-enma_csrf";
+    private const string CsrfHeaderName = "X-CSRF-TOKEN";
     private const string PasswordHash =
         "synthetic-legal-document-http-password-hash";
 
@@ -40,6 +49,8 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
 
     private readonly PostgreSqlFixture fixture;
     private readonly RecordingLegalDocumentStorage storage = new();
+    private readonly RecordingContentStager stager = new();
+    private readonly UploadPersistenceController persistenceController = new();
     private readonly EnmaApiFactory factory;
     private readonly HttpClient client;
 
@@ -54,6 +65,15 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
             services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
             services.RemoveAll<ILegalDocumentStorage>();
             services.AddSingleton<ILegalDocumentStorage>(storage);
+            services.RemoveAll<ILegalDocumentContentStager>();
+            services.AddSingleton<ILegalDocumentContentStager>(stager);
+            services.RemoveAll<ILegalDocumentUploadPersistence>();
+            services.AddScoped<LegalDocumentUploadPersistence>();
+            services.AddScoped<ILegalDocumentUploadPersistence>(
+                serviceProvider => new ControllableUploadPersistence(
+                    serviceProvider.GetRequiredService<
+                        LegalDocumentUploadPersistence>(),
+                    persistenceController));
         });
         client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -78,6 +98,16 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
     {
         Assert.Equal(
             [
+                nameof(UploadLegalDocumentRequest.File),
+                nameof(UploadLegalDocumentRequest.ClientId),
+                nameof(UploadLegalDocumentRequest.ProcessId)
+            ],
+            GetPropertyNames<UploadLegalDocumentRequest>());
+        Assert.Equal(
+            [nameof(UploadLegalDocumentResponse.Id)],
+            GetPropertyNames<UploadLegalDocumentResponse>());
+        Assert.Equal(
+            [
                 nameof(LegalDocumentMetadataResponse.Id),
                 nameof(LegalDocumentMetadataResponse.ClientId),
                 nameof(LegalDocumentMetadataResponse.ProcessId),
@@ -100,6 +130,662 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         Assert.DoesNotContain(
             "StoredObjectKey",
             GetPropertyNames<LegalDocumentMetadataResponse>());
+        Assert.DoesNotContain(
+            "StoredObjectKey",
+            GetPropertyNames<UploadLegalDocumentResponse>());
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_RequiresAuthenticationAndValidAntiforgery()
+    {
+        byte[] payload = CreateValidPdf();
+        Organization anonymousOrganization = CreateOrganization("Anonymous upload");
+
+        using HttpResponseMessage anonymous = await SendUploadAsync(
+            anonymousOrganization.Id,
+            rawHandle: null,
+            csrf: null,
+            payload);
+
+        await AssertEmptyNoStoreAsync(
+            anonymous,
+            HttpStatusCode.Unauthorized);
+
+        User actor = CreateUser("upload-csrf");
+        Organization organization = CreateOrganization("Upload CSRF");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [],
+            [],
+            []);
+
+        using HttpResponseMessage missing = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf: null,
+            payload);
+        await AssertEmptyNoStoreAsync(missing, HttpStatusCode.BadRequest);
+
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        using HttpResponseMessage invalid = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            payload,
+            requestTokenOverride: "invalid-antiforgery-token");
+        await AssertEmptyNoStoreAsync(invalid, HttpStatusCode.BadRequest);
+
+        using HttpResponseMessage valid = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            payload);
+
+        Assert.Equal(HttpStatusCode.Created, valid.StatusCode);
+        Assert.True(valid.Headers.CacheControl?.NoStore);
+        Assert.Equal(1, storage.StoreCallCount);
+        Assert.Equal(1, persistenceController.ExecuteCallCount);
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_IgnoresUntrustedAuthorityFieldsAndUsesRouteAndSession()
+    {
+        User actor = CreateUser("upload-authority");
+        Organization organization = CreateOrganization("Upload authority");
+        Organization foreignOrganization = CreateOrganization("Upload body foreign");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization, foreignOrganization],
+            [membership],
+            [],
+            [],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        byte[] payload = CreateValidPdf();
+        const string SuppliedObjectKey = "caller-controlled-storage-key";
+        Dictionary<string, string> untrustedFields = new()
+        {
+            ["organizationId"] = foreignOrganization.Id.ToString("D"),
+            ["userId"] = Guid.NewGuid().ToString("D"),
+            ["membershipId"] = Guid.NewGuid().ToString("D"),
+            ["role"] = "Owner",
+            ["storedObjectKey"] = SuppliedObjectKey,
+            ["contentHashSha256"] = "00",
+            ["createdAt"] = DateTimeOffset.MinValue.ToString("O"),
+            ["sizeBytes"] = "1"
+        };
+
+        using HttpResponseMessage response = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            payload,
+            extraFields: untrustedFields);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        UploadLegalDocumentResponse created = Assert.IsType<
+            UploadLegalDocumentResponse>(
+                await response.Content
+                    .ReadFromJsonAsync<UploadLegalDocumentResponse>());
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        LegalDocument document = await dbContext.LegalDocuments
+            .AsNoTracking()
+            .SingleAsync(item => item.Id == created.Id);
+
+        Assert.Equal(organization.Id, document.OrganizationId);
+        Assert.Equal(membership.Id, document.UploadedByMembershipId);
+        Assert.NotEqual(SuppliedObjectKey, document.StoredObjectKey);
+        Assert.Equal(payload.LongLength, document.SizeBytes);
+        Assert.Equal(SHA256.HashData(payload), document.ContentHashSha256.ToArray());
+        Assert.Equal(Now, document.CreatedAt);
+
+        string responseBody = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(document.StoredObjectKey, responseBody);
+        Assert.DoesNotContain("contentHashSha256", responseBody);
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_GeneralClientAndProcess_PersistExactClassificationAndBytes()
+    {
+        User actor = CreateUser("upload-classification");
+        Organization organization = CreateOrganization("Upload classification");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        ClientEntity clientEntity = CreateClient(organization, "Upload client");
+        LegalProcess process = CreateProcess(
+            organization,
+            clientEntity,
+            "Upload process");
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [clientEntity],
+            [process],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        byte[] payload = CreateValidPdf();
+
+        using HttpResponseMessage general = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            payload,
+            fileName: "general.pdf");
+        using HttpResponseMessage directClient = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            payload,
+            fileName: "client.pdf",
+            clientId: clientEntity.Id);
+        using HttpResponseMessage processResponse = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            payload,
+            fileName: "process.pdf",
+            processId: process.Id);
+
+        UploadLegalDocumentResponse generalCreated =
+            await AssertCreatedUploadAsync(general, organization.Id);
+        UploadLegalDocumentResponse clientCreated =
+            await AssertCreatedUploadAsync(directClient, organization.Id);
+        UploadLegalDocumentResponse processCreated =
+            await AssertCreatedUploadAsync(processResponse, organization.Id);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        LegalDocument[] documents = await dbContext.LegalDocuments
+            .AsNoTracking()
+            .Where(item =>
+                item.Id == generalCreated.Id ||
+                item.Id == clientCreated.Id ||
+                item.Id == processCreated.Id)
+            .ToArrayAsync();
+
+        LegalDocument generalDocument = Assert.Single(
+            documents,
+            item => item.Id == generalCreated.Id);
+        LegalDocument clientDocument = Assert.Single(
+            documents,
+            item => item.Id == clientCreated.Id);
+        LegalDocument processDocument = Assert.Single(
+            documents,
+            item => item.Id == processCreated.Id);
+        Assert.Null(generalDocument.ClientId);
+        Assert.Null(generalDocument.ProcessId);
+        Assert.Equal(clientEntity.Id, clientDocument.ClientId);
+        Assert.Null(clientDocument.ProcessId);
+        Assert.Null(processDocument.ClientId);
+        Assert.Equal(process.Id, processDocument.ProcessId);
+
+        foreach (LegalDocument document in documents)
+        {
+            Assert.Equal(
+                payload,
+                storage.GetStoredContent(
+                    LegalDocumentStorageObjectKey.Parse(
+                        document.StoredObjectKey)));
+        }
+
+        Assert.Equal(3, storage.StoreCallCount);
+        Assert.True(stager.SourceWasReadableDuringStage);
+        Assert.False(stager.SourceWasMemoryStream);
+        Assert.True(stager.IsSourceDisposed);
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_ForeignClientAndProcess_AreSafeNotFound()
+    {
+        User actor = CreateUser("upload-foreign-relation");
+        User foreignOwner = CreateUser("upload-foreign-owner");
+        Organization organization = CreateOrganization("Upload relation A");
+        Organization foreignOrganization = CreateOrganization("Upload relation B");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        OrganizationMembership foreignMembership = CreateMembership(
+            foreignOwner,
+            foreignOrganization,
+            OrganizationRole.Owner);
+        ClientEntity foreignClient = CreateClient(
+            foreignOrganization,
+            "Foreign upload client");
+        LegalProcess foreignProcess = CreateProcess(
+            foreignOrganization,
+            foreignClient,
+            "Foreign upload process");
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [foreignOwner],
+            [organization, foreignOrganization],
+            [membership, foreignMembership],
+            [foreignClient],
+            [foreignProcess],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        byte[] payload = CreateValidPdf();
+
+        using HttpResponseMessage clientResponse = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            payload,
+            clientId: foreignClient.Id);
+        using HttpResponseMessage processResponse = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            payload,
+            processId: foreignProcess.Id);
+
+        await AssertEmptyNoStoreAsync(clientResponse, HttpStatusCode.NotFound);
+        await AssertEmptyNoStoreAsync(processResponse, HttpStatusCode.NotFound);
+        Assert.Equal(0, storage.StoreCallCount);
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_InactiveSecurityState_IsRejectedBeforeStorage()
+    {
+        User inactiveUser = CreateUser("upload-inactive-user");
+        inactiveUser.Deactivate();
+        Organization userOrganization = CreateOrganization("Upload inactive user");
+        OrganizationMembership userMembership = CreateMembership(
+            inactiveUser,
+            userOrganization,
+            OrganizationRole.Member);
+        string inactiveUserHandle = await SeedAuthenticatedUserAsync(
+            inactiveUser,
+            [],
+            [userOrganization],
+            [userMembership],
+            [],
+            [],
+            []);
+
+        User inactiveMember = CreateUser("upload-inactive-membership");
+        Organization memberOrganization = CreateOrganization("Upload inactive member");
+        OrganizationMembership inactiveMembership = CreateMembership(
+            inactiveMember,
+            memberOrganization,
+            OrganizationRole.Member);
+        inactiveMembership.Deactivate();
+        string inactiveMembershipHandle = await SeedAuthenticatedUserAsync(
+            inactiveMember,
+            [],
+            [memberOrganization],
+            [inactiveMembership],
+            [],
+            [],
+            []);
+
+        User inactiveOrganizationUser = CreateUser("upload-inactive-organization");
+        Organization inactiveOrganization = CreateOrganization(
+            "Upload inactive organization");
+        OrganizationMembership organizationMembership = CreateMembership(
+            inactiveOrganizationUser,
+            inactiveOrganization,
+            OrganizationRole.Member);
+        inactiveOrganization.Deactivate();
+        string inactiveOrganizationHandle = await SeedAuthenticatedUserAsync(
+            inactiveOrganizationUser,
+            [],
+            [inactiveOrganization],
+            [organizationMembership],
+            [],
+            [],
+            []);
+        byte[] payload = CreateValidPdf();
+
+        using HttpResponseMessage userResponse = await SendUploadAsync(
+            userOrganization.Id,
+            inactiveUserHandle,
+            csrf: null,
+            payload);
+        using HttpResponseMessage membershipResponse = await SendUploadAsync(
+            memberOrganization.Id,
+            inactiveMembershipHandle,
+            csrf: null,
+            payload);
+        using HttpResponseMessage organizationResponse = await SendUploadAsync(
+            inactiveOrganization.Id,
+            inactiveOrganizationHandle,
+            csrf: null,
+            payload);
+
+        await AssertEmptyNoStoreAsync(userResponse, HttpStatusCode.Unauthorized);
+        await AssertEmptyNoStoreAsync(membershipResponse, HttpStatusCode.Forbidden);
+        await AssertEmptyNoStoreAsync(organizationResponse, HttpStatusCode.Forbidden);
+        Assert.Equal(0, storage.StoreCallCount);
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_InvalidClassificationAndFileInputs_AreRejected()
+    {
+        User actor = CreateUser("upload-validation");
+        Organization organization = CreateOrganization("Upload validation");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        ClientEntity clientEntity = CreateClient(organization, "Validation client");
+        LegalProcess process = CreateProcess(
+            organization,
+            clientEntity,
+            "Validation process");
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [clientEntity],
+            [process],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        byte[] validPdf = CreateValidPdf();
+
+        using HttpResponseMessage bothRelations = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            validPdf,
+            clientId: clientEntity.Id,
+            processId: process.Id);
+        using HttpResponseMessage empty = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            [],
+            fileName: "empty.pdf");
+        using HttpResponseMessage unsupported = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            validPdf,
+            fileName: "malware.exe");
+        using HttpResponseMessage invalidStructure = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            "not a pdf"u8.ToArray(),
+            fileName: "looks-valid.pdf");
+        using HttpResponseMessage dangerousName = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            validPdf,
+            fileName: "evidence.exe.pdf");
+        using HttpResponseMessage pathName = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            validPdf,
+            fileName: "../evidence.pdf");
+        using HttpResponseMessage mismatchedType = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            validPdf,
+            fileName: "evidence.pdf",
+            contentType: "image/png");
+        using HttpResponseMessage structuralBypass = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            validPdf,
+            fileName: "fake.png",
+            contentType: "image/png");
+        using HttpResponseMessage missingFile = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            validPdf,
+            includeFile: false);
+        using HttpResponseMessage multipleFiles = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            validPdf,
+            includeSecondFile: true);
+
+        foreach (HttpResponseMessage response in new[]
+                 {
+                     bothRelations,
+                     empty,
+                     unsupported,
+                     invalidStructure,
+                     dangerousName,
+                     pathName,
+                     mismatchedType,
+                     structuralBypass,
+                     missingFile,
+                     multipleFiles
+                 })
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.True(response.Headers.CacheControl?.NoStore);
+        }
+
+        Assert.Equal(0, storage.StoreCallCount);
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_ExactMaximumFileSize_IsAccepted()
+    {
+        (Organization organization, string rawHandle, CsrfPair csrf) =
+            await SeedUploadActorAsync("exact-limit");
+        byte[] maximumSizePdf = CreateMaximumSizeValidPdf();
+
+        using HttpResponseMessage response = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            maximumSizePdf,
+            fileName: "maximum.pdf");
+
+        UploadLegalDocumentResponse created =
+            await AssertCreatedUploadAsync(response, organization.Id);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        LegalDocument document = await dbContext.LegalDocuments
+            .AsNoTracking()
+            .SingleAsync(item => item.Id == created.Id);
+        Assert.Equal(
+            LegalDocumentUploadPolicy.MaximumFileSizeBytes,
+            document.SizeBytes);
+        Assert.Equal(
+            maximumSizePdf,
+            storage.GetStoredContent(
+                LegalDocumentStorageObjectKey.Parse(
+                    document.StoredObjectKey)));
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_OverMaximumFileSize_IsRejectedBeforeUseCasePersistence()
+    {
+        User actor = CreateUser("upload-oversized");
+        Organization organization = CreateOrganization("Upload oversized");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [],
+            [],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        byte[] oversized = new byte[(25 * 1024 * 1024) + 1];
+        "%PDF-1.7"u8.CopyTo(oversized);
+
+        using HttpResponseMessage response = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            oversized);
+
+        Assert.InRange((int)response.StatusCode, 400, 499);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.Equal(0, storage.StoreCallCount);
+        Assert.Equal(0, persistenceController.ExecuteCallCount);
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_ResourceRejectedAfterStorage_CompensatesObject()
+    {
+        User actor = CreateUser("upload-compensation");
+        Organization organization = CreateOrganization("Upload compensation");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        ClientEntity clientEntity = CreateClient(organization, "Compensation client");
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [clientEntity],
+            [],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        storage.AfterStoreAsync = async _ =>
+        {
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            ClientEntity clientToDeactivate = await dbContext.Clients
+                .SingleAsync(item => item.Id == clientEntity.Id);
+            clientToDeactivate.Deactivate();
+            await dbContext.SaveChangesAsync();
+        };
+
+        using HttpResponseMessage response = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            CreateValidPdf(),
+            clientId: clientEntity.Id);
+
+        await AssertEmptyNoStoreAsync(response, HttpStatusCode.NotFound);
+        Assert.Equal(1, storage.StoreCallCount);
+        Assert.Equal(1, storage.DeleteCallCount);
+        Assert.Equal(0, storage.StoredObjectCount);
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.Equal(0, await verificationContext.LegalDocuments.CountAsync());
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_StorageUnavailable_MapsSafeServiceUnavailable()
+    {
+        (Organization organization, string rawHandle, CsrfPair csrf) =
+            await SeedUploadActorAsync("storage-unavailable");
+        storage.StoreException = new LegalDocumentStorageUnavailableException();
+
+        using HttpResponseMessage response = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            CreateValidPdf());
+
+        await AssertSafeUploadUnavailableAsync(response);
+        Assert.Equal(1, storage.StoreCallCount);
+        Assert.Equal(1, storage.DeleteCallCount);
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_ObjectKeyConflict_DoesNotDeletePreExistingObject()
+    {
+        (Organization organization, string rawHandle, CsrfPair csrf) =
+            await SeedUploadActorAsync("key-conflict");
+        storage.StoreException =
+            new LegalDocumentStorageObjectKeyConflictException();
+
+        using HttpResponseMessage response = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            CreateValidPdf());
+
+        await AssertSafeUploadUnavailableAsync(response);
+        Assert.Equal(1, storage.StoreCallCount);
+        Assert.Equal(0, storage.DeleteCallCount);
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_AmbiguousCommit_ReportsUnknownWithoutRetryOrDelete()
+    {
+        (Organization organization, string rawHandle, CsrfPair csrf) =
+            await SeedUploadActorAsync("outcome-unknown");
+        persistenceController.ThrowOutcomeUnknownAfterInner = true;
+
+        using HttpResponseMessage response = await SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            CreateValidPdf());
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        string body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Document upload outcome unknown", body);
+        Assert.Contains("may have succeeded", body);
+        Assert.Contains("Do not retry automatically", body);
+        Assert.DoesNotContain("bucket", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("object key", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, persistenceController.ExecuteCallCount);
+        Assert.Equal(1, storage.StoreCallCount);
+        Assert.Equal(0, storage.DeleteCallCount);
+        Assert.Equal(1, storage.StoredObjectCount);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(1, await dbContext.LegalDocuments.CountAsync());
+    }
+
+    [Fact]
+    public async Task UploadLegalDocument_RequestCancellation_PropagatesAndDisposesInputStream()
+    {
+        (Organization organization, string rawHandle, CsrfPair csrf) =
+            await SeedUploadActorAsync("cancellation");
+        storage.BlockStoreUntilCancellation = true;
+        using var cancellation = new CancellationTokenSource();
+
+        Task<HttpResponseMessage> request = SendUploadAsync(
+            organization.Id,
+            rawHandle,
+            csrf,
+            CreateValidPdf(),
+            cancellationToken: cancellation.Token);
+        await storage.StoreStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await request);
+        await storage.DeleteCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(storage.StoreCancellationObserved);
+        Assert.Equal(1, storage.StoreCallCount);
+        Assert.Equal(1, storage.DeleteCallCount);
+        Assert.True(stager.SourceWasReadableDuringStage);
+        Assert.False(stager.SourceWasMemoryStream);
+        Assert.True(stager.IsSourceDisposed);
     }
 
     [Fact]
@@ -699,6 +1385,192 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         return rawHandle;
     }
 
+    private async Task<(Organization Organization, string RawHandle, CsrfPair Csrf)>
+        SeedUploadActorAsync(string marker)
+    {
+        User actor = CreateUser($"upload-{marker}");
+        Organization organization = CreateOrganization($"Upload {marker}");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [],
+            [],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        return (organization, rawHandle, csrf);
+    }
+
+    private async Task<CsrfPair> GetCsrfPairAsync(string rawHandle)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, CsrfPath);
+        request.Headers.Add(
+            HeaderNames.Cookie,
+            $"{SessionCookieName}={rawHandle}");
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        CsrfResponse result = Assert.IsType<CsrfResponse>(
+            await response.Content.ReadFromJsonAsync<CsrfResponse>());
+        SetCookieHeaderValue cookie = Assert.Single(
+            ParseSetCookies(response),
+            candidate => string.Equals(
+                candidate.Name.ToString(),
+                AntiforgeryCookieName,
+                StringComparison.Ordinal));
+
+        return new CsrfPair(result.RequestToken, cookie.Value.ToString());
+    }
+
+    private async Task<HttpResponseMessage> SendUploadAsync(
+        Guid organizationId,
+        string? rawHandle,
+        CsrfPair? csrf,
+        byte[] payload,
+        string fileName = "evidence.pdf",
+        string contentType = "application/pdf",
+        Guid? clientId = null,
+        Guid? processId = null,
+        IReadOnlyDictionary<string, string>? extraFields = null,
+        bool includeFile = true,
+        bool includeSecondFile = false,
+        string? requestTokenOverride = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            GetDocumentsPath(organizationId));
+        AddCookiesAndCsrf(
+            request,
+            rawHandle,
+            csrf,
+            requestTokenOverride ?? csrf?.RequestToken);
+
+        using var form = new MultipartFormDataContent(
+            $"enma-{Guid.NewGuid():N}");
+        if (includeFile)
+        {
+            var fileContent = new ByteArrayContent(payload);
+            fileContent.Headers.ContentType =
+                HttpMediaTypeHeaderValue.Parse(contentType);
+            form.Add(fileContent, "file", fileName);
+        }
+
+        if (clientId is Guid contextualClientId)
+        {
+            form.Add(
+                new StringContent(contextualClientId.ToString("D")),
+                "clientId");
+        }
+
+        if (processId is Guid contextualProcessId)
+        {
+            form.Add(
+                new StringContent(contextualProcessId.ToString("D")),
+                "processId");
+        }
+
+        if (extraFields is not null)
+        {
+            foreach ((string name, string value) in extraFields)
+            {
+                form.Add(new StringContent(value), name);
+            }
+        }
+
+        if (includeSecondFile)
+        {
+            var secondFile = new ByteArrayContent(CreateValidPdf());
+            secondFile.Headers.ContentType =
+                HttpMediaTypeHeaderValue.Parse("application/pdf");
+            form.Add(secondFile, "otherFile", "second.pdf");
+        }
+
+        request.Content = form;
+        return await client.SendAsync(request, cancellationToken);
+    }
+
+    private static void AddCookiesAndCsrf(
+        HttpRequestMessage request,
+        string? rawHandle,
+        CsrfPair? csrf,
+        string? requestToken)
+    {
+        var cookies = new List<string>();
+
+        if (rawHandle is not null)
+        {
+            cookies.Add($"{SessionCookieName}={rawHandle}");
+        }
+
+        if (csrf is not null)
+        {
+            cookies.Add($"{AntiforgeryCookieName}={csrf.CookieToken}");
+        }
+
+        if (cookies.Count > 0)
+        {
+            request.Headers.Add(HeaderNames.Cookie, string.Join("; ", cookies));
+        }
+
+        if (requestToken is not null)
+        {
+            request.Headers.Add(CsrfHeaderName, requestToken);
+        }
+    }
+
+    private static IReadOnlyList<SetCookieHeaderValue> ParseSetCookies(
+        HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues(
+                HeaderNames.SetCookie,
+                out IEnumerable<string>? values))
+        {
+            return [];
+        }
+
+        return SetCookieHeaderValue.ParseList(values.ToList()).ToArray();
+    }
+
+    private static async Task<UploadLegalDocumentResponse>
+        AssertCreatedUploadAsync(
+            HttpResponseMessage response,
+            Guid organizationId)
+    {
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        UploadLegalDocumentResponse result = Assert.IsType<
+            UploadLegalDocumentResponse>(
+                await response.Content
+                    .ReadFromJsonAsync<UploadLegalDocumentResponse>());
+        Assert.Equal(
+            GetDocumentPath(organizationId, result.Id),
+            response.Headers.Location?.OriginalString);
+        string body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("storedObjectKey", body);
+        Assert.DoesNotContain("bucket", body, StringComparison.OrdinalIgnoreCase);
+
+        return result;
+    }
+
+    private static async Task AssertSafeUploadUnavailableAsync(
+        HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        string body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Document upload unavailable", body);
+        Assert.DoesNotContain("bucket", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("object key", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("stack", body, StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<HttpResponseMessage> SendGetAsync(
         string path,
         string rawHandle)
@@ -758,17 +1630,68 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         return $"{GetDocumentPath(organizationId, documentId)}/content";
     }
 
+    private static byte[] CreateValidPdf()
+    {
+        return "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\nxref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\nstartxref\n9\n%%EOF\n"u8.ToArray();
+    }
+
+    private static byte[] CreateMaximumSizeValidPdf()
+    {
+        byte[] content = new byte[
+            LegalDocumentUploadPolicy.MaximumFileSizeBytes];
+        content.AsSpan().Fill((byte)' ');
+        "%PDF-1.7"u8.CopyTo(content);
+        byte[] tail = "\nstartxref\n9\n%%EOF\n"u8.ToArray();
+        tail.CopyTo(content, content.Length - tail.Length);
+        return content;
+    }
+
     private sealed class RecordingLegalDocumentStorage : ILegalDocumentStorage
     {
         private readonly ConcurrentDictionary<
             string,
             Func<TrackingStorageReadHandle>> contentFactories = new(
                 StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, byte[]> storedContent = new(
+            StringComparer.Ordinal);
         private int openReadCount;
+        private int storeCallCount;
+        private int deleteCallCount;
 
         public int OpenReadCount => Volatile.Read(ref openReadCount);
 
+        public int StoreCallCount => Volatile.Read(ref storeCallCount);
+
+        public int DeleteCallCount => Volatile.Read(ref deleteCallCount);
+
+        public int StoredObjectCount => storedContent.Count;
+
         public ILegalDocumentStorageReadHandle? LastHandle { get; private set; }
+
+        public Exception? StoreException { get; set; }
+
+        public Exception? DeleteException { get; set; }
+
+        public Func<LegalDocumentStorageObjectKey, Task>? AfterStoreAsync
+        {
+            get;
+            set;
+        }
+
+        public bool BlockStoreUntilCancellation { get; set; }
+
+        public bool StoreCancellationObserved { get; private set; }
+
+        public TaskCompletionSource StoreStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource DeleteCompleted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public byte[] GetStoredContent(LegalDocumentStorageObjectKey objectKey)
+        {
+            return (byte[])storedContent[objectKey.Value].Clone();
+        }
 
         public void AddContent(
             LegalDocumentStorageObjectKey objectKey,
@@ -811,20 +1734,79 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
             return Task.FromResult<ILegalDocumentStorageReadHandle>(handle);
         }
 
-        public Task StoreAsync(
+        public async Task StoreAsync(
             LegalDocumentStorageObjectKey objectKey,
             Stream content,
             long contentLength,
             CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            Interlocked.Increment(ref storeCallCount);
+            StoreStarted.TrySetResult();
+
+            if (BlockStoreUntilCancellation)
+            {
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                    when (cancellationToken.IsCancellationRequested)
+                {
+                    StoreCancellationObserved = true;
+                    throw;
+                }
+            }
+
+            if (StoreException is not null)
+            {
+                throw StoreException;
+            }
+
+            using var copy = new MemoryStream();
+            await content.CopyToAsync(copy, cancellationToken);
+            byte[] payload = copy.ToArray();
+
+            if (payload.LongLength != contentLength)
+            {
+                throw new InvalidOperationException(
+                    "The test storage received an unexpected content length.");
+            }
+
+            if (!storedContent.TryAdd(objectKey.Value, payload))
+            {
+                throw new LegalDocumentStorageObjectKeyConflictException();
+            }
+
+            AddContent(objectKey, payload);
+
+            if (AfterStoreAsync is not null)
+            {
+                await AfterStoreAsync(objectKey);
+            }
         }
 
         public Task DeleteIfExistsAsync(
             LegalDocumentStorageObjectKey objectKey,
             CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException();
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref deleteCallCount);
+
+            try
+            {
+                if (DeleteException is not null)
+                {
+                    return Task.FromException(DeleteException);
+                }
+
+                storedContent.TryRemove(objectKey.Value, out _);
+                contentFactories.TryRemove(objectKey.Value, out _);
+                return Task.CompletedTask;
+            }
+            finally
+            {
+                DeleteCompleted.TrySetResult();
+            }
         }
 
         private void AddContent(
@@ -836,6 +1818,95 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
                 new TrackingStorageReadHandle(
                     contentFactory(),
                     contentLength);
+        }
+    }
+
+    private sealed class RecordingContentStager : ILegalDocumentContentStager
+    {
+        private readonly TempFileLegalDocumentContentStager inner = new();
+        private Stream? source;
+
+        public bool SourceWasReadableDuringStage { get; private set; }
+
+        public bool SourceWasMemoryStream { get; private set; }
+
+        public bool IsSourceDisposed
+        {
+            get
+            {
+                if (source is null)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    _ = source.ReadByte();
+                    return false;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return true;
+                }
+            }
+        }
+
+        public Task<ILegalDocumentStagedContent> StageAsync(
+            Stream source,
+            long declaredContentLength,
+            CancellationToken cancellationToken = default)
+        {
+            this.source = source;
+            SourceWasReadableDuringStage = source.CanRead;
+            SourceWasMemoryStream = source is MemoryStream;
+
+            return inner.StageAsync(
+                source,
+                declaredContentLength,
+                cancellationToken);
+        }
+    }
+
+    private sealed class UploadPersistenceController
+    {
+        private int executeCallCount;
+
+        public bool ThrowOutcomeUnknownAfterInner { get; set; }
+
+        public int ExecuteCallCount => Volatile.Read(ref executeCallCount);
+
+        public void RecordExecute()
+        {
+            Interlocked.Increment(ref executeCallCount);
+        }
+    }
+
+    private sealed class ControllableUploadPersistence(
+        LegalDocumentUploadPersistence inner,
+        UploadPersistenceController controller)
+        : ILegalDocumentUploadPersistence
+    {
+        public async Task<LegalDocumentUploadPersistenceResult> ExecuteAsync(
+            LegalDocumentUploadPersistenceRequest request,
+            Stream content,
+            Func<LegalDocumentUploadLockedState, LegalDocumentUploadDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            controller.RecordExecute();
+
+            LegalDocumentUploadPersistenceResult result =
+                await inner.ExecuteAsync(
+                    request,
+                    content,
+                    decide,
+                    cancellationToken);
+
+            if (controller.ThrowOutcomeUnknownAfterInner)
+            {
+                throw new LegalDocumentUploadOutcomeUnknownException();
+            }
+
+            return result;
         }
     }
 
@@ -1044,4 +2115,8 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
             return utcNow;
         }
     }
+
+    private sealed record CsrfResponse(string RequestToken);
+
+    private sealed record CsrfPair(string RequestToken, string CookieToken);
 }

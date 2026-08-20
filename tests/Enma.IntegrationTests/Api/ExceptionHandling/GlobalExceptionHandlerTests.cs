@@ -1,5 +1,9 @@
 using System.Text.Json;
 using Enma.Api.ExceptionHandling;
+using Enma.Application.Documents.Inspection;
+using Enma.Application.Documents.Staging;
+using Enma.Application.Documents.Storage;
+using Enma.Application.Documents.Upload;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Organizations.GetById;
 using Enma.Application.Validation;
@@ -94,6 +98,93 @@ public sealed class GlobalExceptionHandlerTests
                 new OrganizationSlugAlreadyExistsException("enma-legal"),
                 StatusCodes.Status409Conflict,
                 "Organization slug conflict"
+            }
+        };
+    }
+
+    [Theory]
+    [MemberData(nameof(GetExpectedDocumentUploadExceptions))]
+    public async Task TryHandleAsync_WithDocumentUploadException_ReturnsSafeMappedProblem(
+        Exception exception,
+        int expectedStatusCode,
+        string expectedTitle,
+        string expectedDetail,
+        bool expectErrorLog)
+    {
+        HandlerResult result = await HandleAsync(exception);
+
+        Assert.True(result.Handled);
+        Assert.Equal(expectedStatusCode, result.ResponseStatusCode);
+        Assert.Equal(expectedStatusCode, result.ProblemDetails.Status);
+        Assert.Equal(expectedTitle, result.ProblemDetails.Title);
+        Assert.Equal(expectedDetail, result.ProblemDetails.Detail);
+        Assert.DoesNotContain(
+            "bucket",
+            JsonSerializer.Serialize(result.ProblemDetails),
+            StringComparison.OrdinalIgnoreCase);
+
+        if (expectErrorLog)
+        {
+            LogEntry entry = Assert.Single(result.Logger.Entries);
+            Assert.Equal(LogLevel.Error, entry.Level);
+            Assert.Same(exception, entry.Exception);
+        }
+        else
+        {
+            Assert.Empty(result.Logger.Entries);
+        }
+    }
+
+    public static TheoryData<Exception, int, string, string, bool>
+        GetExpectedDocumentUploadExceptions()
+    {
+        const string UnavailableTitle = "Document upload unavailable";
+        const string UnavailableDetail =
+            "The document upload service is temporarily unavailable.";
+
+        return new TheoryData<Exception, int, string, string, bool>
+        {
+            {
+                new LegalDocumentContentStagingUnavailableException(),
+                StatusCodes.Status503ServiceUnavailable,
+                UnavailableTitle,
+                UnavailableDetail,
+                false
+            },
+            {
+                new LegalDocumentContentInspectionUnavailableException(),
+                StatusCodes.Status503ServiceUnavailable,
+                UnavailableTitle,
+                UnavailableDetail,
+                false
+            },
+            {
+                new LegalDocumentStorageUnavailableException(),
+                StatusCodes.Status503ServiceUnavailable,
+                UnavailableTitle,
+                UnavailableDetail,
+                false
+            },
+            {
+                new LegalDocumentStorageObjectKeyConflictException(),
+                StatusCodes.Status503ServiceUnavailable,
+                UnavailableTitle,
+                UnavailableDetail,
+                false
+            },
+            {
+                new LegalDocumentUploadCompensationUnavailableException(),
+                StatusCodes.Status503ServiceUnavailable,
+                UnavailableTitle,
+                UnavailableDetail,
+                false
+            },
+            {
+                new LegalDocumentUploadOutcomeUnknownException(),
+                StatusCodes.Status500InternalServerError,
+                "Document upload outcome unknown",
+                "The upload may have succeeded, but its outcome could not be confirmed. Do not retry automatically; check the document list before taking further action.",
+                true
             }
         };
     }

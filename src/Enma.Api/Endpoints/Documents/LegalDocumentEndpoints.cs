@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using Enma.Api.Authentication;
 using Enma.Api.Authorization;
@@ -5,7 +6,10 @@ using Enma.Api.Contracts.Documents;
 using Enma.Application.Documents;
 using Enma.Application.Documents.Download;
 using Enma.Application.Documents.GetById;
+using Enma.Application.Documents.Inspection;
 using Enma.Application.Documents.List;
+using Enma.Application.Documents.Upload;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Enma.Api.Endpoints.Documents;
 
@@ -13,6 +17,12 @@ public static class LegalDocumentEndpoints
 {
     private const string RoutePrefix =
         "/api/organizations/{organizationId:guid}/documents";
+
+    private const long MultipartRequestOverheadAllowanceBytes = 64L * 1024L;
+
+    private const long MaximumUploadRequestBodySizeBytes =
+        LegalDocumentUploadPolicy.MaximumFileSizeBytes
+        + MultipartRequestOverheadAllowanceBytes;
 
     public static IEndpointRouteBuilder MapLegalDocumentEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -24,6 +34,29 @@ public static class LegalDocumentEndpoints
             .WithTags("Documents")
             .RequireAuthorization(EnmaAuthorizationPolicies.OrganizationAccess)
             .RequireNoStoreResponses();
+
+        group.MapPost(string.Empty, UploadAsync)
+            .WithName("UploadLegalDocument")
+            .WithSummary("Uploads one private legal document to the contextual organization.")
+            .Accepts<UploadLegalDocumentRequest>("multipart/form-data")
+            .Produces<UploadLegalDocumentResponse>(StatusCodes.Status201Created)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .WithMetadata(
+                new RequestFormLimitsAttribute
+                {
+                    MemoryBufferThreshold = 64 * 1024,
+                    MultipartBodyLengthLimit =
+                        LegalDocumentUploadPolicy.MaximumFileSizeBytes
+                })
+            .WithMetadata(
+                new RequestSizeLimitAttribute(
+                    MaximumUploadRequestBodySizeBytes))
+            .RequireEnmaAntiforgery();
 
         group.MapGet(string.Empty, ListAsync)
             .WithName("ListLegalDocuments")
@@ -56,6 +89,70 @@ public static class LegalDocumentEndpoints
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return endpoints;
+    }
+
+    private static async Task<IResult> UploadAsync(
+        Guid organizationId,
+        [FromForm] UploadLegalDocumentRequest request,
+        ClaimsPrincipal principal,
+        UploadLegalDocumentUseCase useCase,
+        HttpContext httpContext)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        IFormFile? file = request.File;
+
+        if (file is null ||
+            httpContext.Request.Form.Files.Count != 1 ||
+            !string.Equals(file.Name, "file", StringComparison.OrdinalIgnoreCase) ||
+            file.Length > LegalDocumentUploadPolicy.MaximumFileSizeBytes)
+        {
+            return TypedResults.BadRequest();
+        }
+
+        await using Stream content = file.OpenReadStream();
+
+        UploadLegalDocumentResult result = await useCase.ExecuteAsync(
+            new UploadLegalDocumentCommand(
+                userId,
+                organizationId,
+                request.ClientId,
+                request.ProcessId,
+                file.FileName,
+                file.ContentType,
+                file.Length,
+                content),
+            httpContext.RequestAborted);
+
+        if (result.Status == UploadLegalDocumentResultStatus.Succeeded)
+        {
+            Guid documentId = result.DocumentId
+                ?? throw new InvalidOperationException(
+                    "A successful legal-document upload did not provide a document id.");
+            string location = string.Create(
+                CultureInfo.InvariantCulture,
+                $"/api/organizations/{organizationId:D}/documents/{documentId:D}");
+
+            return TypedResults.Created(
+                location,
+                new UploadLegalDocumentResponse(documentId));
+        }
+
+        return result.Status switch
+        {
+            UploadLegalDocumentResultStatus.AccessDenied => TypedResults.Forbid(),
+            UploadLegalDocumentResultStatus.InvalidInput => TypedResults.BadRequest(),
+            UploadLegalDocumentResultStatus.Rejected => TypedResults.BadRequest(),
+            UploadLegalDocumentResultStatus.RelatedClientUnavailable =>
+                TypedResults.NotFound(),
+            UploadLegalDocumentResultStatus.RelatedProcessUnavailable =>
+                TypedResults.NotFound(),
+            _ => throw new InvalidOperationException(
+                "The legal-document upload returned an unknown status.")
+        };
     }
 
     private static async Task<IResult> ListAsync(
