@@ -20,6 +20,9 @@ using Enma.Application.Deadlines.List;
 using Enma.Application.Deadlines.Reopen;
 using Enma.Application.Deadlines.Update;
 using Enma.Application.Documents.Inspection;
+using Enma.Application.Documents;
+using Enma.Application.Documents.GetById;
+using Enma.Application.Documents.List;
 using Enma.Application.Documents.Staging;
 using Enma.Application.Documents.Storage;
 using Enma.Application.Documents.Upload;
@@ -247,6 +250,7 @@ public static class DependencyInjection
             ILegalTaskMutationPersistence,
             LegalTaskMutationPersistence>();
         services.AddScoped<ILegalTaskReadQueries, LegalTaskReadQueries>();
+        services.AddScoped<ILegalDocumentReadQueries, LegalDocumentReadQueries>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
         services.AddScoped<
             ICurrentUserOrganizationQueries,
@@ -275,6 +279,7 @@ public static class DependencyInjection
         services.AddScoped<DeadlineActionAuthorization>();
         services.AddScoped<LegalTaskViewAuthorization>();
         services.AddScoped<LegalTaskMutationAuthorization>();
+        services.AddScoped<LegalDocumentReadAuthorization>();
         services.AddScoped<CreateClientUseCase>();
         services.AddScoped<DeactivateClientUseCase>();
         services.AddScoped<GetClientUseCase>();
@@ -301,6 +306,8 @@ public static class DependencyInjection
         services.AddScoped<ReopenLegalTaskUseCase>();
         services.AddScoped<UpdateLegalTaskUseCase>();
         services.AddScoped<UploadLegalDocumentUseCase>();
+        services.AddScoped<GetLegalDocumentUseCase>();
+        services.AddScoped<ListLegalDocumentsUseCase>();
 
         return services;
     }

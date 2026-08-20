@@ -250,6 +250,31 @@ public sealed class OrganizationAccessAuthorizationPersistenceTests(
     }
 
     [Fact]
+    public async Task AuthorizeAsync_WithInactiveUser_ReturnsDenied()
+    {
+        Organization organization = CreateOrganization(
+            "First Legal",
+            "first-legal");
+        User user = CreateUser("First User", "first@example.test");
+        user.Deactivate();
+        OrganizationMembership membership = new(
+            organization.Id,
+            user.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        await SeedAsync(organization, user, membership);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationAccessAuthorization authorization =
+            CreateAuthorization(dbContext);
+
+        OrganizationAccessAuthorizationResult result =
+            await authorization.AuthorizeAsync(user.Id, organization.Id);
+
+        AssertDenied(result);
+    }
+
+    [Fact]
     public async Task AuthorizeAsync_WithEmptyOrMissingIdentifier_ReturnsGenericDenied()
     {
         Organization organization = CreateOrganization(

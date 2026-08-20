@@ -21,11 +21,14 @@ public sealed class OrganizationAccessLookup : IOrganizationAccessLookup
     {
         IQueryable<OrganizationRole?> query =
             from membership in _dbContext.OrganizationMemberships
+            join user in _dbContext.Users
+                on membership.UserId equals user.Id
             join organization in _dbContext.Organizations
                 on membership.OrganizationId equals organization.Id
             where membership.UserId == userId
                 && membership.OrganizationId == organizationId
                 && membership.IsActive
+                && user.IsActive
                 && organization.IsActive
             select (OrganizationRole?)membership.Role;
 
@@ -39,11 +42,14 @@ public sealed class OrganizationAccessLookup : IOrganizationAccessLookup
     {
         IQueryable<OrganizationAccessLookupResult> query =
             from membership in _dbContext.OrganizationMemberships
+            join user in _dbContext.Users
+                on membership.UserId equals user.Id
             join organization in _dbContext.Organizations
                 on membership.OrganizationId equals organization.Id
             where membership.UserId == userId
                 && membership.OrganizationId == organizationId
                 && membership.IsActive
+                && user.IsActive
                 && organization.IsActive
             select new OrganizationAccessLookupResult(
                 membership.UserId,
