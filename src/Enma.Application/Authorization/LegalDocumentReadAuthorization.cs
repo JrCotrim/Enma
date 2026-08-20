@@ -64,6 +64,11 @@ public sealed class LegalDocumentReadAuthorization
                 OrganizationRole.Administrator or
                 OrganizationRole.Member) =>
                 LegalDocumentReadAuthorizationResult.Allowed,
+            (LegalDocumentReadAction.DownloadContent,
+                OrganizationRole.Owner or
+                OrganizationRole.Administrator or
+                OrganizationRole.Member) =>
+                LegalDocumentReadAuthorizationResult.Allowed,
             _ => LegalDocumentReadAuthorizationResult.Denied
         };
     }

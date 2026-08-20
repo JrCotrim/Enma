@@ -23,6 +23,11 @@ public sealed class LegalDocumentReadAuthorizationTests
         LegalDocumentReadAction.ViewMetadata,
         OrganizationRole.Administrator)]
     [InlineData(LegalDocumentReadAction.ViewMetadata, OrganizationRole.Member)]
+    [InlineData(LegalDocumentReadAction.DownloadContent, OrganizationRole.Owner)]
+    [InlineData(
+        LegalDocumentReadAction.DownloadContent,
+        OrganizationRole.Administrator)]
+    [InlineData(LegalDocumentReadAction.DownloadContent, OrganizationRole.Member)]
     public async Task AuthorizeAsync_WithLiveContext_AllowsExplicitAction(
         LegalDocumentReadAction action,
         OrganizationRole role)

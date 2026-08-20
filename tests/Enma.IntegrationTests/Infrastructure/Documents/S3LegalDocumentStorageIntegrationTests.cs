@@ -328,6 +328,38 @@ public sealed class S3LegalDocumentStorageIntegrationTests : IAsyncLifetime
         Assert.True(input.CanRead);
     }
 
+    [Fact]
+    public async Task OpenRead_PreCanceledRequest_PropagatesCancellation()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        cancellationTokenSource.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => storage.OpenReadAsync(
+                LegalDocumentStorageObjectKey.CreateNew(),
+                cancellationTokenSource.Token));
+    }
+
+    [Fact]
+    public async Task ReadHandle_Dispose_ReleasesResponseStreamExactlyOnce()
+    {
+        var responseStream = new TrackingMemoryStream([1, 2, 3]);
+        var response = new GetObjectResponse
+        {
+            ResponseStream = responseStream
+        };
+        var handle = new S3LegalDocumentStorageReadHandle(response);
+
+        Assert.Same(responseStream, handle.Content);
+
+        await handle.DisposeAsync();
+        await handle.DisposeAsync();
+
+        Assert.True(responseStream.IsDisposed);
+        Assert.Equal(1, responseStream.DisposeCallCount);
+        Assert.Throws<ObjectDisposedException>(() => _ = handle.Content);
+    }
+
     public Task InitializeAsync()
     {
         return Task.CompletedTask;
@@ -350,5 +382,19 @@ public sealed class S3LegalDocumentStorageIntegrationTests : IAsyncLifetime
             character => Assert.True(
                 character is >= '0' and <= '9'
                     or >= 'a' and <= 'f'));
+    }
+
+    private sealed class TrackingMemoryStream(byte[] content)
+        : MemoryStream(content, writable: false)
+    {
+        public int DisposeCallCount { get; private set; }
+
+        public bool IsDisposed => DisposeCallCount > 0;
+
+        protected override void Dispose(bool disposing)
+        {
+            DisposeCallCount++;
+            base.Dispose(disposing);
+        }
     }
 }
