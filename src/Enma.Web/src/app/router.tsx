@@ -6,6 +6,8 @@ import { ClientsPage } from '../features/clients/ClientsPage'
 import { ClientDetailsPage } from '../features/clients/ClientDetailsPage'
 import { DeadlinesPage } from '../features/deadlines/DeadlinesPage'
 import { DeadlineDetailsPage } from '../features/deadlines/DeadlineDetailsPage'
+import { DocumentDetailsPage } from '../features/documents/DocumentDetailsPage'
+import { DocumentsPage } from '../features/documents/DocumentsPage'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
 import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
 import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
@@ -88,6 +90,14 @@ export function createAppRoutes(
                         {
                           path: 'tasks/:taskId',
                           element: <TaskDetailsPage />,
+                        },
+                        {
+                          path: 'documents',
+                          element: <DocumentsPage />,
+                        },
+                        {
+                          path: 'documents/:documentId',
+                          element: <DocumentDetailsPage />,
                         },
                       ],
                     },

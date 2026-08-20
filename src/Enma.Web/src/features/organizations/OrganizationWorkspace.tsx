@@ -84,6 +84,14 @@ export function OrganizationWorkspace() {
         >
           Tarefas
         </NavLink>
+        <NavLink
+          className={({ isActive }) =>
+            `workspace-navigation-link${isActive ? ' is-active' : ''}`
+          }
+          to="documents"
+        >
+          Documentos
+        </NavLink>
       </nav>
 
       <Outlet key={currentOrganization.id} />

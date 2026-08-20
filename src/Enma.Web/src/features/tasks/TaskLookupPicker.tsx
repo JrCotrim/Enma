@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import type { UnauthorizedHandler } from '../authentication/sessionClient'
 import { LegalDeadlineRequestError } from '../deadlines/legalDeadlineService'
+import { LegalProcessRequestError } from '../processes/legalProcessService'
 import { LegalTaskRequestError } from './legalTaskService'
 
 const lookupPageSize = 20
@@ -52,7 +53,8 @@ function isAbortError(error: unknown): boolean {
 function getFailure(error: unknown): string | undefined {
   if (
     error instanceof LegalTaskRequestError ||
-    error instanceof LegalDeadlineRequestError
+    error instanceof LegalDeadlineRequestError ||
+    error instanceof LegalProcessRequestError
   ) {
     return error.failure
   }
