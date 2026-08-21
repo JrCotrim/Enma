@@ -136,6 +136,7 @@ h1 {
 .client-result-button:focus-visible,
 .process-lookup-form input:focus-visible,
 .deadline-create-form input:focus-visible,
+.document-upload-form input:focus-visible,
 .process-result-button:focus-visible,
 .client-detail-link:focus-visible,
 .process-detail-link:focus-visible,
@@ -1392,6 +1393,101 @@ h1 {
   line-height: 1.5;
 }
 
+.document-upload-panel {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.document-upload-panel > h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.5rem;
+  font-weight: 500;
+}
+
+.document-upload-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.document-upload-form > label,
+.document-upload-classification legend {
+  color: #34483f;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.document-upload-form > input[type="file"] {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #aaa99f;
+  border-radius: 0.5rem;
+  color: #18221d;
+  background: #fff;
+  font: inherit;
+}
+
+.document-upload-form .form-help,
+.document-upload-selection,
+.document-upload-relation > p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.document-upload-form .form-help {
+  color: #547064;
+  font-size: 0.9rem;
+}
+
+.document-upload-classification {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.5rem;
+}
+
+.document-upload-classification label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.document-upload-relation {
+  display: grid;
+  justify-items: start;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.5rem;
+}
+
+.document-upload-relation .task-lookup {
+  width: 100%;
+}
+
+.document-upload-actions,
+.document-upload-error {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.document-upload-error {
+  justify-content: space-between;
+}
+
+.documents-header .primary-button {
+  flex-shrink: 0;
+}
+
 .document-filters,
 .documents-state {
   margin-top: 1.5rem;
@@ -1668,11 +1764,21 @@ h1 {
 }
 
 @media (max-width: 40rem) {
+  .documents-header,
   .document-details-header,
   .document-detail-actions,
-  .document-filter-actions {
+  .document-filter-actions,
+  .document-upload-actions,
+  .document-upload-error {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .documents-header .primary-button,
+  .document-upload-actions .secondary-button,
+  .document-upload-actions .primary-button,
+  .document-upload-error .secondary-button {
+    width: 100%;
   }
 
   .document-search-row,

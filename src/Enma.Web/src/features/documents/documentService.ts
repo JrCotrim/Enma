@@ -1,3 +1,4 @@
+import { clearCsrfToken, getCsrfToken } from '../authentication/csrfClient'
 import {
   fetchWithSession,
   type UnauthorizedHandler,
@@ -6,13 +7,21 @@ import type {
   LegalDocumentListOptions,
   LegalDocumentListResponse,
   LegalDocumentMetadata,
+  LegalDocumentUploadClassification,
+  UploadLegalDocumentResponse,
 } from './documentTypes'
+
+const guidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type DocumentRequestFailure =
   | 'unauthorized'
   | 'forbidden'
   | 'bad-request'
   | 'not-found'
+  | 'too-large'
+  | 'unavailable'
+  | 'outcome-unknown'
   | 'unexpected'
 
 export class DocumentRequestError extends Error {
@@ -104,6 +113,33 @@ function parseDocumentListResponse(value: unknown): LegalDocumentListResponse {
   }
 }
 
+function parseUploadResponse(value: unknown): UploadLegalDocumentResponse {
+  if (typeof value !== 'object' || value === null) {
+    throw new DocumentRequestError('unexpected')
+  }
+
+  const id = (value as Record<string, unknown>).id
+  if (typeof id !== 'string' || !guidPattern.test(id)) {
+    throw new DocumentRequestError('unexpected')
+  }
+
+  return { id }
+}
+
+async function hasOutcomeUnknownTitle(response: Response): Promise<boolean> {
+  try {
+    const value = (await response.json()) as unknown
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      (value as Record<string, unknown>).title ===
+        'Document upload outcome unknown'
+    )
+  } catch {
+    return false
+  }
+}
+
 function throwForStatus(status: number): never {
   if (status === 401) throw new DocumentRequestError('unauthorized')
   if (status === 403) throw new DocumentRequestError('forbidden')
@@ -183,6 +219,61 @@ export async function getDocument(
   }
 
   return document
+}
+
+export async function uploadDocument(
+  organizationId: string,
+  file: File,
+  classification: LegalDocumentUploadClassification,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<UploadLegalDocumentResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  if (classification.kind === 'client') {
+    if (classification.clientId.length === 0) {
+      throw new DocumentRequestError('bad-request')
+    }
+    formData.append('clientId', classification.clientId)
+  } else if (classification.kind === 'process') {
+    if (classification.processId.length === 0) {
+      throw new DocumentRequestError('bad-request')
+    }
+    formData.append('processId', classification.processId)
+  }
+
+  const requestToken = await getCsrfToken()
+  const response = await fetchWithSession(
+    getDocumentsEndpoint(organizationId),
+    {
+      method: 'POST',
+      headers: { 'X-CSRF-TOKEN': requestToken },
+      body: formData,
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status === 201) {
+    return parseUploadResponse(await response.json())
+  }
+
+  if (response.status === 400) {
+    clearCsrfToken()
+    throw new DocumentRequestError('bad-request')
+  }
+  if (response.status === 401) throw new DocumentRequestError('unauthorized')
+  if (response.status === 403) throw new DocumentRequestError('forbidden')
+  if (response.status === 404) throw new DocumentRequestError('not-found')
+  if (response.status === 413) throw new DocumentRequestError('too-large')
+  if (response.status === 503) throw new DocumentRequestError('unavailable')
+  if (response.status === 500 && await hasOutcomeUnknownTitle(response)) {
+    throw new DocumentRequestError('outcome-unknown')
+  }
+
+  throw new DocumentRequestError('unexpected')
 }
 
 export function getDocumentDownloadUrl(

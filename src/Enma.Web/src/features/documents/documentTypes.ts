@@ -22,3 +22,12 @@ export interface LegalDocumentListOptions {
   readonly pageNumber: number
   readonly pageSize: number
 }
+
+export type LegalDocumentUploadClassification =
+  | { readonly kind: 'general' }
+  | { readonly kind: 'client'; readonly clientId: string }
+  | { readonly kind: 'process'; readonly processId: string }
+
+export interface UploadLegalDocumentResponse {
+  readonly id: string
+}
