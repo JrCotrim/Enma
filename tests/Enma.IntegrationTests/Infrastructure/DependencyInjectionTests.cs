@@ -17,6 +17,7 @@ using Enma.Application.Deadlines.List;
 using Enma.Application.Deadlines.Reopen;
 using Enma.Application.Deadlines.Update;
 using Enma.Application.Organizations;
+using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
 using Enma.Application.Processes.GetById;
@@ -1033,6 +1034,71 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         Assert.Same(
             secondDbContext,
             secondScope.ServiceProvider.GetRequiredService<IUnitOfWork>());
+    }
+
+    [Fact]
+    public async Task AddInfrastructure_DevelopmentWithoutSmtp_ResolvesOnboardingGraph()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddScoped<RegisterOrganizationOwnerHandler>();
+        services.AddInfrastructure(
+            fixture.ConnectionString,
+            new ConfigurationBuilder().Build(),
+            isDevelopment: true);
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider(
+            new ServiceProviderOptions
+            {
+                ValidateOnBuild = true,
+                ValidateScopes = true
+            });
+        await using AsyncServiceScope scope = serviceProvider.CreateAsyncScope();
+
+        Assert.NotNull(scope.ServiceProvider
+            .GetRequiredService<RegisterOrganizationOwnerHandler>());
+        Assert.IsType<BudgetedEmailVerificationDelivery>(scope.ServiceProvider
+            .GetRequiredService<IEmailVerificationDelivery>());
+        Assert.IsType<DevelopmentEmailVerificationDelivery>(serviceProvider
+            .GetRequiredService<DevelopmentEmailVerificationDelivery>());
+        Assert.Null(serviceProvider.GetService<MailKitEmailVerificationDelivery>());
+        Assert.Null(serviceProvider.GetService<EmailVerificationLinkBuilder>());
+        Assert.Equal(
+            DevelopmentEmailVerificationDeliveryOptions.DefaultVerificationPageUrl,
+            serviceProvider
+                .GetRequiredService<
+                    IOptions<DevelopmentEmailVerificationDeliveryOptions>>()
+                .Value
+                .VerificationPageUrl);
+    }
+
+    [Fact]
+    public async Task AddInfrastructure_NonDevelopmentWithoutSmtp_RemainsFailClosed()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddInfrastructure(
+            fixture.ConnectionString,
+            new ConfigurationBuilder().Build(),
+            isDevelopment: false);
+
+        await using ServiceProvider serviceProvider = services.BuildServiceProvider();
+
+        OptionsValidationException exception = Assert.Throws<OptionsValidationException>(
+            () => serviceProvider.GetRequiredService<IEmailVerificationDelivery>());
+
+        Assert.Contains(
+            exception.Failures,
+            failure => failure.Contains("SmtpHost", StringComparison.Ordinal));
+        Assert.Contains(
+            services,
+            descriptor => descriptor.ServiceType
+                == typeof(MailKitEmailVerificationDelivery));
+        Assert.DoesNotContain(
+            services,
+            descriptor => descriptor.ServiceType
+                == typeof(DevelopmentEmailVerificationDelivery));
     }
 
     [Fact]

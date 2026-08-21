@@ -130,7 +130,10 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddScoped<RegisterOrganizationOwnerHandler>();
 builder.Services.AddScoped<GetOrganizationByIdHandler>();
-builder.Services.AddInfrastructure(connectionString, builder.Configuration);
+builder.Services.AddInfrastructure(
+    connectionString,
+    builder.Configuration,
+    builder.Environment.IsDevelopment());
 
 var app = builder.Build();
 

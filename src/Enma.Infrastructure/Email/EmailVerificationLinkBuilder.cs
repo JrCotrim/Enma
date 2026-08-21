@@ -17,6 +17,13 @@ public sealed class EmailVerificationLinkBuilder
             UriKind.Absolute);
     }
 
+    internal EmailVerificationLinkBuilder(Uri verificationPageUri)
+    {
+        ArgumentNullException.ThrowIfNull(verificationPageUri);
+
+        this.verificationPageUri = verificationPageUri;
+    }
+
     public Uri Build(string rawToken)
     {
         if (!IsValidRawToken(rawToken))

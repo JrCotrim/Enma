@@ -71,6 +71,19 @@ public static class DependencyInjection
         string connectionString,
         IConfiguration configuration)
     {
+        return AddInfrastructure(
+            services,
+            connectionString,
+            configuration,
+            isDevelopment: false);
+    }
+
+    public static IServiceCollection AddInfrastructure(
+        this IServiceCollection services,
+        string connectionString,
+        IConfiguration configuration,
+        bool isDevelopment)
+    {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
@@ -84,10 +97,26 @@ public static class DependencyInjection
         services.AddDbContext<EnmaDbContext>(
             options => options.UseNpgsql(connectionString));
         services.AddOptions<PasswordHasherOptions>();
-        services
-            .AddOptions<EmailVerificationDeliveryOptions>()
-            .Bind(configuration.GetSection(
-                EmailVerificationDeliveryOptions.SectionName));
+        if (isDevelopment)
+        {
+            services
+                .AddOptions<DevelopmentEmailVerificationDeliveryOptions>()
+                .Bind(configuration.GetSection(
+                    DevelopmentEmailVerificationDeliveryOptions.SectionName));
+            services.AddSingleton<
+                IValidateOptions<DevelopmentEmailVerificationDeliveryOptions>,
+                DevelopmentEmailVerificationDeliveryOptionsValidator>();
+        }
+        else
+        {
+            services
+                .AddOptions<EmailVerificationDeliveryOptions>()
+                .Bind(configuration.GetSection(
+                    EmailVerificationDeliveryOptions.SectionName));
+            services.AddSingleton<
+                IValidateOptions<EmailVerificationDeliveryOptions>,
+                EmailVerificationDeliveryOptionsValidator>();
+        }
         services
             .AddOptions<EmailVerificationSendBudgetOptions>()
             .Bind(configuration.GetSection(
@@ -96,9 +125,6 @@ public static class DependencyInjection
             .AddOptions<DocumentStorageOptions>()
             .Bind(configuration.GetSection(
                 DocumentStorageOptions.SectionName));
-        services.AddSingleton<
-            IValidateOptions<EmailVerificationDeliveryOptions>,
-            EmailVerificationDeliveryOptionsValidator>();
         services.AddSingleton<
             IValidateOptions<EmailVerificationSendBudgetOptions>,
             EmailVerificationSendBudgetOptionsValidator>();
@@ -155,15 +181,26 @@ public static class DependencyInjection
         services.AddSingleton<
             IEmailVerificationTokenService,
             CryptographicEmailVerificationTokenService>();
-        services.AddSingleton<EmailVerificationLinkBuilder>();
-        services.AddSingleton<MailKitEmailVerificationDelivery>();
+        if (isDevelopment)
+        {
+            services.AddSingleton<DevelopmentEmailVerificationDelivery>();
+        }
+        else
+        {
+            services.AddSingleton<EmailVerificationLinkBuilder>();
+            services.AddSingleton<MailKitEmailVerificationDelivery>();
+        }
         services.AddScoped<
             IEmailVerificationSendBudget,
             PostgreSqlEmailVerificationSendBudget>();
         services.AddScoped<IEmailVerificationDelivery>(serviceProvider =>
             new BudgetedEmailVerificationDelivery(
                 serviceProvider.GetRequiredService<IEmailVerificationSendBudget>(),
-                serviceProvider.GetRequiredService<MailKitEmailVerificationDelivery>(),
+                isDevelopment
+                    ? serviceProvider.GetRequiredService<
+                        DevelopmentEmailVerificationDelivery>()
+                    : serviceProvider.GetRequiredService<
+                        MailKitEmailVerificationDelivery>(),
                 serviceProvider.GetRequiredService<
                     Microsoft.Extensions.Logging.ILogger<
                         BudgetedEmailVerificationDelivery>>()));
