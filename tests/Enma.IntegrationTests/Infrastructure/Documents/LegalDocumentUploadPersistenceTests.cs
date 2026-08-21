@@ -191,6 +191,53 @@ public sealed class LegalDocumentUploadPersistenceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ExecuteAsync_CancellationWithUnavailableCleanup_ReturnsExplicitCompensationFailure(
+        bool cancellationDuringStorage)
+    {
+        using var callerCancellation = new CancellationTokenSource();
+        callerCancellation.Cancel();
+
+        var cancellation = new OperationCanceledException(
+            callerCancellation.Token);
+        var storage = new FakeStorage
+        {
+            StoreException = cancellationDuringStorage
+                ? cancellation
+                : null,
+            DeleteException = new LegalDocumentStorageUnavailableException()
+        };
+        var metadata = new FakeMetadataTransaction
+        {
+            Exception = cancellationDuringStorage
+                ? null
+                : cancellation
+        };
+        var persistence = new LegalDocumentUploadPersistence(storage, metadata);
+        LegalDocumentUploadPersistenceRequest request = CreateRequest();
+        using var content = new MemoryStream([1, 2, 3]);
+
+        LegalDocumentUploadCompensationUnavailableException exception =
+            await Assert.ThrowsAsync<LegalDocumentUploadCompensationUnavailableException>(
+                () => persistence.ExecuteAsync(
+                    request,
+                    content,
+                    _ => LegalDocumentUploadDecision.AccessDenied,
+                    callerCancellation.Token));
+
+        Assert.Contains("cleanup is temporarily unavailable", exception.Message);
+        Assert.Equal(1, storage.DeleteCallCount);
+        Assert.NotEqual(
+            callerCancellation.Token,
+            storage.DeleteCancellationToken);
+        Assert.True(storage.DeleteCancellationToken.CanBeCanceled);
+        Assert.Equal(
+            cancellationDuringStorage ? 0 : 1,
+            metadata.ExecuteCallCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task ExecuteAsync_FailureAfterCommitStarted_PreservesObjectAndReturnsUnknownOutcome(
         bool cancellation)
     {

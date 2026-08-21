@@ -48,7 +48,7 @@ public sealed class LegalDocumentUploadPersistence : ILegalDocumentUploadPersist
         }
         catch (OperationCanceledException)
         {
-            await CompensatePreservingCancellationAsync(request.ObjectKey);
+            await CompensateOrThrowAsync(request.ObjectKey);
             throw;
         }
         catch (LegalDocumentStorageUnavailableException)
@@ -79,7 +79,7 @@ public sealed class LegalDocumentUploadPersistence : ILegalDocumentUploadPersist
         }
         catch (OperationCanceledException)
         {
-            await CompensatePreservingCancellationAsync(request.ObjectKey);
+            await CompensateOrThrowAsync(request.ObjectKey);
             throw;
         }
         catch
@@ -123,26 +123,4 @@ public sealed class LegalDocumentUploadPersistence : ILegalDocumentUploadPersist
         }
     }
 
-    private async Task CompensatePreservingCancellationAsync(
-        LegalDocumentStorageObjectKey objectKey)
-    {
-        using var compensationCancellation =
-            new CancellationTokenSource(CompensationTimeout);
-
-        try
-        {
-            await storage.DeleteIfExistsAsync(
-                objectKey,
-                compensationCancellation.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            // Preserve the caller-visible cancellation contract. A private orphan may
-            // remain and is handled by the later reconciliation path.
-        }
-        catch (LegalDocumentStorageUnavailableException)
-        {
-            // Preserve cancellation for the same reason. The object remains private.
-        }
-    }
 }
