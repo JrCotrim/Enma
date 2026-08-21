@@ -7,6 +7,4 @@ public sealed record LegalDocumentMetadataResponse(
     string OriginalFileName,
     string ContentType,
     long SizeBytes,
-    string ContentHashSha256,
-    Guid UploadedByMembershipId,
     DateTimeOffset CreatedAt);

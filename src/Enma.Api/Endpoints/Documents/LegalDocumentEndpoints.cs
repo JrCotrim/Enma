@@ -269,9 +269,6 @@ public static class LegalDocumentEndpoints
             document.OriginalFileName,
             document.ContentType,
             document.SizeBytes,
-            Convert.ToHexString(document.ContentHashSha256.ToArray())
-                .ToLowerInvariant(),
-            document.UploadedByMembershipId,
             document.CreatedAt);
     }
 

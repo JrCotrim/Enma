@@ -114,8 +114,6 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
                 nameof(LegalDocumentMetadataResponse.OriginalFileName),
                 nameof(LegalDocumentMetadataResponse.ContentType),
                 nameof(LegalDocumentMetadataResponse.SizeBytes),
-                nameof(LegalDocumentMetadataResponse.ContentHashSha256),
-                nameof(LegalDocumentMetadataResponse.UploadedByMembershipId),
                 nameof(LegalDocumentMetadataResponse.CreatedAt)
             ],
             GetPropertyNames<LegalDocumentMetadataResponse>());
@@ -930,6 +928,14 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
             "storedObjectKey",
             defaultsJson,
             StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "contentHashSha256",
+            defaultsJson,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "uploadedByMembershipId",
+            defaultsJson,
+            StringComparison.OrdinalIgnoreCase);
         ListLegalDocumentsResponse defaults =
             Assert.IsType<ListLegalDocumentsResponse>(
                 JsonSerializer.Deserialize<ListLegalDocumentsResponse>(
@@ -939,9 +945,23 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         Assert.Equal(20, defaults.PageSize);
         Assert.False(defaults.HasNext);
         Assert.Equal(3, defaults.Items.Count);
-        Assert.All(
+        LegalDocumentMetadataResponse otherClientMetadata = Assert.Single(
             defaults.Items,
-            item => Assert.Equal(64, item.ContentHashSha256.Length));
+            item => item.Id == otherClientDocument.Id);
+        Assert.Equal(
+            otherClientDocument.ClientId,
+            otherClientMetadata.ClientId);
+        Assert.Equal(
+            otherClientDocument.ProcessId,
+            otherClientMetadata.ProcessId);
+        Assert.Equal(
+            otherClientDocument.OriginalFileName,
+            otherClientMetadata.OriginalFileName);
+        Assert.Equal(
+            otherClientDocument.ContentType,
+            otherClientMetadata.ContentType);
+        Assert.Equal(otherClientDocument.SizeBytes, otherClientMetadata.SizeBytes);
+        Assert.Equal(otherClientDocument.CreatedAt, otherClientMetadata.CreatedAt);
 
         using HttpResponseMessage searchResponse = await SendGetAsync(
             GetDocumentsPath(organization.Id) +
@@ -1044,14 +1064,26 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
             document.StoredObjectKey,
             json,
             StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "contentHashSha256",
+            json,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "uploadedByMembershipId",
+            json,
+            StringComparison.OrdinalIgnoreCase);
         LegalDocumentMetadataResponse metadata = Assert.IsType<
             LegalDocumentMetadataResponse>(
                 JsonSerializer.Deserialize<LegalDocumentMetadataResponse>(
                     json,
                     JsonSerializerOptions.Web));
         Assert.Equal(document.Id, metadata.Id);
+        Assert.Equal(document.ClientId, metadata.ClientId);
+        Assert.Equal(document.ProcessId, metadata.ProcessId);
         Assert.Equal(document.OriginalFileName, metadata.OriginalFileName);
+        Assert.Equal(document.ContentType, metadata.ContentType);
         Assert.Equal(document.SizeBytes, metadata.SizeBytes);
+        Assert.Equal(document.CreatedAt, metadata.CreatedAt);
 
         using HttpResponseMessage missing = await SendGetAsync(
             GetDocumentPath(organization.Id, Guid.NewGuid()),
