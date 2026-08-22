@@ -4,6 +4,12 @@ using System.Net.Http.Headers;
 using Enma.Application.Abstractions;
 using Enma.Application.Authorization;
 using Enma.Application.Authentication;
+using Enma.Application.CalendarEvents;
+using Enma.Application.CalendarEvents.Assignment;
+using Enma.Application.CalendarEvents.Create;
+using Enma.Application.CalendarEvents.Delete;
+using Enma.Application.CalendarEvents.GetById;
+using Enma.Application.CalendarEvents.Update;
 using Enma.Application.Clients;
 using Enma.Application.Clients.Create;
 using Enma.Application.Clients.Deactivate;
@@ -288,6 +294,13 @@ public static class DependencyInjection
             ILegalTaskMutationPersistence,
             LegalTaskMutationPersistence>();
         services.AddScoped<ILegalTaskReadQueries, LegalTaskReadQueries>();
+        services.AddScoped<
+            ICalendarEventCreationPersistence,
+            CalendarEventCreationPersistence>();
+        services.AddScoped<
+            ICalendarEventMutationPersistence,
+            CalendarEventMutationPersistence>();
+        services.AddScoped<ICalendarEventReadQueries, CalendarEventReadQueries>();
         services.AddScoped<ILegalDocumentReadQueries, LegalDocumentReadQueries>();
         services.AddScoped<
             ILegalDocumentContentReadQueries,
@@ -320,6 +333,8 @@ public static class DependencyInjection
         services.AddScoped<DeadlineActionAuthorization>();
         services.AddScoped<LegalTaskViewAuthorization>();
         services.AddScoped<LegalTaskMutationAuthorization>();
+        services.AddScoped<CalendarEventAccessAuthorization>();
+        services.AddScoped<CalendarEventActionAuthorization>();
         services.AddScoped<LegalDocumentReadAuthorization>();
         services.AddScoped<CreateClientUseCase>();
         services.AddScoped<DeactivateClientUseCase>();
@@ -346,6 +361,11 @@ public static class DependencyInjection
         services.AddScoped<ListLegalTasksUseCase>();
         services.AddScoped<ReopenLegalTaskUseCase>();
         services.AddScoped<UpdateLegalTaskUseCase>();
+        services.AddScoped<CreateCalendarEventUseCase>();
+        services.AddScoped<GetCalendarEventUseCase>();
+        services.AddScoped<UpdateCalendarEventUseCase>();
+        services.AddScoped<ChangeCalendarEventAssigneeUseCase>();
+        services.AddScoped<DeleteCalendarEventUseCase>();
         services.AddScoped<UploadLegalDocumentUseCase>();
         services.AddScoped<DownloadLegalDocumentUseCase>();
         services.AddScoped<GetLegalDocumentUseCase>();
