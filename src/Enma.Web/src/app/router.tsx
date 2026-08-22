@@ -1,4 +1,5 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom'
+import { AgendaPage } from '../features/agenda/AgendaPage'
 import { AuthProvider } from '../features/authentication/AuthProvider'
 import { LoginPage } from '../features/authentication/LoginPage'
 import { ProtectedRoute } from '../features/authentication/SessionStatus'
@@ -59,6 +60,10 @@ export function createAppRoutes(
                       path: ':organizationId',
                       element: <OrganizationRoute />,
                       children: [
+                        {
+                          path: 'agenda',
+                          element: <AgendaPage />,
+                        },
                         {
                           path: 'clients',
                           element: <ClientsPage />,

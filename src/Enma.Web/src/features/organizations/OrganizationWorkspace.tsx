@@ -56,6 +56,14 @@ export function OrganizationWorkspace() {
           className={({ isActive }) =>
             `workspace-navigation-link${isActive ? ' is-active' : ''}`
           }
+          to="agenda"
+        >
+          Agenda
+        </NavLink>
+        <NavLink
+          className={({ isActive }) =>
+            `workspace-navigation-link${isActive ? ' is-active' : ''}`
+          }
           to="clients"
         >
           Clientes
