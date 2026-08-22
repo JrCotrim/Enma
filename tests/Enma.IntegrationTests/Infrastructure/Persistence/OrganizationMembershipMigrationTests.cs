@@ -94,6 +94,7 @@ public sealed class OrganizationMembershipMigrationTests(
             tablesBefore
                 .Append("legal_tasks")
                 .Append("legal_documents")
+                .Append("calendar_events")
                 .OrderBy(table => table),
             await GetPublicTablesAsync());
         await using EnmaDbContext dbContext = fixture.CreateDbContext();

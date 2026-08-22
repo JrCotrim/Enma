@@ -2,6 +2,7 @@ using Enma.Application.Abstractions;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Users;
 using Enma.Domain.Authentication;
+using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
 using Enma.Domain.Documents;
@@ -21,6 +22,8 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     private const string UserEmailUniqueConstraint = "ux_users_email";
 
     public DbSet<Organization> Organizations => Set<Organization>();
+
+    public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
 
     public DbSet<Client> Clients => Set<Client>();
 

@@ -1,5 +1,7 @@
+using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
+using Enma.Domain.Documents;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 using Enma.Domain.Tasks;
@@ -13,17 +15,17 @@ using Npgsql;
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
 
 [Collection(PostgreSqlCollection.Name)]
-public sealed class LegalTaskMigrationTests(
+public sealed class CalendarEventMigrationTests(
     PostgreSqlFixture fixture) : IAsyncLifetime
 {
     private const string PreviousMigration =
-        "20260814173837_AddOrganizationMembershipRelationalIdentity";
+        "20260819180740_AddLegalDocuments";
 
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
         8,
+        22,
         14,
-        16,
         0,
         0,
         TimeSpan.Zero);
@@ -44,37 +46,53 @@ public sealed class LegalTaskMigrationTests(
         await MigrateAsync(Migration.InitialDatabase);
         await MigrateAsync();
         RepresentativeGraph graph = CreateRepresentativeGraph();
-        LegalTask legalTask = CreateLegalTask(graph);
+        CalendarEvent calendarEvent = CreateCalendarEvent(graph);
 
         await using (EnmaDbContext dbContext = fixture.CreateDbContext())
         {
-            dbContext.AddRange(GetGraphEntities(graph).Append(legalTask));
+            dbContext.AddRange(
+                GetGraphEntities(graph)
+                    .Append(calendarEvent));
             await dbContext.SaveChangesAsync();
-
-            Assert.Equal(1, await dbContext.LegalTasks.CountAsync());
         }
 
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        CalendarEvent persistedEvent = await verificationContext.CalendarEvents
+            .AsNoTracking()
+            .SingleAsync();
+        Assert.Equal(calendarEvent.Id, persistedEvent.Id);
+        Assert.Equal(graph.Organization.Id, persistedEvent.OrganizationId);
+        Assert.Equal(graph.LegalProcess.Id, persistedEvent.ProcessId);
+        Assert.Equal(
+            graph.AssigneeMembership.Id,
+            persistedEvent.AssigneeMembershipId);
+        Assert.Equal(
+            graph.CreatorMembership.Id,
+            persistedEvent.CreatedByMembershipId);
+
+        Assert.Equal(
+            "organization_id,client_id",
+            await GetConstraintColumnsAsync(
+                "fk_calendar_events_clients_organization_id_client_id"));
         Assert.Equal(
             "organization_id,process_id",
             await GetConstraintColumnsAsync(
-                "fk_legal_tasks_legal_processes_organization_id_process_id"));
-        Assert.Equal(
-            "organization_id,created_by_membership_id",
-            await GetConstraintColumnsAsync(
-                "fk_legal_tasks_memberships_org_created_by_membership_id"));
+                "fk_calendar_events_processes_organization_id_process_id"));
         Assert.Equal(
             "organization_id,assignee_membership_id",
             await GetConstraintColumnsAsync(
-                "fk_legal_tasks_memberships_org_assignee_membership_id"));
+                "fk_calendar_events_memberships_org_assignee_membership_id"));
+        Assert.Equal(
+            "organization_id,created_by_membership_id",
+            await GetConstraintColumnsAsync(
+                "fk_calendar_events_memberships_org_created_by_membership_id"));
     }
 
     [Fact]
-    public async Task MigrateAsync_FromPreTaskSchema_PreservesRepresentativeData()
+    public async Task MigrateAsync_FromPreviousLatestSchema_PreservesExistingData()
     {
         await MigrateAsync(PreviousMigration);
         RepresentativeGraph graph = CreateRepresentativeGraph();
-        DateTimeOffset deadlineCompletedAt = CreatedAt.AddDays(1);
-        graph.LegalDeadline.Complete(deadlineCompletedAt);
 
         await using (EnmaDbContext seedContext = fixture.CreateDbContext())
         {
@@ -88,74 +106,55 @@ public sealed class LegalTaskMigrationTests(
 
         string[] tablesAfter = await GetPublicTablesAsync();
         Assert.Equal(
-            tablesBefore
-                .Append("legal_tasks")
-                .Append("legal_documents")
-                .Append("calendar_events")
-                .OrderBy(table => table),
+            tablesBefore.Append("calendar_events").OrderBy(table => table),
             tablesAfter);
+
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
-        Organization organization = await dbContext.Organizations.SingleAsync();
-        User[] users = await dbContext.Users
-            .OrderBy(user => user.Email)
-            .ToArrayAsync();
+        Organization organization = await dbContext.Organizations
+            .AsNoTracking()
+            .SingleAsync();
+        Client client = await dbContext.Clients.AsNoTracking().SingleAsync();
+        LegalProcess legalProcess = await dbContext.LegalProcesses
+            .AsNoTracking()
+            .SingleAsync();
+        LegalDeadline legalDeadline = await dbContext.LegalDeadlines
+            .AsNoTracking()
+            .SingleAsync();
+        LegalTask legalTask = await dbContext.LegalTasks
+            .AsNoTracking()
+            .SingleAsync();
+        LegalDocument legalDocument = await dbContext.LegalDocuments
+            .AsNoTracking()
+            .SingleAsync();
         OrganizationMembership[] memberships =
             await dbContext.OrganizationMemberships
+                .AsNoTracking()
                 .OrderBy(membership => membership.Id)
                 .ToArrayAsync();
-        Client client = await dbContext.Clients.SingleAsync();
-        LegalProcess legalProcess = await dbContext.LegalProcesses.SingleAsync();
-        LegalDeadline legalDeadline = await dbContext.LegalDeadlines.SingleAsync();
+        User[] users = await dbContext.Users
+            .AsNoTracking()
+            .OrderBy(user => user.Id)
+            .ToArrayAsync();
 
         Assert.Equal(graph.Organization.Id, organization.Id);
-        Assert.Equal("Enma Legal", organization.Name);
-        Assert.Equal("enma-legal", organization.Slug);
-        Assert.True(organization.IsActive);
-        Assert.Equal(CreatedAt, organization.CreatedAt);
-        Assert.Equal(2, users.Length);
-        Assert.Equal(
-            [graph.AssigneeUser.Id, graph.CreatorUser.Id],
-            users.Select(user => user.Id).ToArray());
-        Assert.All(users, user => Assert.True(user.IsActive));
-        Assert.Equal(2, memberships.Length);
-        Assert.Contains(
-            memberships,
-            membership => membership.Id == graph.CreatorMembership.Id &&
-                membership.OrganizationId == graph.Organization.Id &&
-                membership.UserId == graph.CreatorUser.Id &&
-                membership.Role == OrganizationRole.Administrator &&
-                membership.IsActive &&
-                membership.CreatedAt == CreatedAt);
-        Assert.Contains(
-            memberships,
-            membership => membership.Id == graph.AssigneeMembership.Id &&
-                membership.OrganizationId == graph.Organization.Id &&
-                membership.UserId == graph.AssigneeUser.Id &&
-                membership.Role == OrganizationRole.Member &&
-                membership.IsActive &&
-                membership.CreatedAt == CreatedAt);
+        Assert.Equal("Existing Organization", organization.Name);
         Assert.Equal(graph.Client.Id, client.Id);
-        Assert.Equal(graph.Organization.Id, client.OrganizationId);
         Assert.Equal("Existing Client", client.Name);
-        Assert.True(client.IsActive);
-        Assert.Equal(CreatedAt, client.CreatedAt);
         Assert.Equal(graph.LegalProcess.Id, legalProcess.Id);
-        Assert.Equal(graph.Organization.Id, legalProcess.OrganizationId);
-        Assert.Equal(graph.Client.Id, legalProcess.ClientId);
         Assert.Equal("Existing Process", legalProcess.Title);
-        Assert.Equal(CreatedAt, legalProcess.CreatedAt);
         Assert.Equal(graph.LegalDeadline.Id, legalDeadline.Id);
-        Assert.Equal(graph.Organization.Id, legalDeadline.OrganizationId);
-        Assert.Equal(graph.LegalProcess.Id, legalDeadline.ProcessId);
-        Assert.Equal("Existing Deadline", legalDeadline.Title);
-        Assert.Equal(new DateOnly(2026, 11, 1), legalDeadline.DueDate);
-        Assert.Equal(CreatedAt, legalDeadline.CreatedAt);
-        Assert.Equal(deadlineCompletedAt, legalDeadline.CompletedAt);
+        Assert.Equal(new DateOnly(2026, 9, 30), legalDeadline.DueDate);
+        Assert.Equal(graph.LegalTask.Id, legalTask.Id);
+        Assert.Equal(new DateOnly(2026, 9, 15), legalTask.DueDate);
+        Assert.Equal(graph.LegalDocument.Id, legalDocument.Id);
+        Assert.Equal("existing.pdf", legalDocument.OriginalFileName);
+        Assert.Equal(2, memberships.Length);
+        Assert.Equal(2, users.Length);
 
-        LegalTask legalTask = CreateLegalTask(graph);
-        dbContext.LegalTasks.Add(legalTask);
+        CalendarEvent calendarEvent = CreateCalendarEvent(graph);
+        dbContext.CalendarEvents.Add(calendarEvent);
         await dbContext.SaveChangesAsync();
-        Assert.Equal(1, await dbContext.LegalTasks.CountAsync());
+        Assert.Equal(1, await dbContext.CalendarEvents.CountAsync());
     }
 
     private async Task MigrateAsync(string? targetMigration = null)
@@ -175,7 +174,7 @@ public sealed class LegalTaskMigrationTests(
                 ON kcu.constraint_schema = tc.constraint_schema
                 AND kcu.constraint_name = tc.constraint_name
             WHERE tc.constraint_schema = 'public'
-              AND tc.table_name = 'legal_tasks'
+              AND tc.table_name = 'calendar_events'
               AND tc.constraint_name = @constraintName
               AND tc.constraint_type = 'FOREIGN KEY'
             """;
@@ -213,13 +212,18 @@ public sealed class LegalTaskMigrationTests(
         return tables.ToArray();
     }
 
-    private static LegalTask CreateLegalTask(RepresentativeGraph graph)
+    private static CalendarEvent CreateCalendarEvent(RepresentativeGraph graph)
     {
-        return new LegalTask(
+        DateTimeOffset startsAt = CreatedAt.AddDays(2);
+
+        return new CalendarEvent(
             graph.Organization.Id,
-            "Migrated Schema Task",
-            "Task persistence is available",
-            new DateOnly(2028, 2, 29),
+            "Migrated Calendar Event",
+            "Calendar event persistence is available",
+            startsAt,
+            startsAt.AddHours(2),
+            "Hearing Room 2",
+            null,
             graph.LegalProcess.Id,
             graph.AssigneeMembership.Id,
             graph.CreatorMembership.Id,
@@ -237,19 +241,21 @@ public sealed class LegalTaskMigrationTests(
             graph.AssigneeMembership,
             graph.Client,
             graph.LegalProcess,
-            graph.LegalDeadline
+            graph.LegalDeadline,
+            graph.LegalTask,
+            graph.LegalDocument
         ];
     }
 
     private static RepresentativeGraph CreateRepresentativeGraph()
     {
         var organization = new Organization(
-            "Enma Legal",
-            "enma-legal",
+            "Existing Organization",
+            "existing-organization",
             CreatedAt);
         var creatorUser = new User(
-            "Creator User",
-            "creator@example.test",
+            "Existing Creator",
+            "existing.creator@example.test",
             CreatedAt);
         var creatorMembership = new OrganizationMembership(
             organization.Id,
@@ -257,8 +263,8 @@ public sealed class LegalTaskMigrationTests(
             OrganizationRole.Administrator,
             CreatedAt);
         var assigneeUser = new User(
-            "Assignee User",
-            "assignee@example.test",
+            "Existing Assignee",
+            "existing.assignee@example.test",
             CreatedAt);
         var assigneeMembership = new OrganizationMembership(
             organization.Id,
@@ -278,7 +284,28 @@ public sealed class LegalTaskMigrationTests(
             organization.Id,
             legalProcess.Id,
             "Existing Deadline",
-            new DateOnly(2026, 11, 1),
+            new DateOnly(2026, 9, 30),
+            CreatedAt);
+        var legalTask = new LegalTask(
+            organization.Id,
+            "Existing Task",
+            "Existing task details",
+            new DateOnly(2026, 9, 15),
+            legalProcess.Id,
+            assigneeMembership.Id,
+            creatorMembership.Id,
+            CreatedAt);
+        var legalDocument = new LegalDocument(
+            organization.Id,
+            null,
+            legalProcess.Id,
+            "existing.pdf",
+            new string('a', 32),
+            "application/pdf",
+            1_024,
+            new LegalDocumentContentHash(
+                Enumerable.Range(0, 32).Select(value => (byte)value).ToArray()),
+            creatorMembership.Id,
             CreatedAt);
 
         return new RepresentativeGraph(
@@ -289,7 +316,9 @@ public sealed class LegalTaskMigrationTests(
             assigneeMembership,
             client,
             legalProcess,
-            legalDeadline);
+            legalDeadline,
+            legalTask,
+            legalDocument);
     }
 
     private sealed record RepresentativeGraph(
@@ -300,5 +329,7 @@ public sealed class LegalTaskMigrationTests(
         OrganizationMembership AssigneeMembership,
         Client Client,
         LegalProcess LegalProcess,
-        LegalDeadline LegalDeadline);
+        LegalDeadline LegalDeadline,
+        LegalTask LegalTask,
+        LegalDocument LegalDocument);
 }

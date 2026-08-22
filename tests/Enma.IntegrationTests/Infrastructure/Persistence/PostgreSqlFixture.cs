@@ -45,6 +45,7 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         await using EnmaDbContext dbContext = CreateDbContext();
         await dbContext.EmailVerificationSendBudgets.ExecuteDeleteAsync(
             cancellationToken);
+        await dbContext.CalendarEvents.ExecuteDeleteAsync(cancellationToken);
         await dbContext.LegalDocuments.ExecuteDeleteAsync(cancellationToken);
         await dbContext.LegalTasks.ExecuteDeleteAsync(cancellationToken);
         await dbContext.LegalDeadlines.ExecuteDeleteAsync(cancellationToken);
