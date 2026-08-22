@@ -18,7 +18,21 @@ internal static class EnmaAntiforgeryEndpointConvention
                     IAntiforgeryValidationFeature? validationFeature =
                         httpContext.Features.Get<IAntiforgeryValidationFeature>();
 
-                    if (validationFeature?.IsValid != true)
+                    if (validationFeature is null)
+                    {
+                        try
+                        {
+                            IAntiforgery antiforgery = httpContext.RequestServices
+                                .GetRequiredService<IAntiforgery>();
+                            await antiforgery.ValidateRequestAsync(httpContext);
+                        }
+                        catch (AntiforgeryValidationException)
+                        {
+                            httpContext.Response.Headers.CacheControl = "no-store";
+                            return TypedResults.BadRequest();
+                        }
+                    }
+                    else if (!validationFeature.IsValid)
                     {
                         httpContext.Response.Headers.CacheControl = "no-store";
                         return TypedResults.BadRequest();
