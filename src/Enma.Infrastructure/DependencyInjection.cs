@@ -2,6 +2,7 @@ using Amazon.Runtime;
 using Amazon.S3;
 using System.Net.Http.Headers;
 using Enma.Application.Abstractions;
+using Enma.Application.Agenda;
 using Enma.Application.Authorization;
 using Enma.Application.Authentication;
 using Enma.Application.CalendarEvents;
@@ -301,6 +302,7 @@ public static class DependencyInjection
             ICalendarEventMutationPersistence,
             CalendarEventMutationPersistence>();
         services.AddScoped<ICalendarEventReadQueries, CalendarEventReadQueries>();
+        services.AddScoped<IAgendaReadQueries, AgendaReadQueries>();
         services.AddScoped<ILegalDocumentReadQueries, LegalDocumentReadQueries>();
         services.AddScoped<
             ILegalDocumentContentReadQueries,
@@ -335,6 +337,7 @@ public static class DependencyInjection
         services.AddScoped<LegalTaskMutationAuthorization>();
         services.AddScoped<CalendarEventAccessAuthorization>();
         services.AddScoped<CalendarEventActionAuthorization>();
+        services.AddScoped<GetAgendaUseCase>();
         services.AddScoped<LegalDocumentReadAuthorization>();
         services.AddScoped<CreateClientUseCase>();
         services.AddScoped<DeactivateClientUseCase>();
