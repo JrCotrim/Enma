@@ -31,7 +31,10 @@ public sealed class CalendarEventMutationPersistence
             request,
             decide,
             forcedAssigneeMembershipId: null,
+            forcedClientId: null,
+            forcedProcessId: null,
             allowAssigneeRetry: true,
+            allowAssociationRetry: true,
             cancellationToken);
     }
 
@@ -39,7 +42,10 @@ public sealed class CalendarEventMutationPersistence
         CalendarEventMutationPersistenceRequest request,
         Func<CalendarEventMutationLockedState, CalendarEventMutationDecision> decide,
         Guid? forcedAssigneeMembershipId,
+        Guid? forcedClientId,
+        Guid? forcedProcessId,
         bool allowAssigneeRetry,
+        bool allowAssociationRetry,
         CancellationToken cancellationToken)
     {
         await using var dbContext = new EnmaDbContext(_dbContextOptions);
@@ -60,11 +66,26 @@ public sealed class CalendarEventMutationPersistence
             return CalendarEventMutationPersistenceResult.NotFound;
         }
 
-        Organization? organization =
-            await CalendarEventCreationPersistence.LockOrganizationAsync(
+        if (forcedClientId is not null && forcedProcessId is not null)
+        {
+            throw new InvalidOperationException(
+                "Calendar event mutation cannot lock two associations.");
+        }
+
+        bool? isClientAvailable = forcedClientId is Guid clientId
+            ? await CalendarEventCreationPersistence.LockActiveClientAsync(
                 dbContext,
                 request.OrganizationId,
-                cancellationToken);
+                clientId,
+                cancellationToken)
+            : null;
+        bool? isProcessAvailable = forcedProcessId is Guid processId
+            ? await CalendarEventCreationPersistence.LockProcessAsync(
+                dbContext,
+                request.OrganizationId,
+                processId,
+                cancellationToken)
+            : null;
         IEnumerable<Guid> membershipIds = forcedAssigneeMembershipId is Guid assigneeId
             ? [request.ActorMembershipId, assigneeId]
             : [request.ActorMembershipId];
@@ -84,15 +105,21 @@ public sealed class CalendarEventMutationPersistence
                     lockedAssigneeId,
                     identities)
                 : null;
+        Organization? organization =
+            await CalendarEventCreationPersistence.LockOrganizationAsync(
+                dbContext,
+                request.OrganizationId,
+                cancellationToken);
         var state = new CalendarEventMutationLockedState(
             calendarEvent,
             organization?.IsActive == true,
             actor,
-            AssociationLookupPerformed: false,
-            ValidatedClientId: null,
-            IsClientAvailable: null,
-            ValidatedProcessId: null,
-            IsProcessAvailable: null,
+            AssociationLookupPerformed:
+                forcedClientId is not null || forcedProcessId is not null,
+            ValidatedClientId: forcedClientId,
+            IsClientAvailable: isClientAvailable,
+            ValidatedProcessId: forcedProcessId,
+            IsProcessAvailable: isProcessAvailable,
             AssigneeLookupPerformed: forcedAssigneeMembershipId is not null,
             ValidatedAssigneeMembershipId: forcedAssigneeMembershipId,
             Assignee: assignee);
@@ -113,27 +140,35 @@ public sealed class CalendarEventMutationPersistence
                 request,
                 decide,
                 requestedAssigneeId,
+                forcedClientId,
+                forcedProcessId,
                 allowAssigneeRetry: false,
+                allowAssociationRetry,
                 cancellationToken);
         }
 
         if (decision.Status == CalendarEventMutationDecisionStatus.ValidateAssociation)
         {
-            state = await ValidateAssociationAsync(
-                dbContext,
-                request.OrganizationId,
-                state,
-                decision,
-                cancellationToken);
-            decision = decide(state);
-
-            if (decision.Status is
-                CalendarEventMutationDecisionStatus.ValidateAssociation or
-                CalendarEventMutationDecisionStatus.ValidateAssignee)
+            if (!allowAssociationRetry ||
+                forcedClientId is not null ||
+                forcedProcessId is not null ||
+                decision.ClientId is null && decision.ProcessId is null ||
+                decision.ClientId is not null && decision.ProcessId is not null)
             {
                 throw new InvalidOperationException(
-                    "Calendar event mutation requested repeated relation validation.");
+                    "Calendar event mutation requested an invalid association retry.");
             }
+
+            await transaction.RollbackAsync(cancellationToken);
+            return await ExecuteAttemptAsync(
+                request,
+                decide,
+                forcedAssigneeMembershipId,
+                decision.ClientId,
+                decision.ProcessId,
+                allowAssigneeRetry,
+                allowAssociationRetry: false,
+                cancellationToken);
         }
 
         if (decision.Status is not (
@@ -155,50 +190,6 @@ public sealed class CalendarEventMutationPersistence
         return decision.Status == CalendarEventMutationDecisionStatus.Delete
             ? CalendarEventMutationPersistenceResult.Deleted
             : CalendarEventMutationPersistenceResult.Succeeded;
-    }
-
-    private static async Task<CalendarEventMutationLockedState>
-        ValidateAssociationAsync(
-            EnmaDbContext dbContext,
-            Guid organizationId,
-            CalendarEventMutationLockedState state,
-            CalendarEventMutationDecision decision,
-            CancellationToken cancellationToken)
-    {
-        if (decision.ClientId is Guid clientId)
-        {
-            bool isAvailable =
-                await CalendarEventCreationPersistence.LockActiveClientAsync(
-                    dbContext,
-                    organizationId,
-                    clientId,
-                    cancellationToken);
-            return state with
-            {
-                AssociationLookupPerformed = true,
-                ValidatedClientId = clientId,
-                IsClientAvailable = isAvailable
-            };
-        }
-
-        if (decision.ProcessId is Guid processId)
-        {
-            bool isAvailable =
-                await CalendarEventCreationPersistence.LockProcessAsync(
-                    dbContext,
-                    organizationId,
-                    processId,
-                    cancellationToken);
-            return state with
-            {
-                AssociationLookupPerformed = true,
-                ValidatedProcessId = processId,
-                IsProcessAvailable = isAvailable
-            };
-        }
-
-        throw new InvalidOperationException(
-            "Calendar event mutation requested invalid association validation.");
     }
 
     private static async Task<CalendarEvent?> LockCalendarEventAsync(

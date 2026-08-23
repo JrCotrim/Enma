@@ -35,10 +35,20 @@ public sealed class CalendarEventCreationPersistence
                 IsolationLevel.ReadCommitted,
                 cancellationToken);
 
-        Organization? organization = await LockOrganizationAsync(
-            dbContext,
-            request.OrganizationId,
-            cancellationToken);
+        bool? isClientAvailable = request.ClientId is Guid clientId
+            ? await LockActiveClientAsync(
+                dbContext,
+                request.OrganizationId,
+                clientId,
+                cancellationToken)
+            : null;
+        bool? isProcessAvailable = request.ProcessId is Guid processId
+            ? await LockProcessAsync(
+                dbContext,
+                request.OrganizationId,
+                processId,
+                cancellationToken)
+            : null;
         CalendarEventLockedIdentities identities =
             await CalendarEventIdentityLocking.LockAsync(
                 dbContext,
@@ -55,20 +65,10 @@ public sealed class CalendarEventCreationPersistence
                     assigneeMembershipId,
                     identities)
                 : null;
-        bool? isClientAvailable = request.ClientId is Guid clientId
-            ? await LockActiveClientAsync(
-                dbContext,
-                request.OrganizationId,
-                clientId,
-                cancellationToken)
-            : null;
-        bool? isProcessAvailable = request.ProcessId is Guid processId
-            ? await LockProcessAsync(
-                dbContext,
-                request.OrganizationId,
-                processId,
-                cancellationToken)
-            : null;
+        Organization? organization = await LockOrganizationAsync(
+            dbContext,
+            request.OrganizationId,
+            cancellationToken);
 
         CalendarEventCreationDecision decision = decide(
             new CalendarEventCreationLockedState(
