@@ -10,6 +10,7 @@ using Enma.Api.Endpoints.Clients;
 using Enma.Api.Endpoints.Deadlines;
 using Enma.Api.Endpoints.Documents;
 using Enma.Api.Endpoints.Onboarding;
+using Enma.Api.Endpoints.Notifications;
 using Enma.Api.Endpoints.Organizations;
 using Enma.Api.Endpoints.Processes;
 using Enma.Api.Endpoints.Tasks;
@@ -183,6 +184,7 @@ app.MapLegalTaskEndpoints();
 app.MapLegalDocumentEndpoints();
 app.MapCalendarEventEndpoints();
 app.MapAgendaEndpoints();
+app.MapNotificationEndpoints();
 
 app.Run();
 
