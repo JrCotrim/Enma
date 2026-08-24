@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { AuthenticatedLogout } from '../authentication/AuthenticatedLogout'
+import { NotificationCenter } from '../notifications/NotificationCenter'
 import {
   useCurrentOrganization,
   useOrganizationDiscovery,
@@ -32,6 +33,10 @@ export function OrganizationWorkspace() {
         </div>
 
         <div className="workspace-actions">
+          <NotificationCenter
+            key={currentOrganization.id}
+            organizationId={currentOrganization.id}
+          />
           <button
             className="secondary-button"
             type="button"

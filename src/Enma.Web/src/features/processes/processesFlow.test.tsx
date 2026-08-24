@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../notifications/NotificationCenter', () => ({
+  NotificationCenter: () => null,
+}))
 import { createAppRoutes } from '../../app/router'
 import { clearCsrfToken } from '../authentication/csrfClient'
 import type { Client } from '../clients/clientTypes'

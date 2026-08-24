@@ -204,6 +204,217 @@ h1 {
   text-align: right;
 }
 
+.notification-center {
+  position: relative;
+  justify-self: end;
+}
+
+.notification-trigger,
+.notification-close {
+  display: inline-grid;
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  border: 1px solid #174d39;
+  border-radius: 0.5rem;
+  color: #174d39;
+  background: #fff;
+  cursor: pointer;
+  place-items: center;
+}
+
+.notification-trigger {
+  position: relative;
+}
+
+.notification-trigger svg {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.55rem;
+  min-width: 1.35rem;
+  padding: 0.15rem 0.35rem;
+  border: 2px solid #fbfaf6;
+  border-radius: 999px;
+  color: #fff;
+  background: #9a2f2f;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+}
+
+.notification-panel {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  width: min(25rem, calc(100vw - 3rem));
+  max-height: min(36rem, calc(100vh - 6rem));
+  overflow: auto;
+  border: 1px solid #bdb7aa;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow: 0 1rem 2.5rem rgb(24 34 29 / 20%);
+}
+
+.notification-panel-header {
+  display: flex;
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid #e2ddd2;
+  background: #fff;
+}
+
+.notification-panel-header h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.notification-close {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-color: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.notification-mark-all {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 1rem;
+  border: 0;
+  border-bottom: 1px solid #e2ddd2;
+  color: #174d39;
+  background: #f7f5ee;
+  font: inherit;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notification-mark-all:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.notification-state,
+.notification-error {
+  margin: 0;
+  padding: 1rem;
+  line-height: 1.5;
+}
+
+.notification-error {
+  color: #792626;
+  background: #fff4f2;
+}
+
+.notification-inline-error p,
+.notification-error-state p {
+  margin: 0 0 0.75rem;
+}
+
+.notification-error button,
+.notification-error-state button {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: 0.4rem;
+  color: #174d39;
+  background: #fff;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.notification-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification-list li + li {
+  border-top: 1px solid #e2ddd2;
+}
+
+.notification-item {
+  display: grid;
+  width: 100%;
+  min-height: 4.75rem;
+  gap: 0.4rem;
+  padding: 0.9rem 1rem;
+  border: 0;
+  border-left: 4px solid transparent;
+  color: #18221d;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notification-item.is-unread {
+  border-left-color: #174d39;
+  background: #f0f7f3;
+}
+
+.notification-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.notification-kind,
+.notification-item time {
+  color: #547064;
+  font-size: 0.78rem;
+}
+
+.notification-kind {
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.notification-unread-label {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid #174d39;
+  border-radius: 999px;
+  color: #174d39;
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.notification-item strong {
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.notification-trigger:focus-visible,
+.notification-close:focus-visible,
+.notification-mark-all:focus-visible,
+.notification-error button:focus-visible,
+.notification-error-state button:focus-visible,
+.notification-item:focus-visible {
+  position: relative;
+  z-index: 2;
+  outline: 3px solid #9ecdb6;
+  outline-offset: -3px;
+}
+
 .logout-control {
   display: grid;
   justify-items: end;
@@ -2430,6 +2641,24 @@ h1 {
   .workspace-actions {
     width: 100%;
     justify-items: stretch;
+  }
+
+  .notification-center {
+    position: static;
+    justify-self: end;
+  }
+
+  .notification-trigger {
+    margin-left: auto;
+  }
+
+  .notification-panel {
+    position: fixed;
+    top: 0.75rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
+    max-height: calc(100vh - 1.5rem);
   }
 
   .workspace-actions .form-error {
