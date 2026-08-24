@@ -294,8 +294,18 @@ public sealed class LegalDeadlinePersistenceTests(
             entityType.FindProperty(nameof(LegalDeadline.Title))!.GetMaxLength());
         Assert.Empty(entityType.GetNavigations());
 
+        IKey tenantIdentityKey = Assert.Single(
+            entityType.GetKeys(),
+            key => key.GetName() ==
+                "ak_legal_deadlines_organization_id_id");
+        Assert.Equal(
+            [nameof(LegalDeadline.OrganizationId), nameof(LegalDeadline.Id)],
+            tenantIdentityKey.Properties
+                .Select(property => property.Name)
+                .ToArray());
+
         IIndex[] indexes = entityType.GetIndexes().ToArray();
-        Assert.Equal(2, indexes.Length);
+        Assert.Equal(3, indexes.Length);
         Assert.Contains(
             indexes,
             index => index.Properties.Select(property => property.Name)
@@ -305,6 +315,18 @@ public sealed class LegalDeadlinePersistenceTests(
                         nameof(LegalDeadline.DueDate),
                         nameof(LegalDeadline.Id)
                     ]));
+        Assert.Contains(
+            indexes,
+            index => index.GetDatabaseName() ==
+                    "ix_legal_deadlines_pending_due_date_organization_id_id" &&
+                index.GetFilter() == "completed_at IS NULL" &&
+                index.Properties.Select(property => property.Name)
+                    .SequenceEqual(
+                        [
+                            nameof(LegalDeadline.DueDate),
+                            nameof(LegalDeadline.OrganizationId),
+                            nameof(LegalDeadline.Id)
+                        ]));
         Assert.Contains(
             indexes,
             index => index.Properties.Select(property => property.Name)
@@ -366,6 +388,11 @@ public sealed class LegalDeadlinePersistenceTests(
             await GetConstraintColumnsAsync(
                 "ak_legal_processes_organization_id_id",
                 "UNIQUE"));
+        Assert.Equal(
+            "organization_id,id",
+            await GetConstraintColumnsAsync(
+                "ak_legal_deadlines_organization_id_id",
+                "UNIQUE"));
 
         string? organizationIndex = await GetIndexDefinitionAsync(
             "ix_legal_deadlines_organization_id_due_date_id");
@@ -377,6 +404,11 @@ public sealed class LegalDeadlinePersistenceTests(
         Assert.Contains(
             "(organization_id, process_id, due_date, id)",
             processIndex);
+        string? workerIndex = await GetIndexDefinitionAsync(
+            "ix_legal_deadlines_pending_due_date_organization_id_id");
+        Assert.NotNull(workerIndex);
+        Assert.Contains("(due_date, organization_id, id)", workerIndex);
+        Assert.Contains("WHERE (completed_at IS NULL)", workerIndex);
         Assert.Null(await GetIndexDefinitionAsync(
             "ix_legal_deadlines_organization_id"));
         Assert.Null(await GetIndexDefinitionAsync(

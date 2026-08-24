@@ -106,7 +106,10 @@ public sealed class CalendarEventMigrationTests(
 
         string[] tablesAfter = await GetPublicTablesAsync();
         Assert.Equal(
-            tablesBefore.Append("calendar_events").OrderBy(table => table),
+            tablesBefore
+                .Append("calendar_events")
+                .Append("notifications")
+                .OrderBy(table => table),
             tablesAfter);
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();

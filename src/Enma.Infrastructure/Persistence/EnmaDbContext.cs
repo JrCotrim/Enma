@@ -6,6 +6,7 @@ using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
 using Enma.Domain.Documents;
+using Enma.Domain.Notifications;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 using Enma.Domain.Tasks;
@@ -34,6 +35,8 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     public DbSet<LegalProcess> LegalProcesses => Set<LegalProcess>();
 
     public DbSet<LegalTask> LegalTasks => Set<LegalTask>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     public DbSet<User> Users => Set<User>();
 

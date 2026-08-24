@@ -357,6 +357,16 @@ public sealed class CalendarEventPersistenceTests(
             "timestamp with time zone",
             entityType.FindProperty(nameof(CalendarEvent.CreatedAt))!.GetColumnType());
 
+        IKey tenantIdentityKey = Assert.Single(
+            entityType.GetKeys(),
+            key => key.GetName() ==
+                "ak_calendar_events_organization_id_id");
+        Assert.Equal(
+            [nameof(CalendarEvent.OrganizationId), nameof(CalendarEvent.Id)],
+            tenantIdentityKey.Properties
+                .Select(property => property.Name)
+                .ToArray());
+
         AssertIndex(
             entityType,
             "ix_calendar_events_organization_id_starts_at_id",
@@ -404,7 +414,16 @@ public sealed class CalendarEventPersistenceTests(
                 nameof(CalendarEvent.CreatedByMembershipId)
             ],
             null);
-        Assert.Equal(5, entityType.GetIndexes().Count());
+        AssertIndex(
+            entityType,
+            "ix_calendar_events_starts_at_organization_id_id",
+            [
+                nameof(CalendarEvent.StartsAt),
+                nameof(CalendarEvent.OrganizationId),
+                nameof(CalendarEvent.Id)
+            ],
+            null);
+        Assert.Equal(6, entityType.GetIndexes().Count());
 
         AssertForeignKey(
             entityType,
@@ -490,11 +509,13 @@ public sealed class CalendarEventPersistenceTests(
 
         Assert.Equal(
             [
+                "ak_calendar_events_organization_id_id",
                 "ix_calendar_events_org_assignee_starts_at_id",
                 "ix_calendar_events_org_client_starts_at_id",
                 "ix_calendar_events_org_created_by_membership_id",
                 "ix_calendar_events_org_process_starts_at_id",
                 "ix_calendar_events_organization_id_starts_at_id",
+                "ix_calendar_events_starts_at_organization_id_id",
                 "pk_calendar_events"
             ],
             await GetIndexNamesAsync());
@@ -514,6 +535,10 @@ public sealed class CalendarEventPersistenceTests(
             "ix_calendar_events_org_process_starts_at_id",
             "(organization_id, process_id, starts_at, id)",
             "WHERE (process_id IS NOT NULL)");
+        await AssertIndexDefinitionAsync(
+            "ix_calendar_events_starts_at_organization_id_id",
+            "(starts_at, organization_id, id)",
+            null);
 
         Assert.Equal(
             [

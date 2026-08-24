@@ -78,6 +78,13 @@ public sealed class LegalTaskConfiguration
             .HasColumnName("completed_at")
             .HasColumnType("timestamp with time zone");
 
+        builder.HasAlternateKey(legalTask => new
+            {
+                legalTask.OrganizationId,
+                legalTask.Id
+            })
+            .HasName("ak_legal_tasks_organization_id_id");
+
         builder.HasIndex(legalTask => new
             {
                 legalTask.OrganizationId,
@@ -134,6 +141,17 @@ public sealed class LegalTaskConfiguration
                 "ix_legal_tasks_pending_org_assignee_due_date_created_at_id")
             .IsDescending(false, false, false, true, false)
             .HasFilter("completed_at IS NULL");
+
+        builder.HasIndex(legalTask => new
+            {
+                legalTask.DueDate,
+                legalTask.OrganizationId,
+                legalTask.Id
+            })
+            .HasDatabaseName(
+                "ix_legal_tasks_pending_due_date_organization_id_id")
+            .HasFilter(
+                "completed_at IS NULL AND due_date IS NOT NULL");
 
         builder.HasOne<Organization>()
             .WithMany()

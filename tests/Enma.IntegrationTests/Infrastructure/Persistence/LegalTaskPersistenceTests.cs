@@ -524,6 +524,15 @@ public sealed class LegalTaskPersistenceTests(
             "timestamp with time zone",
             entityType.FindProperty(nameof(LegalTask.CompletedAt))!.GetColumnType());
 
+        IKey tenantIdentityKey = Assert.Single(
+            entityType.GetKeys(),
+            key => key.GetName() == "ak_legal_tasks_organization_id_id");
+        Assert.Equal(
+            [nameof(LegalTask.OrganizationId), nameof(LegalTask.Id)],
+            tenantIdentityKey.Properties
+                .Select(property => property.Name)
+                .ToArray());
+
         AssertIndex(
             entityType,
             "ix_legal_tasks_pending_organization_due_date_created_at_id",
@@ -578,7 +587,17 @@ public sealed class LegalTaskPersistenceTests(
             ],
             null,
             null);
-        Assert.Equal(5, entityType.GetIndexes().Count());
+        AssertIndex(
+            entityType,
+            "ix_legal_tasks_pending_due_date_organization_id_id",
+            [
+                nameof(LegalTask.DueDate),
+                nameof(LegalTask.OrganizationId),
+                nameof(LegalTask.Id)
+            ],
+            null,
+            "completed_at IS NULL AND due_date IS NOT NULL");
+        Assert.Equal(6, entityType.GetIndexes().Count());
 
         AssertForeignKey(
             entityType,
@@ -649,8 +668,10 @@ public sealed class LegalTaskPersistenceTests(
         string[] indexNames = await GetIndexNamesAsync();
         Assert.Equal(
             [
+                "ak_legal_tasks_organization_id_id",
                 "ix_legal_tasks_completed_organization_completed_at_id",
                 "ix_legal_tasks_organization_id_created_by_membership_id",
+                "ix_legal_tasks_pending_due_date_organization_id_id",
                 "ix_legal_tasks_pending_org_assignee_due_date_created_at_id",
                 "ix_legal_tasks_pending_org_process_due_date_created_at_id",
                 "ix_legal_tasks_pending_organization_due_date_created_at_id",
@@ -673,6 +694,10 @@ public sealed class LegalTaskPersistenceTests(
             "ix_legal_tasks_pending_org_assignee_due_date_created_at_id",
             "(organization_id, assignee_membership_id, due_date, created_at DESC, id)",
             "WHERE (completed_at IS NULL)");
+        await AssertIndexDefinitionAsync(
+            "ix_legal_tasks_pending_due_date_organization_id_id",
+            "(due_date, organization_id, id)",
+            "WHERE ((completed_at IS NULL) AND (due_date IS NOT NULL))");
 
         Assert.Equal(
             [

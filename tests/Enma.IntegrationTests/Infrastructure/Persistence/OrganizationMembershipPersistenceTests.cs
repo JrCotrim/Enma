@@ -98,20 +98,32 @@ public sealed class OrganizationMembershipPersistenceTests(PostgreSqlFixture fix
                 .Select(property => property.Name)
                 .ToArray());
 
-        IKey alternateKey = Assert.Single(
+        IKey relationalIdentityKey = Assert.Single(
             entityType.GetKeys(),
-            key => !key.IsPrimaryKey());
-        Assert.Equal(
-            "ak_organization_memberships_organization_id_id",
-            alternateKey.GetName());
+            key => key.GetName() ==
+                "ak_organization_memberships_organization_id_id");
         Assert.Equal(
             [
                 nameof(OrganizationMembership.OrganizationId),
                 nameof(OrganizationMembership.Id)
             ],
-            alternateKey.Properties.Select(property => property.Name).ToArray());
+            relationalIdentityKey.Properties
+                .Select(property => property.Name)
+                .ToArray());
 
-        IIndex organizationUserIndex = Assert.Single(
+        IKey organizationUserKey = Assert.Single(
+            entityType.GetKeys(),
+            key => key.GetName() ==
+                "ux_organization_memberships_organization_id_user_id");
+        Assert.Equal(
+            [
+                nameof(OrganizationMembership.OrganizationId),
+                nameof(OrganizationMembership.UserId)
+            ],
+            organizationUserKey.Properties
+                .Select(property => property.Name)
+                .ToArray());
+        Assert.DoesNotContain(
             entityType.GetIndexes(),
             index => index.Properties.Select(property => property.Name)
                 .SequenceEqual(
@@ -119,10 +131,7 @@ public sealed class OrganizationMembershipPersistenceTests(PostgreSqlFixture fix
                         nameof(OrganizationMembership.OrganizationId),
                         nameof(OrganizationMembership.UserId)
                     ]));
-        Assert.True(organizationUserIndex.IsUnique);
-        Assert.Equal(
-            "ux_organization_memberships_organization_id_user_id",
-            organizationUserIndex.GetDatabaseName());
+        Assert.Equal(3, entityType.GetKeys().Count());
 
         Assert.Equal(2, entityType.GetForeignKeys().Count());
         Assert.All(

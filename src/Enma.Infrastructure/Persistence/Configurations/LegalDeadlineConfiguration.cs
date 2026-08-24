@@ -62,6 +62,13 @@ public sealed class LegalDeadlineConfiguration
             .HasColumnName("completed_at")
             .HasColumnType("timestamp with time zone");
 
+        builder.HasAlternateKey(legalDeadline => new
+            {
+                legalDeadline.OrganizationId,
+                legalDeadline.Id
+            })
+            .HasName("ak_legal_deadlines_organization_id_id");
+
         builder.HasIndex(legalDeadline => new
             {
                 legalDeadline.OrganizationId,
@@ -80,6 +87,16 @@ public sealed class LegalDeadlineConfiguration
             })
             .HasDatabaseName(
                 "ix_legal_deadlines_organization_id_process_id_due_date_id");
+
+        builder.HasIndex(legalDeadline => new
+            {
+                legalDeadline.DueDate,
+                legalDeadline.OrganizationId,
+                legalDeadline.Id
+            })
+            .HasDatabaseName(
+                "ix_legal_deadlines_pending_due_date_organization_id_id")
+            .HasFilter("completed_at IS NULL");
 
         builder.HasOne<Organization>()
             .WithMany()

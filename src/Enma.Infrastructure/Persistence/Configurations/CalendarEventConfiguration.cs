@@ -97,6 +97,13 @@ public sealed class CalendarEventConfiguration
             .HasColumnType("timestamp with time zone")
             .IsRequired();
 
+        builder.HasAlternateKey(calendarEvent => new
+            {
+                calendarEvent.OrganizationId,
+                calendarEvent.Id
+            })
+            .HasName("ak_calendar_events_organization_id_id");
+
         builder.HasIndex(calendarEvent => new
             {
                 calendarEvent.OrganizationId,
@@ -146,6 +153,15 @@ public sealed class CalendarEventConfiguration
             })
             .HasDatabaseName(
                 "ix_calendar_events_org_created_by_membership_id");
+
+        builder.HasIndex(calendarEvent => new
+            {
+                calendarEvent.StartsAt,
+                calendarEvent.OrganizationId,
+                calendarEvent.Id
+            })
+            .HasDatabaseName(
+                "ix_calendar_events_starts_at_organization_id_id");
 
         builder.HasOne<Organization>()
             .WithMany()
