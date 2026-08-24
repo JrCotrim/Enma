@@ -34,6 +34,7 @@ using Enma.Application.Documents.List;
 using Enma.Application.Documents.Staging;
 using Enma.Application.Documents.Storage;
 using Enma.Application.Documents.Upload;
+using Enma.Application.Notifications;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
 using Enma.Application.Organizations.Members.Lookup;
@@ -303,6 +304,9 @@ public static class DependencyInjection
             CalendarEventMutationPersistence>();
         services.AddScoped<ICalendarEventReadQueries, CalendarEventReadQueries>();
         services.AddScoped<IAgendaReadQueries, AgendaReadQueries>();
+        services.AddScoped<
+            INotificationGenerationPersistence,
+            NotificationGenerationPersistence>();
         services.AddScoped<ILegalDocumentReadQueries, LegalDocumentReadQueries>();
         services.AddScoped<
             ILegalDocumentContentReadQueries,
@@ -338,6 +342,7 @@ public static class DependencyInjection
         services.AddScoped<CalendarEventAccessAuthorization>();
         services.AddScoped<CalendarEventActionAuthorization>();
         services.AddScoped<GetAgendaUseCase>();
+        services.AddScoped<GenerateNotificationsUseCase>();
         services.AddScoped<LegalDocumentReadAuthorization>();
         services.AddScoped<CreateClientUseCase>();
         services.AddScoped<DeactivateClientUseCase>();

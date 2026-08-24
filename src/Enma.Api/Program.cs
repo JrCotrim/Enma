@@ -14,6 +14,7 @@ using Enma.Api.Endpoints.Organizations;
 using Enma.Api.Endpoints.Processes;
 using Enma.Api.Endpoints.Tasks;
 using Enma.Api.ExceptionHandling;
+using Enma.Api.Notifications;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations.GetById;
 using Enma.Infrastructure;
@@ -136,6 +137,10 @@ builder.Services.AddInfrastructure(
     connectionString,
     builder.Configuration,
     builder.Environment.IsDevelopment());
+builder.Services.AddSingleton<
+    INotificationGenerationCycleDelay,
+    PeriodicNotificationGenerationCycleDelay>();
+builder.Services.AddHostedService<NotificationGenerationWorker>();
 
 var app = builder.Build();
 
