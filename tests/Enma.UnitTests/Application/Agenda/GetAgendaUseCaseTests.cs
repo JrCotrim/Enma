@@ -440,5 +440,12 @@ public sealed class GetAgendaUseCaseTests
             Request = request;
             return Task.FromResult(items);
         }
+
+        public Task<UpcomingAgendaReadModel> ReadUpcomingAsync(
+            UpcomingAgendaReadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException();
+        }
     }
 }

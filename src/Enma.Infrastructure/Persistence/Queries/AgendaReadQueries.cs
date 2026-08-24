@@ -5,6 +5,8 @@ namespace Enma.Infrastructure.Persistence.Queries;
 
 public sealed class AgendaReadQueries : IAgendaReadQueries
 {
+    private const int MaximumUpcomingItemsPerSource = 3;
+
     private readonly EnmaDbContext _dbContext;
 
     public AgendaReadQueries(EnmaDbContext dbContext)
@@ -33,6 +35,223 @@ public sealed class AgendaReadQueries : IAgendaReadQueries
             .Concat(tasks)
             .Concat(calendarEvents)
             .ToArray();
+    }
+
+    public async Task<UpcomingAgendaReadModel> ReadUpcomingAsync(
+        UpcomingAgendaReadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        UpcomingAgendaDeadlineReadModel[] deadlines =
+            await ReadUpcomingDeadlinesAsync(request, cancellationToken);
+        UpcomingAgendaTaskReadModel[] tasks =
+            await ReadUpcomingTasksAsync(request, cancellationToken);
+        UpcomingAgendaCalendarEventReadModel[] calendarEvents =
+            await ReadUpcomingCalendarEventsAsync(request, cancellationToken);
+
+        return new UpcomingAgendaReadModel(
+            deadlines,
+            tasks,
+            calendarEvents);
+    }
+
+    private Task<UpcomingAgendaDeadlineReadModel[]> ReadUpcomingDeadlinesAsync(
+        UpcomingAgendaReadRequest request,
+        CancellationToken cancellationToken)
+    {
+        IQueryable<UpcomingAgendaDeadlineReadModel> query =
+            from deadline in _dbContext.LegalDeadlines.AsNoTracking()
+            join legalProcess in _dbContext.LegalProcesses.AsNoTracking()
+                on new
+                {
+                    deadline.OrganizationId,
+                    ProcessId = deadline.ProcessId
+                }
+                equals new
+                {
+                    legalProcess.OrganizationId,
+                    ProcessId = legalProcess.Id
+                }
+            join client in _dbContext.Clients.AsNoTracking()
+                on new
+                {
+                    deadline.OrganizationId,
+                    ClientId = legalProcess.ClientId
+                }
+                equals new
+                {
+                    client.OrganizationId,
+                    ClientId = client.Id
+                }
+            where deadline.OrganizationId == request.OrganizationId &&
+                deadline.CompletedAt == null &&
+                deadline.DueDate >= request.ReferenceDate &&
+                deadline.DueDate <= request.ThroughDate
+            orderby deadline.DueDate, deadline.Id
+            select new UpcomingAgendaDeadlineReadModel(
+                deadline.Id,
+                deadline.Title,
+                deadline.DueDate,
+                client.Name,
+                legalProcess.Title);
+
+        return query
+            .Take(MaximumUpcomingItemsPerSource)
+            .ToArrayAsync(cancellationToken);
+    }
+
+    private Task<UpcomingAgendaTaskReadModel[]> ReadUpcomingTasksAsync(
+        UpcomingAgendaReadRequest request,
+        CancellationToken cancellationToken)
+    {
+        IQueryable<UpcomingAgendaTaskReadModel> query =
+            from legalTask in _dbContext.LegalTasks.AsNoTracking()
+            join legalProcess in _dbContext.LegalProcesses.AsNoTracking()
+                on new
+                {
+                    legalTask.OrganizationId,
+                    ProcessId = legalTask.ProcessId
+                }
+                equals new
+                {
+                    legalProcess.OrganizationId,
+                    ProcessId = (Guid?)legalProcess.Id
+                }
+                into legalProcesses
+            from legalProcess in legalProcesses.DefaultIfEmpty()
+            join client in _dbContext.Clients.AsNoTracking()
+                on new
+                {
+                    legalTask.OrganizationId,
+                    ClientId = (Guid?)legalProcess.ClientId
+                }
+                equals new
+                {
+                    client.OrganizationId,
+                    ClientId = (Guid?)client.Id
+                }
+                into clients
+            from client in clients.DefaultIfEmpty()
+            join assigneeMembership in
+                _dbContext.OrganizationMemberships.AsNoTracking()
+                on new
+                {
+                    legalTask.OrganizationId,
+                    MembershipId = legalTask.AssigneeMembershipId
+                }
+                equals new
+                {
+                    assigneeMembership.OrganizationId,
+                    MembershipId = (Guid?)assigneeMembership.Id
+                }
+                into assigneeMemberships
+            from assigneeMembership in assigneeMemberships.DefaultIfEmpty()
+            join assigneeUser in _dbContext.Users.AsNoTracking()
+                on assigneeMembership.UserId equals assigneeUser.Id
+                into assigneeUsers
+            from assigneeUser in assigneeUsers.DefaultIfEmpty()
+            where legalTask.OrganizationId == request.OrganizationId &&
+                legalTask.CompletedAt == null &&
+                legalTask.DueDate != null &&
+                legalTask.DueDate >= request.ReferenceDate &&
+                legalTask.DueDate <= request.ThroughDate
+            orderby legalTask.DueDate, legalTask.Id
+            select new UpcomingAgendaTaskReadModel(
+                legalTask.Id,
+                legalTask.Title,
+                legalTask.DueDate.GetValueOrDefault(),
+                client == null ? null : client.Name,
+                legalProcess == null ? null : legalProcess.Title,
+                assigneeUser == null ? null : assigneeUser.Name);
+
+        return query
+            .Take(MaximumUpcomingItemsPerSource)
+            .ToArrayAsync(cancellationToken);
+    }
+
+    private Task<UpcomingAgendaCalendarEventReadModel[]>
+        ReadUpcomingCalendarEventsAsync(
+            UpcomingAgendaReadRequest request,
+            CancellationToken cancellationToken)
+    {
+        IQueryable<UpcomingAgendaCalendarEventReadModel> query =
+            from calendarEvent in _dbContext.CalendarEvents.AsNoTracking()
+            join directClient in _dbContext.Clients.AsNoTracking()
+                on new
+                {
+                    calendarEvent.OrganizationId,
+                    ClientId = calendarEvent.ClientId
+                }
+                equals new
+                {
+                    directClient.OrganizationId,
+                    ClientId = (Guid?)directClient.Id
+                }
+                into directClients
+            from directClient in directClients.DefaultIfEmpty()
+            join legalProcess in _dbContext.LegalProcesses.AsNoTracking()
+                on new
+                {
+                    calendarEvent.OrganizationId,
+                    ProcessId = calendarEvent.ProcessId
+                }
+                equals new
+                {
+                    legalProcess.OrganizationId,
+                    ProcessId = (Guid?)legalProcess.Id
+                }
+                into legalProcesses
+            from legalProcess in legalProcesses.DefaultIfEmpty()
+            join processClient in _dbContext.Clients.AsNoTracking()
+                on new
+                {
+                    calendarEvent.OrganizationId,
+                    ClientId = (Guid?)legalProcess.ClientId
+                }
+                equals new
+                {
+                    processClient.OrganizationId,
+                    ClientId = (Guid?)processClient.Id
+                }
+                into processClients
+            from processClient in processClients.DefaultIfEmpty()
+            join assigneeMembership in
+                _dbContext.OrganizationMemberships.AsNoTracking()
+                on new
+                {
+                    calendarEvent.OrganizationId,
+                    MembershipId = calendarEvent.AssigneeMembershipId
+                }
+                equals new
+                {
+                    assigneeMembership.OrganizationId,
+                    MembershipId = (Guid?)assigneeMembership.Id
+                }
+                into assigneeMemberships
+            from assigneeMembership in assigneeMemberships.DefaultIfEmpty()
+            join assigneeUser in _dbContext.Users.AsNoTracking()
+                on assigneeMembership.UserId equals assigneeUser.Id
+                into assigneeUsers
+            from assigneeUser in assigneeUsers.DefaultIfEmpty()
+            where calendarEvent.OrganizationId == request.OrganizationId &&
+                calendarEvent.EndsAt > request.NowUtc &&
+                calendarEvent.StartsAt < request.EventWindowEndUtc
+            orderby calendarEvent.StartsAt, calendarEvent.EndsAt, calendarEvent.Id
+            select new UpcomingAgendaCalendarEventReadModel(
+                calendarEvent.Id,
+                calendarEvent.Title,
+                calendarEvent.StartsAt,
+                calendarEvent.EndsAt,
+                directClient == null
+                    ? processClient == null ? null : processClient.Name
+                    : directClient.Name,
+                legalProcess == null ? null : legalProcess.Title,
+                assigneeUser == null ? null : assigneeUser.Name);
+
+        return query
+            .Take(MaximumUpcomingItemsPerSource)
+            .ToArrayAsync(cancellationToken);
     }
 
     private Task<AgendaItemReadModel[]> ReadDeadlinesAsync(

@@ -26,6 +26,7 @@ using Enma.Application.Deadlines.GetById;
 using Enma.Application.Deadlines.List;
 using Enma.Application.Deadlines.Reopen;
 using Enma.Application.Deadlines.Update;
+using Enma.Application.Dashboard;
 using Enma.Application.Documents.Inspection;
 using Enma.Application.Documents;
 using Enma.Application.Documents.Download;
@@ -307,6 +308,7 @@ public static class DependencyInjection
             CalendarEventMutationPersistence>();
         services.AddScoped<ICalendarEventReadQueries, CalendarEventReadQueries>();
         services.AddScoped<IAgendaReadQueries, AgendaReadQueries>();
+        services.AddScoped<IDashboardReadQueries, DashboardReadQueries>();
         services.AddScoped<INotificationReadQueries, NotificationReadQueries>();
         services.AddScoped<
             INotificationMutationPersistence,
@@ -349,6 +351,7 @@ public static class DependencyInjection
         services.AddScoped<CalendarEventAccessAuthorization>();
         services.AddScoped<CalendarEventActionAuthorization>();
         services.AddScoped<GetAgendaUseCase>();
+        services.AddScoped<GetDashboardUseCase>();
         services.AddScoped<ListNotificationsUseCase>();
         services.AddScoped<MarkNotificationAsReadUseCase>();
         services.AddScoped<MarkAllNotificationsAsReadUseCase>();
