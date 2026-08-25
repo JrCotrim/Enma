@@ -7,6 +7,7 @@ import { ClientsPage } from '../features/clients/ClientsPage'
 import { ClientDetailsPage } from '../features/clients/ClientDetailsPage'
 import { DeadlinesPage } from '../features/deadlines/DeadlinesPage'
 import { DeadlineDetailsPage } from '../features/deadlines/DeadlineDetailsPage'
+import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { DocumentDetailsPage } from '../features/documents/DocumentDetailsPage'
 import { DocumentsPage } from '../features/documents/DocumentsPage'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
@@ -60,6 +61,10 @@ export function createAppRoutes(
                       path: ':organizationId',
                       element: <OrganizationRoute />,
                       children: [
+                        {
+                          index: true,
+                          element: <DashboardPage />,
+                        },
                         {
                           path: 'agenda',
                           element: <AgendaPage />,

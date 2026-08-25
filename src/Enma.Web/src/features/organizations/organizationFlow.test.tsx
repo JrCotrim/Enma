@@ -3,7 +3,15 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../notifications/NotificationCenter', () => ({
-  NotificationCenter: () => null,
+  NotificationCenter: ({ organizationId }: { organizationId: string }) => (
+    <span data-testid="notification-center">Notificações {organizationId}</span>
+  ),
+}))
+vi.mock('../dashboard/DashboardPage', () => ({
+  DashboardPage: () => <h2>Visão geral</h2>,
+}))
+vi.mock('../agenda/AgendaPage', () => ({
+  AgendaPage: () => <h2>Agenda</h2>,
 }))
 import { createAppRoutes } from '../../app/router'
 import { clearCsrfToken } from '../authentication/csrfClient'
@@ -60,6 +68,58 @@ afterEach(() => {
 })
 
 describe('organization discovery and routing', () => {
+  it('OrganizationRoot_RendersDashboardWithOverviewFirstExactNavigationAndNotifications', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(organizationResponse([]))
+        .mockResolvedValueOnce(organizationResponse([organizationA])),
+    )
+
+    renderRoute(`/organizations/${organizationA.id}`)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Visão geral' }),
+    ).toBeInTheDocument()
+    const navigation = screen.getByRole('navigation', {
+      name: 'Navegação da organização',
+    })
+    const links = Array.from(navigation.querySelectorAll('a'))
+    expect(links[0]).toHaveTextContent('Visão geral')
+    expect(links[0]).toHaveClass('is-active')
+    expect(links.map((link) => link.textContent)).toEqual([
+      'Visão geral',
+      'Agenda',
+      'Clientes',
+      'Processos',
+      'Prazos',
+      'Tarefas',
+      'Documentos',
+    ])
+    expect(screen.getByTestId('notification-center')).toHaveTextContent(
+      organizationA.id,
+    )
+  })
+
+  it('AgendaRoute_RemainsExplicitAndDoesNotActivateOverview', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(organizationResponse([]))
+        .mockResolvedValueOnce(organizationResponse([organizationA])),
+    )
+
+    renderRoute(`/organizations/${organizationA.id}/agenda`)
+
+    expect(await screen.findByRole('heading', { name: 'Agenda' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Agenda' })).toHaveClass('is-active')
+    expect(screen.getByRole('link', { name: 'Visão geral' })).not.toHaveClass(
+      'is-active',
+    )
+  })
+
   it('Organizations_AuthenticatedDiscovery_RendersNamesRolesWithoutPersistenceOrCsrf', async () => {
     const localStorageSpy = vi.spyOn(window.localStorage, 'setItem')
     const sessionStorageSpy = vi.spyOn(window.sessionStorage, 'setItem')
@@ -184,6 +244,7 @@ describe('organization discovery and routing', () => {
     expect(
       await screen.findByRole('heading', { name: organizationB.name }),
     ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Visão geral' })).toBeInTheDocument()
     expect(screen.getByText('Seu papel: Proprietário')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe(`/organizations/${organizationB.id}`)
   })
