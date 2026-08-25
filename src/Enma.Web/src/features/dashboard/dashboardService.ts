@@ -31,7 +31,7 @@ function isNonNegativeInteger(value: unknown): value is number {
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0
+  return typeof value === 'string' && value.trim().length > 0
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -39,11 +39,29 @@ function isNullableString(value: unknown): value is string | null {
 }
 
 function isTimestamp(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.length > 0 &&
-    !Number.isNaN(new Date(value).getTime())
+  if (typeof value !== 'string') return false
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,7})?(Z|([+-])(\d{2}):(\d{2}))$/.exec(
+    value,
   )
+  if (!match) return false
+
+  const [, year, month, day, hour, minute, second, , , offsetHour, offsetMinute] =
+    match
+  if (
+    !isValidDateOnly(`${year}-${month}-${day}`) ||
+    Number(hour) > 23 ||
+    Number(minute) > 59 ||
+    Number(second) > 59 ||
+    (offsetHour !== undefined &&
+      (Number(offsetHour) > 14 ||
+        Number(offsetMinute) > 59 ||
+        (Number(offsetHour) === 14 && Number(offsetMinute) !== 0)))
+  ) {
+    return false
+  }
+
+  return !Number.isNaN(new Date(value).getTime())
 }
 
 function parseAttentionBucket(value: unknown): DashboardAttentionBucket | undefined {

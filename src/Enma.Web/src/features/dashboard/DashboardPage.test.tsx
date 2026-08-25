@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { useState, type ReactNode } from 'react'
+import { StrictMode, useState, type ReactNode } from 'react'
 import {
   createMemoryRouter,
   Outlet,
@@ -128,6 +128,7 @@ function Providers({
 function renderDashboard(options?: {
   readonly enableSwitch?: boolean
   readonly refreshOrganizations?: () => void
+  readonly strictMode?: boolean
 }) {
   const router = createMemoryRouter(
     [
@@ -143,7 +144,8 @@ function renderDashboard(options?: {
     ],
     { initialEntries: [`/organizations/${organizationA.id}`] },
   )
-  return render(<RouterProvider router={router} />)
+  const tree = <RouterProvider router={router} />
+  return render(options?.strictMode ? <StrictMode>{tree}</StrictMode> : tree)
 }
 
 beforeEach(() => {
@@ -450,6 +452,45 @@ describe('DashboardPage', () => {
 
     expect(screen.queryByText('Clientes ativos')).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Carregando visão geral…')
+  })
+
+  it('StrictMode_AbortedFirstEffectCannotWinAndFreshRequestPopulatesDashboard', async () => {
+    const firstRequest = deferred<DashboardResponse>()
+    const freshRequest = deferred<DashboardResponse>()
+    const signals: AbortSignal[] = []
+    vi.mocked(getDashboard)
+      .mockImplementationOnce((_organizationId, _handler, signal) => {
+        signals.push(signal!)
+        return firstRequest.promise
+      })
+      .mockImplementationOnce((_organizationId, _handler, signal) => {
+        signals.push(signal!)
+        return freshRequest.promise
+      })
+
+    renderDashboard({ strictMode: true })
+
+    expect(getDashboard).toHaveBeenCalledTimes(2)
+    expect(signals[0]?.aborted).toBe(true)
+    expect(signals[1]?.aborted).toBe(false)
+
+    await act(async () =>
+      firstRequest.resolve(
+        dashboard({
+          summary: {
+            activeClients: 99,
+            totalLegalProcesses: 99,
+            pendingDeadlines: 99,
+            pendingTasks: 99,
+          },
+        }),
+      ),
+    )
+    expect(screen.queryByRole('link', { name: /Clientes ativos: 99/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Carregando visão geral…')
+
+    await act(async () => freshRequest.resolve(dashboard()))
+    expect(screen.getByRole('link', { name: /Clientes ativos: 12/ })).toBeInTheDocument()
   })
 
   it('Unmount_AbortsPendingDashboardRequest', () => {

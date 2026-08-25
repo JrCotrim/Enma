@@ -134,6 +134,16 @@ describe('dashboardService', () => {
     ).toBeNull()
   })
 
+  it('Parser_OffsetTimestampWithFraction_AcceptsDateTimeOffsetContract', () => {
+    const payload = completePayload()
+    payload.upcoming.calendarEvents[0]!.startsAt =
+      '2026-08-27T13:00:00.1234567-03:00'
+    payload.upcoming.calendarEvents[0]!.endsAt =
+      '2026-08-27T14:00:00.1234567-03:00'
+
+    expect(parseDashboardResponse(payload)).toEqual(payload)
+  })
+
   it.each([null, [], 'dashboard'])('Parser_MalformedRoot_Rejects(%s)', (value) => {
     expect(() => parseDashboardResponse(value)).toThrow(DashboardRequestError)
   })
@@ -172,9 +182,15 @@ describe('dashboardService', () => {
     expect(() => parseDashboardResponse(payload)).toThrow(DashboardRequestError)
   })
 
-  it('Parser_MalformedTimestamp_RejectsEntirePayload', () => {
+  it.each([
+    'not-an-instant',
+    '2026-08-27',
+    '2026-08-27T13:00:00',
+    '2026-02-30T13:00:00Z',
+    '2026-08-27T13:00:00+14:30',
+  ])('Parser_MalformedTimestamp_RejectsEntirePayload(%s)', (startsAt) => {
     const payload = completePayload()
-    payload.upcoming.calendarEvents[0]!.startsAt = 'not-an-instant'
+    payload.upcoming.calendarEvents[0]!.startsAt = startsAt
 
     expect(() => parseDashboardResponse(payload)).toThrow(DashboardRequestError)
   })
@@ -203,9 +219,9 @@ describe('dashboardService', () => {
     },
   )
 
-  it('Parser_EmptyTitle_RejectsEntirePayload', () => {
+  it.each(['', '   '])('Parser_EmptyTitle_RejectsEntirePayload(%j)', (title) => {
     const payload = completePayload()
-    payload.upcoming.deadlines[0]!.title = ''
+    payload.upcoming.deadlines[0]!.title = title
 
     expect(() => parseDashboardResponse(payload)).toThrow(DashboardRequestError)
   })
