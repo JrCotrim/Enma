@@ -41,6 +41,7 @@ using Enma.Application.Notifications.MarkAllRead;
 using Enma.Application.Notifications.MarkRead;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
+using Enma.Application.Organizations.Members.List;
 using Enma.Application.Organizations.Members.Lookup;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
@@ -328,6 +329,9 @@ public static class DependencyInjection
             IOrganizationMemberLookupQueries,
             OrganizationMemberLookupQueries>();
         services.AddScoped<
+            IOrganizationMemberAdministrationQueries,
+            OrganizationMemberAdministrationQueries>();
+        services.AddScoped<
             IOrganizationMembershipRepository,
             OrganizationMembershipRepository>();
         services.AddScoped<IUnitOfWork>(
@@ -338,7 +342,9 @@ public static class DependencyInjection
         services.AddScoped<RequestEmailVerificationUseCase>();
         services.AddScoped<VerifyEmailUseCase>();
         services.AddScoped<OrganizationAccessAuthorization>();
+        services.AddScoped<OrganizationAdministrationAuthorization>();
         services.AddScoped<GetCurrentUserOrganizationsUseCase>();
+        services.AddScoped<ListOrganizationMembersUseCase>();
         services.AddScoped<SearchActiveOrganizationMembersUseCase>();
         services.AddScoped<ClientAccessAuthorization>();
         services.AddScoped<ClientActionAuthorization>();

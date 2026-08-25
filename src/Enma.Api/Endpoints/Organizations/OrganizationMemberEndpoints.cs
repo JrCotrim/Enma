@@ -1,8 +1,11 @@
 using System.Security.Claims;
 using Enma.Api.Authentication;
+using Enma.Api.Authorization;
 using Enma.Api.Contracts.Organizations;
 using Enma.Api.Endpoints;
+using Enma.Application.Organizations.Members.List;
 using Enma.Application.Organizations.Members.Lookup;
+using Enma.Domain.Organizations;
 
 namespace Enma.Api.Endpoints.Organizations;
 
@@ -22,6 +25,16 @@ public static class OrganizationMemberEndpoints
             .RequireAuthorization()
             .RequireNoStoreResponses();
 
+        group.MapGet("/", ListAsync)
+            .WithName("ListOrganizationMembers")
+            .WithSummary("Lists organization members visible to the current actor.")
+            .Produces<ListOrganizationMembersResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireAuthorization(EnmaAuthorizationPolicies.OrganizationAccess);
+
         group.MapGet("lookup", LookupAsync)
             .WithName("LookupActiveOrganizationMembers")
             .WithSummary("Finds active members in the contextual organization.")
@@ -32,6 +45,46 @@ public static class OrganizationMemberEndpoints
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         return endpoints;
+    }
+
+    private static async Task<IResult> ListAsync(
+        Guid organizationId,
+        ClaimsPrincipal principal,
+        ListOrganizationMembersUseCase useCase,
+        CancellationToken cancellationToken,
+        string? status = null,
+        string? search = null,
+        int pageNumber = 1,
+        int pageSize = ListOrganizationMembersUseCase.DefaultPageSize)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        ListOrganizationMembersResult result = await useCase.ExecuteAsync(
+            userId,
+            organizationId,
+            status,
+            search,
+            pageNumber,
+            pageSize,
+            cancellationToken);
+
+        if (result.Status == ListOrganizationMembersResultStatus.AccessDenied)
+        {
+            return TypedResults.Forbid();
+        }
+
+        OrganizationMemberResponse[] items = result.Items
+            .Select(MapMember)
+            .ToArray();
+
+        return TypedResults.Ok(new ListOrganizationMembersResponse(
+            items,
+            result.PageNumber,
+            result.PageSize,
+            result.TotalCount));
     }
 
     private static async Task<IResult> LookupAsync(
@@ -73,5 +126,29 @@ public static class OrganizationMemberEndpoints
             result.PageNumber,
             result.PageSize,
             result.HasNext));
+    }
+
+    private static OrganizationMemberResponse MapMember(
+        OrganizationMemberAdministrationReadModel member)
+    {
+        return new OrganizationMemberResponse(
+            member.Id,
+            member.Name,
+            MapRole(member.Role),
+            member.Email,
+            member.MembershipStatus?.ToString(),
+            member.AccountStatus?.ToString());
+    }
+
+    private static string MapRole(OrganizationRole role)
+    {
+        return role switch
+        {
+            OrganizationRole.Owner => "Owner",
+            OrganizationRole.Administrator => "Administrator",
+            OrganizationRole.Member => "Member",
+            _ => throw new InvalidOperationException(
+                "An organization member has an unsupported role.")
+        };
     }
 }
