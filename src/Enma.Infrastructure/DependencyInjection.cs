@@ -43,6 +43,7 @@ using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
 using Enma.Application.Organizations.Members.List;
 using Enma.Application.Organizations.Members.Lookup;
+using Enma.Application.Organizations.Members.Role;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
 using Enma.Application.Processes.GetById;
@@ -332,6 +333,9 @@ public static class DependencyInjection
             IOrganizationMemberAdministrationQueries,
             OrganizationMemberAdministrationQueries>();
         services.AddScoped<
+            IOrganizationMemberRoleMutationPersistence,
+            OrganizationMemberRoleMutationPersistence>();
+        services.AddScoped<
             IOrganizationMembershipRepository,
             OrganizationMembershipRepository>();
         services.AddScoped<IUnitOfWork>(
@@ -346,6 +350,7 @@ public static class DependencyInjection
         services.AddScoped<GetCurrentUserOrganizationsUseCase>();
         services.AddScoped<ListOrganizationMembersUseCase>();
         services.AddScoped<SearchActiveOrganizationMembersUseCase>();
+        services.AddScoped<ChangeOrganizationMemberRoleUseCase>();
         services.AddScoped<ClientAccessAuthorization>();
         services.AddScoped<ClientActionAuthorization>();
         services.AddScoped<ProcessAccessAuthorization>();

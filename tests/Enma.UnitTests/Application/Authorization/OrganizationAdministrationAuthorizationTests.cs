@@ -1,3 +1,4 @@
+using System.Reflection;
 using Enma.Application.Authorization;
 using Enma.Domain.Organizations;
 
@@ -13,12 +14,13 @@ public sealed class OrganizationAdministrationAuthorizationTests
         "8be55287-f213-4496-ad47-c18f8e56dbdc");
 
     [Theory]
-    [InlineData(OrganizationRole.Owner, true)]
-    [InlineData(OrganizationRole.Administrator, true)]
-    [InlineData(OrganizationRole.Member, false)]
+    [InlineData(OrganizationRole.Owner, true, true)]
+    [InlineData(OrganizationRole.Administrator, true, false)]
+    [InlineData(OrganizationRole.Member, false, false)]
     public async Task AuthorizeAsync_WithSupportedLiveRole_GrantsExpectedReadActions(
         OrganizationRole role,
-        bool canViewAdministrationDetails)
+        bool canViewAdministrationDetails,
+        bool canChangeMemberRole)
     {
         var lookup = new StubAccessLookup(
             new OrganizationAccessLookupResult(
@@ -34,12 +36,18 @@ public sealed class OrganizationAdministrationAuthorizationTests
         Assert.Equal(
             OrganizationAdministrationAuthorizationStatus.Allowed,
             result.Status);
+        Assert.Equal(UserId, result.UserId);
+        Assert.Equal(OrganizationId, result.OrganizationId);
+        Assert.Equal(MembershipId, result.MembershipId);
         Assert.Equal(role, result.Role);
         Assert.True(result.Allows(OrganizationAdministrationAction.ViewTeam));
         Assert.Equal(
             canViewAdministrationDetails,
             result.Allows(
                 OrganizationAdministrationAction.ViewTeamAdministrationDetails));
+        Assert.Equal(
+            canChangeMemberRole,
+            result.Allows(OrganizationAdministrationAction.ChangeMemberRole));
     }
 
     [Theory]
@@ -83,10 +91,15 @@ public sealed class OrganizationAdministrationAuthorizationTests
         Assert.Equal(
             OrganizationAdministrationAuthorizationStatus.Denied,
             result.Status);
+        Assert.Null(result.UserId);
+        Assert.Null(result.OrganizationId);
+        Assert.Null(result.MembershipId);
         Assert.Null(result.Role);
         Assert.False(result.Allows(OrganizationAdministrationAction.ViewTeam));
         Assert.False(result.Allows(
             OrganizationAdministrationAction.ViewTeamAdministrationDetails));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.ChangeMemberRole));
     }
 
     [Fact]
@@ -131,9 +144,29 @@ public sealed class OrganizationAdministrationAuthorizationTests
     {
         OrganizationAdministrationAuthorizationResult result =
             OrganizationAdministrationAuthorizationResult.Allowed(
+                UserId,
+                OrganizationId,
+                MembershipId,
                 OrganizationRole.Owner);
 
         Assert.False(result.Allows((OrganizationAdministrationAction)999));
+    }
+
+    [Fact]
+    public void Allowed_RequiresAuthoritativeIdentity()
+    {
+        MethodInfo allowedFactory = Assert.Single(
+            typeof(OrganizationAdministrationAuthorizationResult)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static),
+            method => method.Name == nameof(
+                OrganizationAdministrationAuthorizationResult.Allowed));
+
+        Assert.Equal(
+            [typeof(Guid), typeof(Guid), typeof(Guid), typeof(OrganizationRole)],
+            allowedFactory
+                .GetParameters()
+                .Select(parameter => parameter.ParameterType)
+                .ToArray());
     }
 
     private static OrganizationAdministrationAuthorization Create(

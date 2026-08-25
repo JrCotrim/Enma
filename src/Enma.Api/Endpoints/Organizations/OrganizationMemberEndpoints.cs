@@ -5,6 +5,7 @@ using Enma.Api.Contracts.Organizations;
 using Enma.Api.Endpoints;
 using Enma.Application.Organizations.Members.List;
 using Enma.Application.Organizations.Members.Lookup;
+using Enma.Application.Organizations.Members.Role;
 using Enma.Domain.Organizations;
 
 namespace Enma.Api.Endpoints.Organizations;
@@ -43,6 +44,20 @@ public static class OrganizationMemberEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        group.MapPut("{membershipId:guid}/role", ChangeRoleAsync)
+            .WithName("ChangeOrganizationMemberRole")
+            .WithSummary("Changes an active organization membership role.")
+            .Accepts<ChangeOrganizationMemberRoleRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireAuthorization(EnmaAuthorizationPolicies.OrganizationAccess)
+            .RequireEnmaAntiforgery();
 
         return endpoints;
     }
@@ -128,6 +143,45 @@ public static class OrganizationMemberEndpoints
             result.HasNext));
     }
 
+    private static async Task<IResult> ChangeRoleAsync(
+        Guid organizationId,
+        Guid membershipId,
+        ChangeOrganizationMemberRoleRequest request,
+        ClaimsPrincipal principal,
+        ChangeOrganizationMemberRoleUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        ChangeOrganizationMemberRoleResult result = await useCase.ExecuteAsync(
+            new ChangeOrganizationMemberRoleCommand(
+                userId,
+                organizationId,
+                membershipId,
+                request.Role,
+                request.ExpectedCurrentRole),
+            cancellationToken);
+
+        return result switch
+        {
+            ChangeOrganizationMemberRoleResult.AccessDenied =>
+                TypedResults.Forbid(),
+            ChangeOrganizationMemberRoleResult.NotFound =>
+                TypedResults.NotFound(),
+            ChangeOrganizationMemberRoleResult.TargetForbidden =>
+                TypedResults.Forbid(),
+            ChangeOrganizationMemberRoleResult.Conflict =>
+                CreateRoleConflictProblem(),
+            ChangeOrganizationMemberRoleResult.Succeeded =>
+                TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "The organization member role change returned an unknown status.")
+        };
+    }
+
     private static OrganizationMemberResponse MapMember(
         OrganizationMemberAdministrationReadModel member)
     {
@@ -150,5 +204,13 @@ public static class OrganizationMemberEndpoints
             _ => throw new InvalidOperationException(
                 "An organization member has an unsupported role.")
         };
+    }
+
+    private static IResult CreateRoleConflictProblem()
+    {
+        return TypedResults.Problem(
+            title: "Resource conflict",
+            detail: "The membership role cannot be changed in its current state.",
+            statusCode: StatusCodes.Status409Conflict);
     }
 }

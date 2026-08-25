@@ -52,6 +52,10 @@ public sealed class OrganizationAdministrationAuthorization
             return OrganizationAdministrationAuthorizationResult.Denied;
         }
 
-        return OrganizationAdministrationAuthorizationResult.Allowed(role);
+        return OrganizationAdministrationAuthorizationResult.Allowed(
+            access.UserId.Value,
+            access.OrganizationId.Value,
+            membershipId,
+            role);
     }
 }

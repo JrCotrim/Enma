@@ -1,8 +1,10 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Enma.Application.Authorization;
 using Enma.Application.Organizations.Members.List;
+using Enma.Application.Organizations.Members.Role;
 using Enma.Domain.Organizations;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
@@ -83,6 +85,59 @@ public sealed class OrganizationMemberAdministrationStrictIdentityTests(
         Assert.Equal(0, memberQueries.CallCount);
     }
 
+    [Theory]
+    [MemberData(nameof(UntrustedUserIdentifiers))]
+    public async Task ChangeRole_WithUntrustedNameIdentifier_FailsPolicyWithoutMutation(
+        string[] identifierValues)
+    {
+        var accessLookup = new RecordingOrganizationAccessLookup();
+        var persistence = new RecordingRoleMutationPersistence();
+        await using var factory = new EnmaApiFactory(fixture, services =>
+        {
+            services.AddSingleton(new TestPrincipalClaims(identifierValues));
+            services
+                .AddAuthentication(options =>
+                {
+                    options.DefaultAuthenticateScheme = TestScheme;
+                    options.DefaultChallengeScheme = TestScheme;
+                })
+                .AddScheme<
+                    AuthenticationSchemeOptions,
+                    UntrustedPrincipalAuthenticationHandler>(
+                        TestScheme,
+                        _ => { });
+            services.RemoveAll<IOrganizationAccessLookup>();
+            services.AddSingleton<IOrganizationAccessLookup>(accessLookup);
+            services.RemoveAll<IOrganizationMemberRoleMutationPersistence>();
+            services.AddSingleton<IOrganizationMemberRoleMutationPersistence>(
+                persistence);
+        });
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost"),
+                HandleCookies = false
+            });
+        using var request = new HttpRequestMessage(
+            HttpMethod.Put,
+            $"/api/organizations/{OrganizationId:D}/members/{Guid.NewGuid():D}/role")
+        {
+            Content = JsonContent.Create(new
+            {
+                role = "Administrator",
+                expectedCurrentRole = "Member"
+            })
+        };
+
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
+        Assert.Equal(0, accessLookup.CallCount);
+        Assert.Equal(0, persistence.CallCount);
+    }
+
     private sealed record TestPrincipalClaims(string[] IdentifierValues);
 
     private sealed class UntrustedPrincipalAuthenticationHandler(
@@ -134,6 +189,21 @@ public sealed class OrganizationMemberAdministrationStrictIdentityTests(
         {
             CallCount++;
             return Task.FromResult(new OrganizationMemberAdministrationPage([], 0));
+        }
+    }
+
+    private sealed class RecordingRoleMutationPersistence
+        : IOrganizationMemberRoleMutationPersistence
+    {
+        public int CallCount { get; private set; }
+
+        public Task<OrganizationMemberRoleMutationPersistenceResult> ExecuteAsync(
+            OrganizationMemberRoleMutationPersistenceRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(
+                OrganizationMemberRoleMutationPersistenceResult.Succeeded);
         }
     }
 }
