@@ -313,6 +313,28 @@ public sealed class LegalTaskMutationUseCaseTests
     }
 
     [Fact]
+    public async Task ReopenAsync_CompletedTaskWithUnavailableAssignee_IsRejected()
+    {
+        LegalTask legalTask = CreateTask(
+            OtherMembershipId,
+            ActorMembershipId,
+            true);
+        var persistence = CreatePersistence(legalTask, OrganizationRole.Owner);
+        var useCase = new ReopenLegalTaskUseCase(
+            CreateOrganizationAccess(CreateAccess(OrganizationRole.Owner)),
+            new LegalTaskMutationAuthorization(),
+            persistence);
+
+        ReopenLegalTaskResult result = await useCase.ExecuteAsync(
+            new ReopenLegalTaskCommand(UserId, OrganizationId, legalTask.Id));
+
+        Assert.Equal(
+            ReopenLegalTaskResult.RelatedAssigneeUnavailable,
+            result);
+        Assert.Equal(CompletedAt, legalTask.CompletedAt);
+    }
+
+    [Fact]
     public async Task ReopenAsync_MemberNonOwnTask_ReturnsAccessDenied()
     {
         LegalTask legalTask = CreateTask(OtherMembershipId, ActorMembershipId, true);
@@ -508,11 +530,19 @@ public sealed class LegalTaskMutationUseCaseTests
         private LegalTaskMutationLockedState CreateLockedState(
             bool assigneeLookupPerformed)
         {
+            LegalTaskMutationMemberState? assignee = Assignee;
+
+            if (assignee is null &&
+                SelectedAssigneeMembershipId == actor.MembershipId)
+            {
+                assignee = actor;
+            }
+
             return new LegalTaskMutationLockedState(
                 legalTask,
                 actor,
                 assigneeLookupPerformed,
-                assigneeLookupPerformed ? Assignee : null,
+                assigneeLookupPerformed ? assignee : null,
                 null,
                 null);
         }

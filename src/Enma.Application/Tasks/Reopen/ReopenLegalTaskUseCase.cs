@@ -54,7 +54,9 @@ public sealed class ReopenLegalTaskUseCase
         LegalTaskMutationPersistenceResult persistenceResult =
             await _mutationPersistence.ExecuteAsync(
                 request,
-                static _ => null,
+                static state => state.LegalTask.CompletedAt is not null
+                    ? state.LegalTask.AssigneeMembershipId
+                    : null,
                 state => Decide(request, state),
                 cancellationToken);
 
@@ -64,6 +66,8 @@ public sealed class ReopenLegalTaskUseCase
                 ReopenLegalTaskResult.AccessDenied,
             LegalTaskMutationPersistenceResult.NotFound =>
                 ReopenLegalTaskResult.NotFound,
+            LegalTaskMutationPersistenceResult.RelatedAssigneeUnavailable =>
+                ReopenLegalTaskResult.RelatedAssigneeUnavailable,
             LegalTaskMutationPersistenceResult.Succeeded =>
                 ReopenLegalTaskResult.Succeeded,
             _ => throw new InvalidOperationException(
@@ -90,7 +94,29 @@ public sealed class ReopenLegalTaskUseCase
             return LegalTaskMutationDecision.AccessDenied;
         }
 
+        if (state.LegalTask.CompletedAt is not null &&
+            state.LegalTask.AssigneeMembershipId is Guid assigneeMembershipId &&
+            !IsAvailableAssignee(
+                state.Assignee,
+                request.OrganizationId,
+                assigneeMembershipId))
+        {
+            return LegalTaskMutationDecision.RelatedAssigneeUnavailable;
+        }
+
         state.LegalTask.Reopen();
         return LegalTaskMutationDecision.Persist;
+    }
+
+    private static bool IsAvailableAssignee(
+        LegalTaskMutationMemberState? assignee,
+        Guid organizationId,
+        Guid assigneeMembershipId)
+    {
+        return assignee is not null &&
+            assignee.MembershipId == assigneeMembershipId &&
+            assignee.OrganizationId == organizationId &&
+            assignee.IsMembershipActive &&
+            assignee.IsUserActive;
     }
 }

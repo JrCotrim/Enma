@@ -102,6 +102,7 @@ public static class LegalTaskEndpoints
             .WithName("ReopenLegalTask")
             .WithSummary("Reopens a legal task in the contextual organization.")
             .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status404NotFound)
@@ -358,6 +359,8 @@ public static class LegalTaskEndpoints
         {
             ReopenLegalTaskResult.AccessDenied => TypedResults.Forbid(),
             ReopenLegalTaskResult.NotFound => TypedResults.NotFound(),
+            ReopenLegalTaskResult.RelatedAssigneeUnavailable =>
+                CreateRelatedAssigneeUnavailableProblem(),
             ReopenLegalTaskResult.Succeeded => TypedResults.NoContent(),
             _ => throw new InvalidOperationException(
                 "The legal task reopening returned an unknown status.")

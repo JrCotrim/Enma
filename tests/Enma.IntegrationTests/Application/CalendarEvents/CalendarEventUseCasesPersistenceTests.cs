@@ -705,7 +705,8 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         return new UpdateCalendarEventUseCase(
             CreateAccessAuthorization(queryContext),
             new CalendarEventActionAuthorization(),
-            new CalendarEventMutationPersistence(CreateOptions()));
+            new CalendarEventMutationPersistence(CreateOptions()),
+            new FixedTimeProvider(EventCreatedAt));
     }
 
     private ChangeCalendarEventAssigneeUseCase CreateAssigneeUseCase(

@@ -6,6 +6,7 @@ public enum UpdateCalendarEventResult
     NotFound = 1,
     RelatedClientUnavailable = 2,
     RelatedProcessUnavailable = 3,
-    InvalidInput = 4,
-    Succeeded = 5
+    RelatedAssigneeUnavailable = 4,
+    InvalidInput = 5,
+    Succeeded = 6
 }

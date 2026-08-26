@@ -7,19 +7,23 @@ public sealed class UpdateCalendarEventUseCase
     private readonly CalendarEventAccessAuthorization _accessAuthorization;
     private readonly CalendarEventActionAuthorization _actionAuthorization;
     private readonly ICalendarEventMutationPersistence _mutationPersistence;
+    private readonly TimeProvider _timeProvider;
 
     public UpdateCalendarEventUseCase(
         CalendarEventAccessAuthorization accessAuthorization,
         CalendarEventActionAuthorization actionAuthorization,
-        ICalendarEventMutationPersistence mutationPersistence)
+        ICalendarEventMutationPersistence mutationPersistence,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(accessAuthorization);
         ArgumentNullException.ThrowIfNull(actionAuthorization);
         ArgumentNullException.ThrowIfNull(mutationPersistence);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         _accessAuthorization = accessAuthorization;
         _actionAuthorization = actionAuthorization;
         _mutationPersistence = mutationPersistence;
+        _timeProvider = timeProvider;
     }
 
     public async Task<UpdateCalendarEventResult> ExecuteAsync(
@@ -54,11 +58,12 @@ public sealed class UpdateCalendarEventUseCase
             access.OrganizationId,
             access.MembershipId,
             command.CalendarEventId);
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow().ToUniversalTime();
 
         CalendarEventMutationPersistenceResult persistenceResult =
             await _mutationPersistence.ExecuteAsync(
                 request,
-                state => Decide(command, request, state),
+                state => Decide(command, request, state, nowUtc),
                 cancellationToken);
 
         return persistenceResult switch
@@ -71,6 +76,8 @@ public sealed class UpdateCalendarEventUseCase
                 UpdateCalendarEventResult.RelatedClientUnavailable,
             CalendarEventMutationPersistenceResult.RelatedProcessUnavailable =>
                 UpdateCalendarEventResult.RelatedProcessUnavailable,
+            CalendarEventMutationPersistenceResult.RelatedAssigneeUnavailable =>
+                UpdateCalendarEventResult.RelatedAssigneeUnavailable,
             CalendarEventMutationPersistenceResult.InvalidInput =>
                 UpdateCalendarEventResult.InvalidInput,
             CalendarEventMutationPersistenceResult.Succeeded =>
@@ -83,7 +90,8 @@ public sealed class UpdateCalendarEventUseCase
     private CalendarEventMutationDecision Decide(
         UpdateCalendarEventCommand command,
         CalendarEventMutationPersistenceRequest request,
-        CalendarEventMutationLockedState state)
+        CalendarEventMutationLockedState state,
+        DateTimeOffset nowUtc)
     {
         if (!CalendarEventUseCaseSupport.IsAvailableActor(state, request))
         {
@@ -122,6 +130,25 @@ public sealed class UpdateCalendarEventUseCase
                     state.IsProcessAvailable != true))
             {
                 return CalendarEventMutationDecision.RelatedProcessUnavailable;
+            }
+        }
+
+        if (command.EndsAt.ToUniversalTime() > nowUtc &&
+            state.CalendarEvent.AssigneeMembershipId is Guid assigneeMembershipId)
+        {
+            if (!state.AssigneeLookupPerformed)
+            {
+                return CalendarEventMutationDecision.ValidateAssignee(
+                    assigneeMembershipId);
+            }
+
+            if (state.ValidatedAssigneeMembershipId != assigneeMembershipId ||
+                !CalendarEventUseCaseSupport.IsAvailableAssignee(
+                    state.Assignee,
+                    request.OrganizationId,
+                    assigneeMembershipId))
+            {
+                return CalendarEventMutationDecision.RelatedAssigneeUnavailable;
             }
         }
 

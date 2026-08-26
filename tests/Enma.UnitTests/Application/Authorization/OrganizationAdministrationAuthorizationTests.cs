@@ -14,13 +14,14 @@ public sealed class OrganizationAdministrationAuthorizationTests
         "8be55287-f213-4496-ad47-c18f8e56dbdc");
 
     [Theory]
-    [InlineData(OrganizationRole.Owner, true, true)]
-    [InlineData(OrganizationRole.Administrator, true, false)]
-    [InlineData(OrganizationRole.Member, false, false)]
+    [InlineData(OrganizationRole.Owner, true, true, true)]
+    [InlineData(OrganizationRole.Administrator, true, false, true)]
+    [InlineData(OrganizationRole.Member, false, false, false)]
     public async Task AuthorizeAsync_WithSupportedLiveRole_GrantsExpectedReadActions(
         OrganizationRole role,
         bool canViewAdministrationDetails,
-        bool canChangeMemberRole)
+        bool canChangeMemberRole,
+        bool canChangeMemberLifecycle)
     {
         var lookup = new StubAccessLookup(
             new OrganizationAccessLookupResult(
@@ -48,6 +49,12 @@ public sealed class OrganizationAdministrationAuthorizationTests
         Assert.Equal(
             canChangeMemberRole,
             result.Allows(OrganizationAdministrationAction.ChangeMemberRole));
+        Assert.Equal(
+            canChangeMemberLifecycle,
+            result.Allows(OrganizationAdministrationAction.DeactivateMember));
+        Assert.Equal(
+            canChangeMemberLifecycle,
+            result.Allows(OrganizationAdministrationAction.ReactivateMember));
     }
 
     [Theory]
@@ -100,6 +107,10 @@ public sealed class OrganizationAdministrationAuthorizationTests
             OrganizationAdministrationAction.ViewTeamAdministrationDetails));
         Assert.False(result.Allows(
             OrganizationAdministrationAction.ChangeMemberRole));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.DeactivateMember));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.ReactivateMember));
     }
 
     [Fact]

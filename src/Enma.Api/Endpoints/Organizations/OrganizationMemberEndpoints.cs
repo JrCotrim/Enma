@@ -4,6 +4,7 @@ using Enma.Api.Authorization;
 using Enma.Api.Contracts.Organizations;
 using Enma.Api.Endpoints;
 using Enma.Application.Organizations.Members.List;
+using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Application.Organizations.Members.Lookup;
 using Enma.Application.Organizations.Members.Role;
 using Enma.Domain.Organizations;
@@ -49,6 +50,32 @@ public static class OrganizationMemberEndpoints
             .WithName("ChangeOrganizationMemberRole")
             .WithSummary("Changes an active organization membership role.")
             .Accepts<ChangeOrganizationMemberRoleRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireAuthorization(EnmaAuthorizationPolicies.OrganizationAccess)
+            .RequireEnmaAntiforgery();
+
+        group.MapPost("{membershipId:guid}/deactivate", DeactivateAsync)
+            .WithName("DeactivateOrganizationMember")
+            .WithSummary("Deactivates an organization membership.")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireAuthorization(EnmaAuthorizationPolicies.OrganizationAccess)
+            .RequireEnmaAntiforgery();
+
+        group.MapPost("{membershipId:guid}/reactivate", ReactivateAsync)
+            .WithName("ReactivateOrganizationMember")
+            .WithSummary("Reactivates an organization membership.")
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
@@ -182,6 +209,74 @@ public static class OrganizationMemberEndpoints
         };
     }
 
+    private static Task<IResult> DeactivateAsync(
+        Guid organizationId,
+        Guid membershipId,
+        ClaimsPrincipal principal,
+        OrganizationMemberLifecycleUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        return ChangeLifecycleAsync(
+            organizationId,
+            membershipId,
+            principal,
+            useCase.DeactivateAsync,
+            cancellationToken);
+    }
+
+    private static Task<IResult> ReactivateAsync(
+        Guid organizationId,
+        Guid membershipId,
+        ClaimsPrincipal principal,
+        OrganizationMemberLifecycleUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        return ChangeLifecycleAsync(
+            organizationId,
+            membershipId,
+            principal,
+            useCase.ReactivateAsync,
+            cancellationToken);
+    }
+
+    private static async Task<IResult> ChangeLifecycleAsync(
+        Guid organizationId,
+        Guid membershipId,
+        ClaimsPrincipal principal,
+        Func<Guid, Guid, Guid, CancellationToken,
+            Task<OrganizationMemberLifecycleResult>> execute,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        OrganizationMemberLifecycleResult result = await execute(
+            userId,
+            organizationId,
+            membershipId,
+            cancellationToken);
+
+        return result switch
+        {
+            OrganizationMemberLifecycleResult.AccessDenied =>
+                TypedResults.Forbid(),
+            OrganizationMemberLifecycleResult.NotFound =>
+                TypedResults.NotFound(),
+            OrganizationMemberLifecycleResult.ActiveAssignmentsConflict =>
+                CreateLifecycleConflictProblem(
+                    "The member has active assigned work and cannot be deactivated."),
+            OrganizationMemberLifecycleResult.InactiveUserConflict =>
+                CreateLifecycleConflictProblem(
+                    "The member account is inactive and cannot be reactivated."),
+            OrganizationMemberLifecycleResult.Succeeded =>
+                TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "The organization member lifecycle change returned an unknown status.")
+        };
+    }
+
     private static OrganizationMemberResponse MapMember(
         OrganizationMemberAdministrationReadModel member)
     {
@@ -211,6 +306,14 @@ public static class OrganizationMemberEndpoints
         return TypedResults.Problem(
             title: "Resource conflict",
             detail: "The membership role cannot be changed in its current state.",
+            statusCode: StatusCodes.Status409Conflict);
+    }
+
+    private static IResult CreateLifecycleConflictProblem(string detail)
+    {
+        return TypedResults.Problem(
+            title: "Resource conflict",
+            detail: detail,
             statusCode: StatusCodes.Status409Conflict);
     }
 }

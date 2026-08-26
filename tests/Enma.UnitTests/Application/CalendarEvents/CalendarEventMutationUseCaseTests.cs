@@ -186,6 +186,28 @@ public sealed class CalendarEventMutationUseCaseTests
         Assert.Equal("Original event", calendarEvent.Title);
     }
 
+    [Fact]
+    public async Task Update_FutureAssignedEventWithUnavailableAssignee_IsRejected()
+    {
+        CalendarEvent calendarEvent = CreateEvent(
+            ActorMembershipId,
+            OtherMembershipId);
+        var persistence = new StubMutationPersistence(
+            calendarEvent,
+            OrganizationRole.Owner,
+            assigneeAvailable: false);
+
+        UpdateCalendarEventResult result = await CreateUpdateUseCase(
+                OrganizationRole.Owner,
+                persistence)
+            .ExecuteAsync(CreateUpdateCommand(calendarEvent.Id));
+
+        Assert.Equal(
+            UpdateCalendarEventResult.RelatedAssigneeUnavailable,
+            result);
+        Assert.Equal("Original event", calendarEvent.Title);
+    }
+
     [Theory]
     [InlineData(OrganizationRole.Owner)]
     [InlineData(OrganizationRole.Administrator)]
@@ -381,7 +403,8 @@ public sealed class CalendarEventMutationUseCaseTests
         return new UpdateCalendarEventUseCase(
             CreateAccessAuthorization(role),
             new CalendarEventActionAuthorization(),
-            persistence);
+            persistence,
+            new FixedTimeProvider(CreatedAt));
     }
 
     private static ChangeCalendarEventAssigneeUseCase CreateAssigneeUseCase(
@@ -585,5 +608,10 @@ public sealed class CalendarEventMutationUseCaseTests
             Deleted = result == CalendarEventMutationPersistenceResult.Deleted;
             return Task.FromResult(result);
         }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 }

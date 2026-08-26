@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Enma.Application.Authorization;
 using Enma.Application.Organizations.Members.List;
+using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Application.Organizations.Members.Role;
 using Enma.Domain.Organizations;
 using Enma.IntegrationTests.Infrastructure.Persistence;
@@ -138,6 +139,62 @@ public sealed class OrganizationMemberAdministrationStrictIdentityTests(
         Assert.Equal(0, persistence.CallCount);
     }
 
+    [Theory]
+    [MemberData(nameof(UntrustedLifecycleRequests))]
+    public async Task Lifecycle_WithUntrustedNameIdentifier_FailsPolicyWithoutMutation(
+        string[] identifierValues,
+        string operation)
+    {
+        var accessLookup = new RecordingOrganizationAccessLookup();
+        var persistence = new RecordingLifecycleMutationPersistence();
+        await using var factory = new EnmaApiFactory(fixture, services =>
+        {
+            services.AddSingleton(new TestPrincipalClaims(identifierValues));
+            services
+                .AddAuthentication(options =>
+                {
+                    options.DefaultAuthenticateScheme = TestScheme;
+                    options.DefaultChallengeScheme = TestScheme;
+                })
+                .AddScheme<
+                    AuthenticationSchemeOptions,
+                    UntrustedPrincipalAuthenticationHandler>(
+                        TestScheme,
+                        _ => { });
+            services.RemoveAll<IOrganizationAccessLookup>();
+            services.AddSingleton<IOrganizationAccessLookup>(accessLookup);
+            services.RemoveAll<IOrganizationMemberLifecycleMutationPersistence>();
+            services.AddSingleton<IOrganizationMemberLifecycleMutationPersistence>(
+                persistence);
+        });
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost"),
+                HandleCookies = false
+            });
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/organizations/{OrganizationId:D}/members/{Guid.NewGuid():D}/{operation}");
+
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
+        Assert.Equal(0, accessLookup.CallCount);
+        Assert.Equal(0, persistence.CallCount);
+    }
+
+    public static IEnumerable<object[]> UntrustedLifecycleRequests()
+    {
+        foreach (string[] identifierValues in UntrustedUserIdentifiers)
+        {
+            yield return [identifierValues, "deactivate"];
+            yield return [identifierValues, "reactivate"];
+        }
+    }
+
     private sealed record TestPrincipalClaims(string[] IdentifierValues);
 
     private sealed class UntrustedPrincipalAuthenticationHandler(
@@ -204,6 +261,22 @@ public sealed class OrganizationMemberAdministrationStrictIdentityTests(
             CallCount++;
             return Task.FromResult(
                 OrganizationMemberRoleMutationPersistenceResult.Succeeded);
+        }
+    }
+
+    private sealed class RecordingLifecycleMutationPersistence
+        : IOrganizationMemberLifecycleMutationPersistence
+    {
+        public int CallCount { get; private set; }
+
+        public Task<OrganizationMemberLifecycleMutationPersistenceResult>
+            ExecuteAsync(
+                OrganizationMemberLifecycleMutationPersistenceRequest request,
+                CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(
+                OrganizationMemberLifecycleMutationPersistenceResult.Succeeded);
         }
     }
 }

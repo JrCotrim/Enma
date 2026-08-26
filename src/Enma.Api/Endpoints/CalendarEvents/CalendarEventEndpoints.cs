@@ -210,6 +210,8 @@ public static class CalendarEventEndpoints
                 TypedResults.NotFound(),
             UpdateCalendarEventResult.RelatedProcessUnavailable =>
                 TypedResults.NotFound(),
+            UpdateCalendarEventResult.RelatedAssigneeUnavailable =>
+                CreateRelatedAssigneeUnavailableProblem(),
             UpdateCalendarEventResult.InvalidInput => TypedResults.BadRequest(),
             UpdateCalendarEventResult.Succeeded => TypedResults.NoContent(),
             _ => throw new InvalidOperationException(
