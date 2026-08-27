@@ -13,6 +13,9 @@ vi.mock('../dashboard/DashboardPage', () => ({
 vi.mock('../agenda/AgendaPage', () => ({
   AgendaPage: () => <h2>Agenda</h2>,
 }))
+vi.mock('../team/TeamPage', () => ({
+  TeamPage: () => <h2>Equipe</h2>,
+}))
 import { createAppRoutes } from '../../app/router'
 import { clearCsrfToken } from '../authentication/csrfClient'
 import { createEmailVerificationFlow } from '../email-verification/emailVerificationService'
@@ -96,6 +99,7 @@ describe('organization discovery and routing', () => {
       'Prazos',
       'Tarefas',
       'Documentos',
+      'Equipe',
     ])
     expect(screen.getByTestId('notification-center')).toHaveTextContent(
       organizationA.id,
@@ -115,6 +119,24 @@ describe('organization discovery and routing', () => {
 
     expect(await screen.findByRole('heading', { name: 'Agenda' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Agenda' })).toHaveClass('is-active')
+    expect(screen.getByRole('link', { name: 'Visão geral' })).not.toHaveClass(
+      'is-active',
+    )
+  })
+
+  it('TeamRoute_RemainsExplicitAndActivatesTeamNavigation', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(organizationResponse([]))
+        .mockResolvedValueOnce(organizationResponse([organizationA])),
+    )
+
+    renderRoute(`/organizations/${organizationA.id}/team`)
+
+    expect(await screen.findByRole('heading', { name: 'Equipe' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Equipe' })).toHaveClass('is-active')
     expect(screen.getByRole('link', { name: 'Visão geral' })).not.toHaveClass(
       'is-active',
     )
@@ -314,11 +336,15 @@ describe('organization discovery and routing', () => {
       ...organizationA,
       role: 'Administrator',
     }
+    let resolveRefresh: ((value: Response) => void) | undefined
+    const pendingRefresh = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve
+    })
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(organizationResponse([]))
       .mockResolvedValueOnce(organizationResponse([organizationA]))
-      .mockResolvedValueOnce(organizationResponse([updatedOrganizationA]))
+      .mockReturnValueOnce(pendingRefresh)
     vi.stubGlobal('fetch', fetchMock)
 
     renderRoute(`/organizations/${organizationA.id}`)
@@ -327,6 +353,16 @@ describe('organization discovery and routing', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Atualizar organizações' }),
     )
+
+    expect(screen.getByText('Seu papel: Membro')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Carregando organizações...' }),
+    ).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveRefresh?.(organizationResponse([updatedOrganizationA]))
+      await pendingRefresh
+    })
 
     expect(
       await screen.findByText('Seu papel: Administrador'),

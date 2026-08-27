@@ -19,6 +19,7 @@ import { ProcessesPage } from '../features/processes/ProcessesPage'
 import { ProcessDetailsPage } from '../features/processes/ProcessDetailsPage'
 import { TasksPage } from '../features/tasks/TasksPage'
 import { TaskDetailsPage } from '../features/tasks/TaskDetailsPage'
+import { TeamPage } from '../features/team/TeamPage'
 import { HomePage } from '../pages/HomePage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { App } from './App'
@@ -108,6 +109,10 @@ export function createAppRoutes(
                         {
                           path: 'documents/:documentId',
                           element: <DocumentDetailsPage />,
+                        },
+                        {
+                          path: 'team',
+                          element: <TeamPage />,
                         },
                       ],
                     },

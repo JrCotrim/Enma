@@ -47,7 +47,9 @@ export function OrganizationProvider() {
   }, [handleUnauthorized, refreshVersion])
 
   const refreshOrganizations = useCallback(() => {
-    setState({ status: 'loading' })
+    setState((current) =>
+      current.status === 'success' ? current : { status: 'loading' },
+    )
     setRefreshVersion((version) => version + 1)
   }, [])
 
