@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Enma.IntegrationTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="4.0.102" />
     <ProjectReference Include="..\Enma.Domain\Enma.Domain.csproj" />
     <ProjectReference Include="..\Enma.Application\Enma.Application.csproj" />
