@@ -50,6 +50,9 @@ public sealed class OrganizationAdministrationAuthorizationTests
             canChangeMemberRole,
             result.Allows(OrganizationAdministrationAction.ChangeMemberRole));
         Assert.Equal(
+            role == OrganizationRole.Owner,
+            result.Allows(OrganizationAdministrationAction.EditOrganization));
+        Assert.Equal(
             canChangeMemberLifecycle,
             result.Allows(OrganizationAdministrationAction.DeactivateMember));
         Assert.Equal(
@@ -107,6 +110,8 @@ public sealed class OrganizationAdministrationAuthorizationTests
             OrganizationAdministrationAction.ViewTeamAdministrationDetails));
         Assert.False(result.Allows(
             OrganizationAdministrationAction.ChangeMemberRole));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.EditOrganization));
         Assert.False(result.Allows(
             OrganizationAdministrationAction.DeactivateMember));
         Assert.False(result.Allows(

@@ -6,6 +6,7 @@ using Enma.Application.Authorization;
 using Enma.Application.Organizations.Members.List;
 using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Application.Organizations.Members.Role;
+using Enma.Application.Organizations.UpdateName;
 using Enma.Domain.Organizations;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
@@ -128,6 +129,54 @@ public sealed class OrganizationMemberAdministrationStrictIdentityTests(
                 role = "Administrator",
                 expectedCurrentRole = "Member"
             })
+        };
+
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
+        Assert.Equal(0, accessLookup.CallCount);
+        Assert.Equal(0, persistence.CallCount);
+    }
+
+    [Theory]
+    [MemberData(nameof(UntrustedUserIdentifiers))]
+    public async Task UpdateName_WithUntrustedNameIdentifier_FailsPolicyWithoutMutation(
+        string[] identifierValues)
+    {
+        var accessLookup = new RecordingOrganizationAccessLookup();
+        var persistence = new RecordingNameMutationPersistence();
+        await using var factory = new EnmaApiFactory(fixture, services =>
+        {
+            services.AddSingleton(new TestPrincipalClaims(identifierValues));
+            services
+                .AddAuthentication(options =>
+                {
+                    options.DefaultAuthenticateScheme = TestScheme;
+                    options.DefaultChallengeScheme = TestScheme;
+                })
+                .AddScheme<
+                    AuthenticationSchemeOptions,
+                    UntrustedPrincipalAuthenticationHandler>(
+                        TestScheme,
+                        _ => { });
+            services.RemoveAll<IOrganizationAccessLookup>();
+            services.AddSingleton<IOrganizationAccessLookup>(accessLookup);
+            services.RemoveAll<IOrganizationNameMutationPersistence>();
+            services.AddSingleton<IOrganizationNameMutationPersistence>(persistence);
+        });
+        using HttpClient client = factory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost"),
+                HandleCookies = false
+            });
+        using var request = new HttpRequestMessage(
+            HttpMethod.Put,
+            $"/api/organizations/{OrganizationId:D}")
+        {
+            Content = JsonContent.Create(new { name = "Denied Legal" })
         };
 
         using HttpResponseMessage response = await client.SendAsync(request);
@@ -277,6 +326,21 @@ public sealed class OrganizationMemberAdministrationStrictIdentityTests(
             CallCount++;
             return Task.FromResult(
                 OrganizationMemberLifecycleMutationPersistenceResult.Succeeded);
+        }
+    }
+
+    private sealed class RecordingNameMutationPersistence
+        : IOrganizationNameMutationPersistence
+    {
+        public int CallCount { get; private set; }
+
+        public Task<OrganizationNameMutationPersistenceResult> ExecuteAsync(
+            OrganizationNameMutationPersistenceRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(
+                OrganizationNameMutationPersistenceResult.Succeeded);
         }
     }
 }

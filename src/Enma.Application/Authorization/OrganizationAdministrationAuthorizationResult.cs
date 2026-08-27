@@ -56,6 +56,8 @@ public sealed class OrganizationAdministrationAuthorizationResult
                 OrganizationRole.Administrator) => true,
             (OrganizationAdministrationAction.ChangeMemberRole,
                 OrganizationRole.Owner) => true,
+            (OrganizationAdministrationAction.EditOrganization,
+                OrganizationRole.Owner) => true,
             (OrganizationAdministrationAction.DeactivateMember or
                 OrganizationAdministrationAction.ReactivateMember,
                 OrganizationRole.Owner or
@@ -115,5 +117,6 @@ public enum OrganizationAdministrationAction
     ViewTeamAdministrationDetails = 2,
     ChangeMemberRole = 3,
     DeactivateMember = 4,
-    ReactivateMember = 5
+    ReactivateMember = 5,
+    EditOrganization = 6
 }
