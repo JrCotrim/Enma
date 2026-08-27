@@ -53,7 +53,10 @@ public sealed class NotificationMigrationTests(
         await MigrateAsync();
 
         Assert.Equal(
-            tablesBefore.Append("notifications").OrderBy(table => table),
+            tablesBefore
+                .Append("notifications")
+                .Append("audit_logs")
+                .OrderBy(table => table),
             await GetPublicTablesAsync());
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         Assert.Equal(graph.Organization.Id, (await dbContext.Organizations.SingleAsync()).Id);

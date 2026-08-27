@@ -65,6 +65,15 @@ public sealed class OrganizationMembershipConfiguration
             .HasName(
                 "ux_organization_memberships_organization_id_user_id");
 
+        builder.HasAlternateKey(membership => new
+            {
+                membership.OrganizationId,
+                membership.Id,
+                membership.UserId
+            })
+            .HasName(
+                "ak_organization_memberships_organization_id_id_user_id");
+
         builder.HasIndex(membership => membership.UserId)
             .HasDatabaseName("ix_organization_memberships_user_id");
 

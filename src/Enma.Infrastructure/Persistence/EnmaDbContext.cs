@@ -2,6 +2,7 @@ using Enma.Application.Abstractions;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Users;
 using Enma.Domain.Authentication;
+using Enma.Domain.Auditing;
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
@@ -23,6 +24,8 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     private const string UserEmailUniqueConstraint = "ux_users_email";
 
     public DbSet<Organization> Organizations => Set<Organization>();
+
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
 
@@ -58,7 +61,7 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     {
         try
         {
-            return await base.SaveChangesAsync(cancellationToken);
+            return await SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException exception) when (
             exception.InnerException is PostgresException
@@ -103,6 +106,35 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
         }
     }
 
+    public override int SaveChanges()
+    {
+        return SaveChanges(acceptAllChangesOnSuccess: true);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        EnsureAuditLogsAreAppendOnly();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return SaveChangesAsync(
+            acceptAllChangesOnSuccess: true,
+            cancellationToken);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureAuditLogsAreAppendOnly();
+        return base.SaveChangesAsync(
+            acceptAllChangesOnSuccess,
+            cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -119,5 +151,18 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
             .ToArray();
 
         return users.Length == 1 ? users[0] : null;
+    }
+
+    private void EnsureAuditLogsAreAppendOnly()
+    {
+        bool hasMutation = ChangeTracker
+            .Entries<AuditLog>()
+            .Any(entry => entry.State is EntityState.Modified or EntityState.Deleted);
+
+        if (hasMutation)
+        {
+            throw new InvalidOperationException(
+                "Audit logs are append-only and cannot be modified or deleted.");
+        }
     }
 }

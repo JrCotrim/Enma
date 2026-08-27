@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 
@@ -137,6 +138,37 @@ public sealed class AuditEventDetailsTests
         Assert.Equal(expectedParameterName, exception.ParamName);
     }
 
+    [Theory]
+    [MemberData(nameof(SerializableDetails))]
+    public void Serialization_RoundTripsClosedDetailsWithoutTypeMetadata(
+        AuditEventType eventType,
+        AuditEventDetails details)
+    {
+        string serialized = Assert.IsType<string>(
+            AuditEventDetails.Serialize(details));
+
+        AuditEventDetails roundTripped = Assert.IsAssignableFrom<AuditEventDetails>(
+            AuditEventDetails.Deserialize(eventType, serialized));
+
+        Assert.Equal(details.GetType(), roundTripped.GetType());
+        Assert.Equal(serialized, AuditEventDetails.Serialize(roundTripped));
+        Assert.DoesNotContain("$type", serialized, StringComparison.Ordinal);
+        Assert.DoesNotContain("assembly", serialized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Deserialization_WithUnexpectedMetadata_RejectsJson()
+    {
+        const string Json =
+            """
+            {"oldName":"Old","newName":"New","arbitrary":"metadata"}
+            """;
+
+        Assert.Throws<JsonException>(() => AuditEventDetails.Deserialize(
+            AuditEventType.OrganizationRenamed,
+            Json));
+    }
+
     public static TheoryData<Guid?, Guid?> ValidAssigneeChanges =>
         new()
         {
@@ -152,5 +184,48 @@ public sealed class AuditEventDetailsTests
             { MembershipAId, Guid.Empty, "newAssigneeMembershipId" },
             { null, null, "newAssigneeMembershipId" },
             { MembershipAId, MembershipAId, "newAssigneeMembershipId" }
+        };
+
+    public static TheoryData<AuditEventType, AuditEventDetails>
+        SerializableDetails =>
+        new()
+        {
+            {
+                AuditEventType.OrganizationRenamed,
+                new OrganizationRenamedAuditDetails("Old", "New")
+            },
+            {
+                AuditEventType.OrganizationMembershipRoleChanged,
+                new OrganizationMembershipRoleChangedAuditDetails(
+                    OrganizationRole.Member,
+                    OrganizationRole.Administrator)
+            },
+            {
+                AuditEventType.LegalDeadlineDetailsChanged,
+                new LegalDeadlineDetailsChangedAuditDetails(
+                    [LegalDeadlineChangedField.DueDate])
+            },
+            {
+                AuditEventType.LegalTaskDetailsChanged,
+                new LegalTaskDetailsChangedAuditDetails(
+                    [LegalTaskChangedField.Description])
+            },
+            {
+                AuditEventType.LegalTaskAssigneeChanged,
+                new LegalTaskAssigneeChangedAuditDetails(
+                    MembershipAId,
+                    MembershipBId)
+            },
+            {
+                AuditEventType.CalendarEventUpdated,
+                new CalendarEventUpdatedAuditDetails(
+                    [CalendarEventChangedField.Location])
+            },
+            {
+                AuditEventType.CalendarEventAssigneeChanged,
+                new CalendarEventAssigneeChangedAuditDetails(
+                    MembershipAId,
+                    MembershipBId)
+            }
         };
 }

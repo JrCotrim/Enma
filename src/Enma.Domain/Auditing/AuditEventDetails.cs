@@ -1,4 +1,6 @@
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Enma.Domain.Organizations;
 
 namespace Enma.Domain.Auditing;
@@ -8,7 +10,10 @@ public abstract class AuditEventDetails
     public const int MaximumSerializedSizeInBytes = 8 * 1024;
 
     private static readonly JsonSerializerOptions SerializerOptions =
-        new(JsonSerializerDefaults.Web);
+        new(JsonSerializerDefaults.Web)
+        {
+            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+        };
 
     private protected AuditEventDetails()
     {
@@ -93,18 +98,101 @@ public abstract class AuditEventDetails
 
     internal static void ValidateSerializedSize(AuditEventDetails details)
     {
-        byte[] serializedDetails = JsonSerializer.SerializeToUtf8Bytes(
+        _ = Serialize(details);
+    }
+
+    internal static string? Serialize(AuditEventDetails? details)
+    {
+        if (details is null)
+        {
+            return null;
+        }
+
+        string serializedDetails = JsonSerializer.Serialize(
             details,
             details.GetType(),
             SerializerOptions);
 
-        if (serializedDetails.Length > MaximumSerializedSizeInBytes)
+        if (Encoding.UTF8.GetByteCount(serializedDetails) >
+            MaximumSerializedSizeInBytes)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(details),
                 AuditLogErrors.DetailsTooLarge);
         }
+
+        return serializedDetails;
     }
+
+    internal static AuditEventDetails? Deserialize(
+        AuditEventType eventType,
+        string? serializedDetails)
+    {
+        if (serializedDetails is null)
+        {
+            eventType.ValidateDetails(null);
+            return null;
+        }
+
+        AuditEventDetails details = eventType switch
+        {
+            AuditEventType.OrganizationRenamed =>
+                Deserialize<OrganizationRenamedAuditDetails>(serializedDetails),
+            AuditEventType.OrganizationMembershipRoleChanged =>
+                Deserialize<OrganizationMembershipRoleChangedAuditDetails>(
+                    serializedDetails),
+            AuditEventType.LegalDeadlineDetailsChanged =>
+                new LegalDeadlineDetailsChangedAuditDetails(
+                    DeserializeChangedFields<LegalDeadlineChangedField>(
+                        serializedDetails)),
+            AuditEventType.LegalTaskDetailsChanged =>
+                new LegalTaskDetailsChangedAuditDetails(
+                    DeserializeChangedFields<LegalTaskChangedField>(
+                        serializedDetails)),
+            AuditEventType.LegalTaskAssigneeChanged =>
+                Deserialize<LegalTaskAssigneeChangedAuditDetails>(
+                    serializedDetails),
+            AuditEventType.CalendarEventUpdated =>
+                new CalendarEventUpdatedAuditDetails(
+                    DeserializeChangedFields<CalendarEventChangedField>(
+                        serializedDetails)),
+            AuditEventType.CalendarEventAssigneeChanged =>
+                Deserialize<CalendarEventAssigneeChangedAuditDetails>(
+                    serializedDetails),
+            _ => throw new JsonException(
+                AuditLogErrors.DetailsInvalidForEventType)
+        };
+
+        eventType.ValidateDetails(details);
+        return details;
+    }
+
+    private static TDetails Deserialize<TDetails>(string serializedDetails)
+        where TDetails : AuditEventDetails
+    {
+        return JsonSerializer.Deserialize<TDetails>(
+                serializedDetails,
+                SerializerOptions)
+            ?? throw new JsonException(
+                AuditLogErrors.DetailsInvalidForEventType);
+    }
+
+    private static TField[] DeserializeChangedFields<TField>(
+        string serializedDetails)
+        where TField : struct, Enum
+    {
+        ChangedFieldsEnvelope<TField>? envelope =
+            JsonSerializer.Deserialize<ChangedFieldsEnvelope<TField>>(
+                serializedDetails,
+                SerializerOptions);
+
+        return envelope?.ChangedFields
+            ?? throw new JsonException(
+                AuditLogErrors.DetailsInvalidForEventType);
+    }
+
+    private sealed record ChangedFieldsEnvelope<TField>(TField[] ChangedFields)
+        where TField : struct, Enum;
 }
 
 public sealed class OrganizationRenamedAuditDetails : AuditEventDetails

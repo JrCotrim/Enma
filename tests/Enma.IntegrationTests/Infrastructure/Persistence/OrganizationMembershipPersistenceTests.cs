@@ -123,6 +123,20 @@ public sealed class OrganizationMembershipPersistenceTests(PostgreSqlFixture fix
             organizationUserKey.Properties
                 .Select(property => property.Name)
                 .ToArray());
+
+        IKey auditActorKey = Assert.Single(
+            entityType.GetKeys(),
+            key => key.GetName() ==
+                "ak_organization_memberships_organization_id_id_user_id");
+        Assert.Equal(
+            [
+                nameof(OrganizationMembership.OrganizationId),
+                nameof(OrganizationMembership.Id),
+                nameof(OrganizationMembership.UserId)
+            ],
+            auditActorKey.Properties
+                .Select(property => property.Name)
+                .ToArray());
         Assert.DoesNotContain(
             entityType.GetIndexes(),
             index => index.Properties.Select(property => property.Name)
@@ -131,7 +145,7 @@ public sealed class OrganizationMembershipPersistenceTests(PostgreSqlFixture fix
                         nameof(OrganizationMembership.OrganizationId),
                         nameof(OrganizationMembership.UserId)
                     ]));
-        Assert.Equal(3, entityType.GetKeys().Count());
+        Assert.Equal(4, entityType.GetKeys().Count());
 
         Assert.Equal(2, entityType.GetForeignKeys().Count());
         Assert.All(

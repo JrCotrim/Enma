@@ -43,6 +43,7 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         CancellationToken cancellationToken = default)
     {
         await using EnmaDbContext dbContext = CreateDbContext();
+        await ResetAuditLogsAsync(dbContext, cancellationToken);
         await dbContext.EmailVerificationSendBudgets.ExecuteDeleteAsync(
             cancellationToken);
         await dbContext.Notifications.ExecuteDeleteAsync(cancellationToken);
@@ -58,6 +59,35 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         await dbContext.OrganizationMemberships.ExecuteDeleteAsync(cancellationToken);
         await dbContext.Users.ExecuteDeleteAsync(cancellationToken);
         await dbContext.Organizations.ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private static async Task ResetAuditLogsAsync(
+        EnmaDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            ALTER TABLE "public"."audit_logs"
+            DISABLE TRIGGER "trg_audit_logs_append_only";
+            """,
+            cancellationToken);
+
+        try
+        {
+            await dbContext.Database.ExecuteSqlRawAsync(
+                """
+                TRUNCATE TABLE "public"."audit_logs";
+                """,
+                cancellationToken);
+        }
+        finally
+        {
+            await dbContext.Database.ExecuteSqlRawAsync(
+                """
+                ALTER TABLE "public"."audit_logs"
+                ENABLE TRIGGER "trg_audit_logs_append_only";
+                """);
+        }
     }
 
     public async Task DisposeAsync()

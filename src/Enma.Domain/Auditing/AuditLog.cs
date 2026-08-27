@@ -8,6 +8,13 @@ namespace Enma.Domain.Auditing;
 /// </summary>
 public sealed class AuditLog
 {
+    private AuditEventDetails? _details;
+    private string? _detailsJson;
+
+    private AuditLog()
+    {
+    }
+
     private AuditLog(
         Guid id,
         Guid organizationId,
@@ -52,7 +59,15 @@ public sealed class AuditLog
 
     public DateTimeOffset OccurredAt { get; private set; }
 
-    public AuditEventDetails? Details { get; private set; }
+    public AuditEventDetails? Details
+    {
+        get => _details ??= AuditEventDetails.Deserialize(EventType, _detailsJson);
+        private set
+        {
+            _details = value;
+            _detailsJson = AuditEventDetails.Serialize(value);
+        }
+    }
 
     public string? TraceId { get; private set; }
 
