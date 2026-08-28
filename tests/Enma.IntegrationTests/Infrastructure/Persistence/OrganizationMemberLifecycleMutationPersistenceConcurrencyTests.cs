@@ -518,7 +518,9 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
             var useCase = new ReopenLegalTaskUseCase(
                 organizationAccess,
                 new LegalTaskMutationAuthorization(),
-                new LegalTaskMutationPersistence(CreateOptions(interceptor)));
+                new LegalTaskMutationPersistence(
+                    CreateOptions(interceptor),
+                    new FixedTimeProvider(Now)));
             return await useCase.ExecuteAsync(
                 new ReopenLegalTaskCommand(
                     graph.ActorUser.Id,
@@ -532,7 +534,9 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
         var updateUseCase = new UpdateCalendarEventUseCase(
             calendarAccess,
             new CalendarEventActionAuthorization(),
-            new CalendarEventMutationPersistence(CreateOptions(interceptor)),
+            new CalendarEventMutationPersistence(
+                CreateOptions(interceptor),
+                new FixedTimeProvider(Now)),
             new FixedTimeProvider(Now));
         return await updateUseCase.ExecuteAsync(
             new UpdateCalendarEventCommand(
@@ -555,7 +559,8 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
         CancellationToken cancellationToken)
     {
         var persistence = new LegalTaskCreationPersistence(
-            CreateOptions(interceptor));
+            CreateOptions(interceptor),
+            new FixedTimeProvider(Now));
         var request = new LegalTaskCreationPersistenceRequest(
             graph.ActorUser.Id,
             graph.Organization.Id,
@@ -597,7 +602,8 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
         CancellationToken cancellationToken)
     {
         var persistence = new CalendarEventCreationPersistence(
-            CreateOptions(interceptor));
+            CreateOptions(interceptor),
+            new FixedTimeProvider(Now));
         var request = new CalendarEventCreationPersistenceRequest(
             graph.ActorUser.Id,
             graph.Organization.Id,

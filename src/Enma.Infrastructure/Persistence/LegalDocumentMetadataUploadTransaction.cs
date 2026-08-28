@@ -1,5 +1,7 @@
 using System.Data;
+using Enma.Application.Auditing;
 using Enma.Application.Documents.Upload;
+using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
 using Enma.Domain.Documents;
 using Enma.Domain.Organizations;
@@ -14,12 +16,17 @@ public sealed class LegalDocumentMetadataUploadTransaction
     : ILegalDocumentMetadataUploadTransaction
 {
     private readonly DbContextOptions<EnmaDbContext> _dbContextOptions;
+    private readonly TimeProvider _timeProvider;
 
     public LegalDocumentMetadataUploadTransaction(
-        DbContextOptions<EnmaDbContext> dbContextOptions)
+        DbContextOptions<EnmaDbContext> dbContextOptions,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(dbContextOptions);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
         _dbContextOptions = dbContextOptions;
+        _timeProvider = timeProvider;
     }
 
     public async Task<LegalDocumentUploadPersistenceResult> ExecuteAsync(
@@ -59,14 +66,12 @@ public sealed class LegalDocumentMetadataUploadTransaction
                 cancellationToken);
         }
 
-        LegalDocumentUploadActorState? actor = await LockActorAsync(
-            dbContext,
-            request,
-            cancellationToken);
+        (LegalDocumentUploadActorState? State, OrganizationMembership? Membership)
+            actor = await LockActorAsync(dbContext, request, cancellationToken);
 
         LegalDocumentUploadDecision decision = decide(
             new LegalDocumentUploadLockedState(
-                actor,
+                actor.State,
                 CreateClientState(client),
                 CreateProcessState(process)));
 
@@ -85,6 +90,18 @@ public sealed class LegalDocumentMetadataUploadTransaction
         await dbContext.LegalDocuments.AddAsync(
             legalDocument,
             cancellationToken);
+        OrganizationMembership actorMembership = actor.Membership
+            ?? throw new InvalidOperationException(
+                "A persisted legal document must have a validated actor membership.");
+        TransactionalAuditActorContext auditActor =
+            TransactionalAuditActorContext.FromValidatedMembership(actorMembership);
+        AuditLogAppender.Append(
+            dbContext,
+            _timeProvider,
+            auditActor,
+            new AuditIntent(
+                AuditEventType.LegalDocumentUploaded,
+                legalDocument.Id));
         await dbContext.SaveChangesAsync(cancellationToken);
 
         attempt.MarkCommitStarted();
@@ -128,7 +145,9 @@ public sealed class LegalDocumentMetadataUploadTransaction
             .SingleOrDefaultAsync(cancellationToken);
     }
 
-    private static async Task<LegalDocumentUploadActorState?> LockActorAsync(
+    private static async Task<(
+        LegalDocumentUploadActorState? State,
+        OrganizationMembership? Membership)> LockActorAsync(
         EnmaDbContext dbContext,
         LegalDocumentUploadPersistenceRequest request,
         CancellationToken cancellationToken)
@@ -146,7 +165,7 @@ public sealed class LegalDocumentMetadataUploadTransaction
 
         if (membership is null)
         {
-            return null;
+            return (null, null);
         }
 
         User? user = await dbContext.Users
@@ -168,17 +187,19 @@ public sealed class LegalDocumentMetadataUploadTransaction
                     """)
                 .SingleOrDefaultAsync(cancellationToken);
 
-        return new LegalDocumentUploadActorState(
-            membership.UserId,
-            membership.OrganizationId,
-            membership.Id,
-            membership.Role,
-            membership.IsActive,
-            user?.IsActive == true &&
-                user.Id == request.UserId &&
-                membership.UserId == request.UserId,
-            organization?.IsActive == true &&
-                organization.Id == request.OrganizationId);
+        return (
+            new LegalDocumentUploadActorState(
+                membership.UserId,
+                membership.OrganizationId,
+                membership.Id,
+                membership.Role,
+                membership.IsActive,
+                user?.IsActive == true &&
+                    user.Id == request.UserId &&
+                    membership.UserId == request.UserId,
+                organization?.IsActive == true &&
+                    organization.Id == request.OrganizationId),
+            membership);
     }
 
     private static LegalDocumentUploadClientState? CreateClientState(

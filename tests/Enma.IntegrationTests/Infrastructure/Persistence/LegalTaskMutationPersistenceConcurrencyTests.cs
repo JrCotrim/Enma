@@ -5,6 +5,7 @@ using Enma.Application.Tasks.Assignment;
 using Enma.Application.Tasks.Complete;
 using Enma.Application.Tasks.Reopen;
 using Enma.Application.Tasks.Update;
+using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 using Enma.Domain.Tasks;
 using Enma.Domain.Users;
@@ -354,6 +355,25 @@ public sealed class LegalTaskMutationPersistenceConcurrencyTests(
         Assert.Equal(FirstCompletedAt, (await FindTaskAsync(doubleComplete.Id)).CompletedAt);
         Assert.Null((await FindTaskAsync(completeThenReopen.Id)).CompletedAt);
         Assert.Equal(SecondCompletedAt, (await FindTaskAsync(reopenThenComplete.Id)).CompletedAt);
+
+        await using EnmaDbContext auditContext = fixture.CreateDbContext();
+        AuditLog[] auditLogs = await auditContext.AuditLogs
+            .AsNoTracking()
+            .ToArrayAsync();
+        Assert.Equal(2, auditLogs.Length);
+        Assert.DoesNotContain(
+            auditLogs,
+            auditLog => auditLog.EntityId == doubleComplete.Id);
+        Assert.Contains(
+            auditLogs,
+            auditLog =>
+                auditLog.EntityId == completeThenReopen.Id &&
+                auditLog.EventType == AuditEventType.LegalTaskReopened);
+        Assert.Contains(
+            auditLogs,
+            auditLog =>
+                auditLog.EntityId == reopenThenComplete.Id &&
+                auditLog.EventType == AuditEventType.LegalTaskCompleted);
     }
 
     [Fact]
@@ -1020,7 +1040,9 @@ public sealed class LegalTaskMutationPersistenceConcurrencyTests(
         var options = new DbContextOptionsBuilder<EnmaDbContext>()
             .UseNpgsql(fixture.ConnectionString)
             .Options;
-        return new LegalTaskMutationPersistence(options);
+        return new LegalTaskMutationPersistence(
+            options,
+            new FixedTimeProvider(SecondCompletedAt));
     }
 
     private static LegalTaskMutationPersistenceRequest CreatePersistenceRequest(

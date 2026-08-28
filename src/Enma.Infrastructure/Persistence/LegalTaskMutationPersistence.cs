@@ -1,5 +1,7 @@
 using System.Data;
+using Enma.Application.Auditing;
 using Enma.Application.Tasks;
+using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 using Enma.Domain.Tasks;
 using Enma.Domain.Users;
@@ -11,12 +13,17 @@ namespace Enma.Infrastructure.Persistence;
 public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
 {
     private readonly DbContextOptions<EnmaDbContext> _dbContextOptions;
+    private readonly TimeProvider _timeProvider;
 
     public LegalTaskMutationPersistence(
-        DbContextOptions<EnmaDbContext> dbContextOptions)
+        DbContextOptions<EnmaDbContext> dbContextOptions,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(dbContextOptions);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
         _dbContextOptions = dbContextOptions;
+        _timeProvider = timeProvider;
     }
 
     public Task<LegalTaskMutationPersistenceResult> ExecuteAsync(
@@ -63,6 +70,13 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
             await transaction.RollbackAsync(cancellationToken);
             return LegalTaskMutationPersistenceResult.NotFound;
         }
+
+        string oldTitle = legalTask.Title;
+        string? oldDescription = legalTask.Description;
+        DateOnly? oldDueDate = legalTask.DueDate;
+        Guid? oldProcessId = legalTask.ProcessId;
+        Guid? oldAssigneeMembershipId = legalTask.AssigneeMembershipId;
+        DateTimeOffset? oldCompletedAt = legalTask.CompletedAt;
 
         LegalTaskMutationMemberState? previewActor =
             await LoadPreviewActorAsync(dbContext, request, cancellationToken);
@@ -158,10 +172,100 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
             return MapRejectedDecision(decision.Status);
         }
 
+        OrganizationMembership actorMembership =
+            identities.MembershipsById[request.ActorMembershipId];
+        AppendAuditLogs(
+            dbContext,
+            actorMembership,
+            legalTask,
+            oldTitle,
+            oldDescription,
+            oldDueDate,
+            oldProcessId,
+            oldAssigneeMembershipId,
+            oldCompletedAt);
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return LegalTaskMutationPersistenceResult.Succeeded;
+    }
+
+    private void AppendAuditLogs(
+        EnmaDbContext dbContext,
+        OrganizationMembership actorMembership,
+        LegalTask legalTask,
+        string oldTitle,
+        string? oldDescription,
+        DateOnly? oldDueDate,
+        Guid? oldProcessId,
+        Guid? oldAssigneeMembershipId,
+        DateTimeOffset? oldCompletedAt)
+    {
+        TransactionalAuditActorContext auditActor =
+            TransactionalAuditActorContext.FromValidatedMembership(actorMembership);
+        var changedFields = new List<LegalTaskChangedField>(4);
+
+        if (!StringComparer.Ordinal.Equals(oldTitle, legalTask.Title))
+        {
+            changedFields.Add(LegalTaskChangedField.Title);
+        }
+
+        if (!StringComparer.Ordinal.Equals(oldDescription, legalTask.Description))
+        {
+            changedFields.Add(LegalTaskChangedField.Description);
+        }
+
+        if (oldDueDate != legalTask.DueDate)
+        {
+            changedFields.Add(LegalTaskChangedField.DueDate);
+        }
+
+        if (oldProcessId != legalTask.ProcessId)
+        {
+            changedFields.Add(LegalTaskChangedField.ProcessId);
+        }
+
+        if (changedFields.Count > 0)
+        {
+            AuditLogAppender.Append(
+                dbContext,
+                _timeProvider,
+                auditActor,
+                new AuditIntent(
+                    AuditEventType.LegalTaskDetailsChanged,
+                    legalTask.Id,
+                    new LegalTaskDetailsChangedAuditDetails(changedFields)));
+        }
+
+        if (oldAssigneeMembershipId != legalTask.AssigneeMembershipId)
+        {
+            AuditLogAppender.Append(
+                dbContext,
+                _timeProvider,
+                auditActor,
+                new AuditIntent(
+                    AuditEventType.LegalTaskAssigneeChanged,
+                    legalTask.Id,
+                    new LegalTaskAssigneeChangedAuditDetails(
+                        oldAssigneeMembershipId,
+                        legalTask.AssigneeMembershipId)));
+        }
+
+        AuditEventType? lifecycleEvent = (oldCompletedAt, legalTask.CompletedAt) switch
+        {
+            (null, not null) => AuditEventType.LegalTaskCompleted,
+            (not null, null) => AuditEventType.LegalTaskReopened,
+            _ => null
+        };
+
+        if (lifecycleEvent is AuditEventType eventType)
+        {
+            AuditLogAppender.Append(
+                dbContext,
+                _timeProvider,
+                auditActor,
+                new AuditIntent(eventType, legalTask.Id));
+        }
     }
 
     private static async Task<LegalTask?> LockLegalTaskAsync(

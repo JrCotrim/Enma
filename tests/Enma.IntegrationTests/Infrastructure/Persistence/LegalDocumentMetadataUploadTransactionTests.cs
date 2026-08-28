@@ -1,12 +1,16 @@
 using Enma.Application.Documents.Storage;
 using Enma.Application.Documents.Upload;
+using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
 using Enma.Domain.Documents;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 using Enma.Domain.Users;
+using Enma.Infrastructure.Documents.Upload;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
 
@@ -84,6 +88,75 @@ public sealed class LegalDocumentMetadataUploadTransactionTests(
             request.ActorMembershipId,
             persisted.UploadedByMembershipId);
         Assert.Equal(request.ObjectKey.Value, persisted.StoredObjectKey);
+
+        AuditLog auditLog = await dbContext.AuditLogs
+            .AsNoTracking()
+            .SingleAsync();
+        Assert.Equal(graph.Organization.Id, auditLog.OrganizationId);
+        Assert.Equal(graph.User.Id, auditLog.ActorUserId);
+        Assert.Equal(graph.Membership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(OrganizationRole.Owner, auditLog.ActorRoleAtOccurrence);
+        Assert.Equal(AuditEventType.LegalDocumentUploaded, auditLog.EventType);
+        Assert.Equal(AuditEntityType.LegalDocument, auditLog.EntityType);
+        Assert.Equal(persisted.Id, auditLog.EntityId);
+        Assert.Equal(CreatedAt, auditLog.OccurredAt);
+        Assert.Null(auditLog.Details);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AuditInsertFailure_RollsBackMetadataAndCompensatesStorage()
+    {
+        SeedGraph graph = await SeedGraphAsync();
+        LegalDocumentUploadPersistenceRequest request = CreateRequest(graph);
+        var storage = new FakeStorage();
+        var persistence = new LegalDocumentUploadPersistence(
+            storage,
+            CreateTransaction(new InvalidAuditDetailsInterceptor()));
+        using var content = new MemoryStream(new byte[request.ContentLength]);
+
+        DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(
+            () => persistence.ExecuteAsync(
+                request,
+                content,
+                _ => LegalDocumentUploadDecision.Persist(
+                    CreateDocument(request))));
+
+        PostgresException postgresException = Assert.IsType<PostgresException>(
+            exception.InnerException);
+        Assert.Equal(PostgresErrorCodes.CheckViolation, postgresException.SqlState);
+        Assert.Equal(
+            "ck_audit_logs_details_contract",
+            postgresException.ConstraintName);
+        Assert.Equal(1, storage.StoreCallCount);
+        Assert.Equal(1, storage.DeleteCallCount);
+        Assert.Equal(request.ObjectKey, storage.DeletedObjectKey);
+        await AssertNoDocumentsAsync();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_StorageFailure_PersistsNeitherMetadataNorAudit()
+    {
+        SeedGraph graph = await SeedGraphAsync();
+        LegalDocumentUploadPersistenceRequest request = CreateRequest(graph);
+        var storage = new FakeStorage
+        {
+            StoreException = new LegalDocumentStorageUnavailableException()
+        };
+        var persistence = new LegalDocumentUploadPersistence(
+            storage,
+            CreateTransaction());
+        using var content = new MemoryStream(new byte[request.ContentLength]);
+
+        await Assert.ThrowsAsync<LegalDocumentStorageUnavailableException>(
+            () => persistence.ExecuteAsync(
+                request,
+                content,
+                _ => LegalDocumentUploadDecision.Persist(
+                    CreateDocument(request))));
+
+        Assert.Equal(1, storage.StoreCallCount);
+        Assert.Equal(1, storage.DeleteCallCount);
+        await AssertNoDocumentsAsync();
     }
 
     [Fact]
@@ -421,14 +494,20 @@ public sealed class LegalDocumentMetadataUploadTransactionTests(
             cancellationToken);
     }
 
-    private LegalDocumentMetadataUploadTransaction CreateTransaction()
+    private LegalDocumentMetadataUploadTransaction CreateTransaction(
+        IInterceptor? interceptor = null)
     {
-        DbContextOptions<EnmaDbContext> options =
-            new DbContextOptionsBuilder<EnmaDbContext>()
-                .UseNpgsql(fixture.ConnectionString)
-                .Options;
+        var optionsBuilder = new DbContextOptionsBuilder<EnmaDbContext>()
+            .UseNpgsql(fixture.ConnectionString);
 
-        return new LegalDocumentMetadataUploadTransaction(options);
+        if (interceptor is not null)
+        {
+            optionsBuilder.AddInterceptors(interceptor);
+        }
+
+        return new LegalDocumentMetadataUploadTransaction(
+            optionsBuilder.Options,
+            new FixedTimeProvider(CreatedAt));
     }
 
     private async Task<SeedGraph> SeedGraphAsync(
@@ -573,6 +652,69 @@ public sealed class LegalDocumentMetadataUploadTransactionTests(
         Assert.Equal(
             0,
             await dbContext.LegalDocuments.CountAsync());
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+    }
+
+    private sealed class FakeStorage : ILegalDocumentStorage
+    {
+        public Exception? StoreException { get; init; }
+
+        public int StoreCallCount { get; private set; }
+
+        public int DeleteCallCount { get; private set; }
+
+        public LegalDocumentStorageObjectKey? DeletedObjectKey { get; private set; }
+
+        public Task StoreAsync(
+            LegalDocumentStorageObjectKey objectKey,
+            Stream content,
+            long contentLength,
+            CancellationToken cancellationToken = default)
+        {
+            StoreCallCount++;
+            return StoreException is null
+                ? Task.CompletedTask
+                : Task.FromException(StoreException);
+        }
+
+        public Task<ILegalDocumentStorageReadHandle> OpenReadAsync(
+            LegalDocumentStorageObjectKey objectKey,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task DeleteIfExistsAsync(
+            LegalDocumentStorageObjectKey objectKey,
+            CancellationToken cancellationToken = default)
+        {
+            DeleteCallCount++;
+            DeletedObjectKey = objectKey;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class InvalidAuditDetailsInterceptor : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            EnmaDbContext dbContext = Assert.IsType<EnmaDbContext>(eventData.Context);
+            AuditLog auditLog = Assert.Single(
+                dbContext.ChangeTracker.Entries<AuditLog>(),
+                entry => entry.State == EntityState.Added).Entity;
+            dbContext.Entry(auditLog)
+                .Property<string?>("_detailsJson")
+                .CurrentValue = "{}";
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
     private sealed record SeedGraph(

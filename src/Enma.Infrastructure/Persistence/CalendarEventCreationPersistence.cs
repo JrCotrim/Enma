@@ -1,5 +1,7 @@
 using System.Data;
+using Enma.Application.Auditing;
 using Enma.Application.CalendarEvents;
+using Enma.Domain.Auditing;
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
@@ -13,12 +15,17 @@ public sealed class CalendarEventCreationPersistence
     : ICalendarEventCreationPersistence
 {
     private readonly DbContextOptions<EnmaDbContext> _dbContextOptions;
+    private readonly TimeProvider _timeProvider;
 
     public CalendarEventCreationPersistence(
-        DbContextOptions<EnmaDbContext> dbContextOptions)
+        DbContextOptions<EnmaDbContext> dbContextOptions,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(dbContextOptions);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
         _dbContextOptions = dbContextOptions;
+        _timeProvider = timeProvider;
     }
 
     public async Task<CalendarEventCreationPersistenceResult> ExecuteAsync(
@@ -91,6 +98,15 @@ public sealed class CalendarEventCreationPersistence
         }
 
         await dbContext.CalendarEvents.AddAsync(calendarEvent, cancellationToken);
+        OrganizationMembership actorMembership =
+            identities.MembershipsById[request.ActorMembershipId];
+        TransactionalAuditActorContext auditActor =
+            TransactionalAuditActorContext.FromValidatedMembership(actorMembership);
+        AuditLogAppender.Append(
+            dbContext,
+            _timeProvider,
+            auditActor,
+            new AuditIntent(AuditEventType.CalendarEventCreated, calendarEvent.Id));
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

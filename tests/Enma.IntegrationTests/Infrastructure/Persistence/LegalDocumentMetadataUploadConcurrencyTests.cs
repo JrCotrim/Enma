@@ -562,7 +562,9 @@ public sealed class LegalDocumentMetadataUploadConcurrencyTests(
                 .UseNpgsql(fixture.ConnectionString)
                 .Options;
 
-        return new LegalDocumentMetadataUploadTransaction(options);
+        return new LegalDocumentMetadataUploadTransaction(
+            options,
+            TimeProvider.System);
     }
 
     private async Task WaitForBlockedCommandAsync(

@@ -4,6 +4,7 @@ using Enma.Application.Tasks.Assignment;
 using Enma.Application.Tasks.Complete;
 using Enma.Application.Tasks.Reopen;
 using Enma.Application.Tasks.Update;
+using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
@@ -13,6 +14,8 @@ using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 
 namespace Enma.IntegrationTests.Application.Tasks;
 
@@ -64,6 +67,47 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         LegalTask persisted = await FindTaskAsync(legalTask.Id);
         Assert.Equal("Updated privileged task", persisted.Title);
         Assert.Equal("New details", persisted.Description);
+
+        AuditLog auditLog = Assert.Single(await FindAuditLogsAsync());
+        Assert.Equal(graph.ActorUser.Id, auditLog.ActorUserId);
+        Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(role, auditLog.ActorRoleAtOccurrence);
+        Assert.Equal(AuditEventType.LegalTaskDetailsChanged, auditLog.EventType);
+        Assert.Equal(legalTask.Id, auditLog.EntityId);
+        LegalTaskDetailsChangedAuditDetails details =
+            Assert.IsType<LegalTaskDetailsChangedAuditDetails>(auditLog.Details);
+        Assert.Equal(
+            [
+                LegalTaskChangedField.Title,
+                LegalTaskChangedField.Description,
+                LegalTaskChangedField.DueDate
+            ],
+            details.ChangedFields);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_NormalizedNoOp_CreatesNoAudit()
+    {
+        TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
+        LegalTask legalTask = CreateTask(
+            graph,
+            null,
+            graph.ActorMembership.Id);
+        await SeedAsync(legalTask);
+        await using EnmaDbContext queryContext = fixture.CreateDbContext();
+
+        UpdateLegalTaskResult result = await CreateUpdateUseCase(queryContext)
+            .ExecuteAsync(new UpdateLegalTaskCommand(
+                graph.ActorUser.Id,
+                graph.Organization.Id,
+                legalTask.Id,
+                "  Original task  ",
+                "   ",
+                null,
+                null));
+
+        Assert.Equal(UpdateLegalTaskResult.Succeeded, result);
+        Assert.Empty(await FindAuditLogsAsync());
     }
 
     [Fact]
@@ -213,6 +257,21 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         LegalTask persisted = await FindTaskAsync(legalTask.Id);
         Assert.Equal("Clear process", persisted.Title);
         Assert.Null(persisted.ProcessId);
+
+        AuditLog[] auditLogs = await FindAuditLogsAsync();
+        Assert.Equal(3, auditLogs.Length);
+        Assert.All(auditLogs, auditLog =>
+        {
+            LegalTaskDetailsChangedAuditDetails details =
+                Assert.IsType<LegalTaskDetailsChangedAuditDetails>(
+                    auditLog.Details);
+            Assert.Equal(
+                [
+                    LegalTaskChangedField.Title,
+                    LegalTaskChangedField.ProcessId
+                ],
+                details.ChangedFields);
+        });
     }
 
     [Fact]
@@ -283,6 +342,28 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         Assert.Equal(ChangeLegalTaskAssigneeResult.Succeeded, reassign);
         Assert.Equal(ChangeLegalTaskAssigneeResult.Succeeded, unassign);
         Assert.Null((await FindTaskAsync(legalTask.Id)).AssigneeMembershipId);
+
+        AuditLog[] auditLogs = await FindAuditLogsAsync();
+        Assert.Equal(3, auditLogs.Length);
+        Assert.All(auditLogs, auditLog =>
+        {
+            Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
+            Assert.Equal(AuditEventType.LegalTaskAssigneeChanged, auditLog.EventType);
+            Assert.Equal(legalTask.Id, auditLog.EntityId);
+        });
+        LegalTaskAssigneeChangedAuditDetails[] details = auditLogs
+            .Select(auditLog => Assert.IsType<LegalTaskAssigneeChangedAuditDetails>(
+                auditLog.Details))
+            .ToArray();
+        Assert.Contains(details, item =>
+            item.OldAssigneeMembershipId is null &&
+            item.NewAssigneeMembershipId == graph.TargetMembership.Id);
+        Assert.Contains(details, item =>
+            item.OldAssigneeMembershipId == graph.TargetMembership.Id &&
+            item.NewAssigneeMembershipId == graph.ActorMembership.Id);
+        Assert.Contains(details, item =>
+            item.OldAssigneeMembershipId == graph.ActorMembership.Id &&
+            item.NewAssigneeMembershipId is null);
     }
 
     [Fact]
@@ -365,6 +446,7 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         Assert.Equal(
             graph.TargetMembership.Id,
             (await FindTaskAsync(assignedOther.Id)).AssigneeMembershipId);
+        Assert.Equal(2, (await FindAuditLogsAsync()).Length);
     }
 
     [Theory]
@@ -502,6 +584,23 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         Assert.Equal(ReopenLegalTaskResult.Succeeded, firstReopen);
         Assert.Equal(ReopenLegalTaskResult.Succeeded, secondReopen);
         Assert.Null((await FindTaskAsync(legalTask.Id)).CompletedAt);
+
+        AuditLog[] auditLogs = await FindAuditLogsAsync();
+        Assert.Equal(
+            [
+                AuditEventType.LegalTaskCompleted,
+                AuditEventType.LegalTaskReopened
+            ],
+            auditLogs
+                .OrderBy(auditLog => auditLog.EventType)
+                .Select(auditLog => auditLog.EventType)
+                .ToArray());
+        Assert.All(auditLogs, auditLog =>
+        {
+            Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
+            Assert.Equal(legalTask.Id, auditLog.EntityId);
+            Assert.Null(auditLog.Details);
+        });
     }
 
     [Fact]
@@ -537,6 +636,7 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         Assert.Equal(ReopenLegalTaskResult.AccessDenied, reopen);
         Assert.Null((await FindTaskAsync(pending.Id)).CompletedAt);
         Assert.Equal(TaskCompletedAt, (await FindTaskAsync(completed.Id)).CompletedAt);
+        Assert.Empty(await FindAuditLogsAsync());
     }
 
     [Fact]
@@ -603,6 +703,7 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         LegalTask persisted = await FindTaskAsync(otherTask.Id);
         Assert.Equal("Other task", persisted.Title);
         Assert.Null(persisted.CompletedAt);
+        Assert.Empty(await FindAuditLogsAsync());
     }
 
     [Fact]
@@ -637,6 +738,116 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         LegalTask persisted = await FindTaskAsync(legalTask.Id);
         Assert.Equal("Rollback original", persisted.Title);
         Assert.Null(persisted.ProcessId);
+        Assert.Empty(await FindAuditLogsAsync());
+    }
+
+    [Fact]
+    public async Task MutationPersistence_AuditInsertFailure_RollsBackTask()
+    {
+        TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
+        LegalTask legalTask = CreateTask(
+            graph,
+            null,
+            graph.ActorMembership.Id,
+            "Audit rollback original");
+        await SeedAsync(legalTask);
+        var request = new LegalTaskMutationPersistenceRequest(
+            graph.ActorUser.Id,
+            graph.Organization.Id,
+            graph.ActorMembership.Id,
+            legalTask.Id);
+
+        DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(
+            () => CreatePersistence(new InvalidAuditDetailsInterceptor(null)).ExecuteAsync(
+                request,
+                static _ => null,
+                state =>
+                {
+                    state.LegalTask.ChangeDetails(
+                        "Audit rollback changed",
+                        null,
+                        null,
+                        null);
+                    return LegalTaskMutationDecision.Persist;
+                }));
+
+        PostgresException postgresException = Assert.IsType<PostgresException>(
+            exception.InnerException);
+        Assert.Equal(PostgresErrorCodes.CheckViolation, postgresException.SqlState);
+        Assert.Equal(
+            "ck_audit_logs_details_contract",
+            postgresException.ConstraintName);
+        Assert.Equal(
+            "Audit rollback original",
+            (await FindTaskAsync(legalTask.Id)).Title);
+        Assert.Empty(await FindAuditLogsAsync());
+    }
+
+    [Theory]
+    [InlineData(AuditMutation.Assignee)]
+    [InlineData(AuditMutation.Complete)]
+    [InlineData(AuditMutation.Reopen)]
+    public async Task MutationPersistence_AuditInsertFailure_RollsBackOtherMutations(
+        AuditMutation mutation)
+    {
+        TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
+        LegalTask legalTask = CreateTask(
+            graph,
+            null,
+            graph.ActorMembership.Id,
+            $"Audit rollback {mutation}",
+            completed: mutation == AuditMutation.Reopen);
+        await SeedAsync(legalTask);
+        var request = new LegalTaskMutationPersistenceRequest(
+            graph.ActorUser.Id,
+            graph.Organization.Id,
+            graph.ActorMembership.Id,
+            legalTask.Id);
+        string? invalidDetails = mutation == AuditMutation.Assignee
+            ? null
+            : "{}";
+
+        DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(
+            () => CreatePersistence(
+                    new InvalidAuditDetailsInterceptor(invalidDetails))
+                .ExecuteAsync(
+                    request,
+                    _ => mutation == AuditMutation.Assignee
+                        ? graph.TargetMembership.Id
+                        : null,
+                    state =>
+                    {
+                        switch (mutation)
+                        {
+                            case AuditMutation.Assignee:
+                                state.LegalTask.ChangeAssignee(
+                                    graph.TargetMembership.Id);
+                                break;
+                            case AuditMutation.Complete:
+                                state.LegalTask.Complete(TaskCompletedAt);
+                                break;
+                            case AuditMutation.Reopen:
+                                state.LegalTask.Reopen();
+                                break;
+                            default:
+                                throw new ArgumentOutOfRangeException(nameof(mutation));
+                        }
+
+                        return LegalTaskMutationDecision.Persist;
+                    }));
+
+        PostgresException postgresException = Assert.IsType<PostgresException>(
+            exception.InnerException);
+        Assert.Equal(PostgresErrorCodes.CheckViolation, postgresException.SqlState);
+        Assert.Equal(
+            "ck_audit_logs_details_contract",
+            postgresException.ConstraintName);
+        LegalTask persisted = await FindTaskAsync(legalTask.Id);
+        Assert.Null(persisted.AssigneeMembershipId);
+        Assert.Equal(
+            mutation == AuditMutation.Reopen ? TaskCompletedAt : null,
+            persisted.CompletedAt);
+        Assert.Empty(await FindAuditLogsAsync());
     }
 
     private UpdateLegalTaskUseCase CreateUpdateUseCase(EnmaDbContext queryContext)
@@ -680,12 +891,20 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
             new OrganizationAccessLookup(queryContext));
     }
 
-    private LegalTaskMutationPersistence CreatePersistence()
+    private LegalTaskMutationPersistence CreatePersistence(
+        IInterceptor? interceptor = null)
     {
-        var options = new DbContextOptionsBuilder<EnmaDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
-        return new LegalTaskMutationPersistence(options);
+        var optionsBuilder = new DbContextOptionsBuilder<EnmaDbContext>()
+            .UseNpgsql(fixture.ConnectionString);
+
+        if (interceptor is not null)
+        {
+            optionsBuilder.AddInterceptors(interceptor);
+        }
+
+        return new LegalTaskMutationPersistence(
+            optionsBuilder.Options,
+            new FixedTimeProvider(TaskCompletedAt));
     }
 
     private static Task<UpdateLegalTaskResult> UpdateTitleAsync(
@@ -800,6 +1019,12 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
             .SingleAsync(task => task.Id == legalTaskId);
     }
 
+    private async Task<AuditLog[]> FindAuditLogsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.AsNoTracking().ToArrayAsync();
+    }
+
     private async Task DeactivateUserAsync(Guid userId)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -830,6 +1055,13 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         InactiveUser = 3
     }
 
+    public enum AuditMutation
+    {
+        Assignee = 0,
+        Complete = 1,
+        Reopen = 2
+    }
+
     private sealed record TenantGraph(
         Organization Organization,
         User ActorUser,
@@ -840,5 +1072,24 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class InvalidAuditDetailsInterceptor(string? detailsJson)
+        : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            EnmaDbContext dbContext = Assert.IsType<EnmaDbContext>(eventData.Context);
+            AuditLog auditLog = Assert.Single(
+                dbContext.ChangeTracker.Entries<AuditLog>(),
+                entry => entry.State == EntityState.Added).Entity;
+            dbContext.Entry(auditLog)
+                .Property<string?>("_detailsJson")
+                .CurrentValue = detailsJson;
+            return ValueTask.FromResult(result);
+        }
     }
 }

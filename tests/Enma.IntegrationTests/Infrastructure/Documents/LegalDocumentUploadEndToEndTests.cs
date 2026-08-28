@@ -5,6 +5,7 @@ using Enma.Application.Documents.Staging;
 using Enma.Application.Documents.Storage;
 using Enma.Application.Documents.Upload;
 using Enma.Application.Processes;
+using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
 using Enma.Domain.Documents;
 using Enma.Domain.Organizations;
@@ -105,6 +106,18 @@ public sealed class LegalDocumentUploadEndToEndTests(
         Assert.Equal(
             SHA256.HashData(payload),
             document.ContentHashSha256.ToArray());
+
+        AuditLog auditLog = await dbContext.AuditLogs
+            .AsNoTracking()
+            .SingleAsync();
+        Assert.Equal(graph.Organization.Id, auditLog.OrganizationId);
+        Assert.Equal(graph.User.Id, auditLog.ActorUserId);
+        Assert.Equal(graph.Membership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(role, auditLog.ActorRoleAtOccurrence);
+        Assert.Equal(AuditEventType.LegalDocumentUploaded, auditLog.EventType);
+        Assert.Equal(document.Id, auditLog.EntityId);
+        Assert.Equal(UploadedAt, auditLog.OccurredAt);
+        Assert.Null(auditLog.Details);
 
         LegalDocumentStorageObjectKey objectKey =
             LegalDocumentStorageObjectKey.Parse(document.StoredObjectKey);
@@ -358,6 +371,12 @@ public sealed class LegalDocumentUploadEndToEndTests(
                 .Where(item => item.Id == graph.Membership.Id)
                 .Select(item => item.Role)
                 .SingleAsync());
+        AuditLog auditLog = await dbContext.AuditLogs
+            .AsNoTracking()
+            .SingleAsync();
+        Assert.Equal(OrganizationRole.Member, auditLog.ActorRoleAtOccurrence);
+        Assert.Equal(graph.Membership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(document.Id, auditLog.EntityId);
 
         LegalDocumentStorageObjectKey objectKey =
             LegalDocumentStorageObjectKey.Parse(document.StoredObjectKey);
@@ -572,6 +591,7 @@ public sealed class LegalDocumentUploadEndToEndTests(
         Assert.Equal(
             0,
             await dbContext.LegalDocuments.CountAsync());
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
     }
 
     private static async Task AssertObjectMissingAsync(

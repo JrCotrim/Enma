@@ -365,7 +365,9 @@ public sealed class LegalTaskCreationPersistenceConcurrencyTests(
             new DbContextOptionsBuilder<EnmaDbContext>()
                 .UseNpgsql(fixture.ConnectionString)
                 .Options;
-        return new LegalTaskCreationPersistence(options);
+        return new LegalTaskCreationPersistence(
+            options,
+            new FixedTimeProvider(TaskCreatedAt));
     }
 
     private async Task WaitForBlockedCreateLockAsync(

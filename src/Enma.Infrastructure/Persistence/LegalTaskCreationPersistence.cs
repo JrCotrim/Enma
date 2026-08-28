@@ -1,5 +1,7 @@
 using System.Data;
+using Enma.Application.Auditing;
 using Enma.Application.Tasks;
+using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -10,12 +12,17 @@ namespace Enma.Infrastructure.Persistence;
 public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
 {
     private readonly DbContextOptions<EnmaDbContext> _dbContextOptions;
+    private readonly TimeProvider _timeProvider;
 
     public LegalTaskCreationPersistence(
-        DbContextOptions<EnmaDbContext> dbContextOptions)
+        DbContextOptions<EnmaDbContext> dbContextOptions,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(dbContextOptions);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
         _dbContextOptions = dbContextOptions;
+        _timeProvider = timeProvider;
     }
 
     public async Task<LegalTaskCreationPersistenceResult> ExecuteAsync(
@@ -70,6 +77,15 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
         }
 
         await dbContext.LegalTasks.AddAsync(legalTask, cancellationToken);
+        OrganizationMembership actorMembership =
+            identities.MembershipsById[request.ActorMembershipId];
+        TransactionalAuditActorContext auditActor =
+            TransactionalAuditActorContext.FromValidatedMembership(actorMembership);
+        AuditLogAppender.Append(
+            dbContext,
+            _timeProvider,
+            auditActor,
+            new AuditIntent(AuditEventType.LegalTaskCreated, legalTask.Id));
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

@@ -1,5 +1,6 @@
 using System.Data;
 using Enma.Application.CalendarEvents;
+using Enma.Domain.Auditing;
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
@@ -75,6 +76,17 @@ public sealed class CalendarEventPersistenceConcurrencyTests(
             await blockerTransaction.CommitAsync(timeout.Token);
 
             await calendarEventOperation.WaitAsync(timeout.Token);
+
+            await using EnmaDbContext auditContext = fixture.CreateDbContext();
+            AuditLog auditLog = await auditContext.AuditLogs
+                .AsNoTracking()
+                .SingleAsync(timeout.Token);
+            Assert.Equal(
+                operation == CalendarEventOperation.Create
+                    ? AuditEventType.CalendarEventCreated
+                    : AuditEventType.CalendarEventUpdated,
+                auditLog.EventType);
+            Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
         }
         finally
         {
@@ -91,7 +103,9 @@ public sealed class CalendarEventPersistenceConcurrencyTests(
         TenantGraph graph,
         CancellationToken cancellationToken)
     {
-        var persistence = new CalendarEventCreationPersistence(CreateOptions());
+        var persistence = new CalendarEventCreationPersistence(
+            CreateOptions(),
+            TimeProvider.System);
         var request = new CalendarEventCreationPersistenceRequest(
             graph.ActorUser.Id,
             graph.Organization.Id,
@@ -135,7 +149,9 @@ public sealed class CalendarEventPersistenceConcurrencyTests(
         TenantGraph graph,
         CancellationToken cancellationToken)
     {
-        var persistence = new CalendarEventMutationPersistence(CreateOptions());
+        var persistence = new CalendarEventMutationPersistence(
+            CreateOptions(),
+            TimeProvider.System);
         var request = new CalendarEventMutationPersistenceRequest(
             graph.ActorUser.Id,
             graph.Organization.Id,

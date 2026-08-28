@@ -1,5 +1,6 @@
 using Enma.Application.Authorization;
 using Enma.Application.Tasks.Create;
+using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
@@ -9,6 +10,8 @@ using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 
 namespace Enma.IntegrationTests.Application.Tasks;
 
@@ -72,6 +75,47 @@ public sealed class LegalTaskCreationUseCasePersistenceTests(
         Assert.Equal(graph.ActorMembership.Id, persisted.CreatedByMembershipId);
         Assert.Equal(assigneeMembershipId, persisted.AssigneeMembershipId);
         Assert.Equal(TaskCreatedAt, persisted.CreatedAt);
+
+        AuditLog auditLog = await FindSingleAuditLogAsync();
+        Assert.Equal(graph.Organization.Id, auditLog.OrganizationId);
+        Assert.Equal(graph.ActorUser.Id, auditLog.ActorUserId);
+        Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(role, auditLog.ActorRoleAtOccurrence);
+        Assert.Equal(AuditEventType.LegalTaskCreated, auditLog.EventType);
+        Assert.Equal(AuditEntityType.LegalTask, auditLog.EntityType);
+        Assert.Equal(persisted.Id, auditLog.EntityId);
+        Assert.Equal(TaskCreatedAt, auditLog.OccurredAt);
+        Assert.Null(auditLog.Details);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AuditInsertFailure_RollsBackTask()
+    {
+        TenantMembers graph = CreateTenantMembers(OrganizationRole.Owner);
+        await SeedAsync(
+            graph.Organization,
+            graph.ActorUser,
+            graph.ActorMembership,
+            graph.TargetUser,
+            graph.TargetMembership);
+        await using EnmaDbContext queryContext = fixture.CreateDbContext();
+
+        DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(
+            () => CreateUseCase(queryContext, new InvalidNullDetailsInterceptor())
+                .ExecuteAsync(CreateCommand(
+                    graph.ActorUser.Id,
+                    graph.Organization.Id,
+                    processId: null,
+                    assigneeMembershipId: null)));
+
+        PostgresException postgresException = Assert.IsType<PostgresException>(
+            exception.InnerException);
+        Assert.Equal(PostgresErrorCodes.CheckViolation, postgresException.SqlState);
+        Assert.Equal(
+            "ck_audit_logs_details_contract",
+            postgresException.ConstraintName);
+        Assert.Equal(0, await CountTasksAsync());
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Fact]
@@ -384,17 +428,25 @@ public sealed class LegalTaskCreationUseCasePersistenceTests(
             { OrganizationRole.Administrator, AssignmentSelection.Other }
         };
 
-    private CreateLegalTaskUseCase CreateUseCase(EnmaDbContext queryContext)
+    private CreateLegalTaskUseCase CreateUseCase(
+        EnmaDbContext queryContext,
+        IInterceptor? interceptor = null)
     {
-        var options = new DbContextOptionsBuilder<EnmaDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
+        var optionsBuilder = new DbContextOptionsBuilder<EnmaDbContext>()
+            .UseNpgsql(fixture.ConnectionString);
+
+        if (interceptor is not null)
+        {
+            optionsBuilder.AddInterceptors(interceptor);
+        }
 
         return new CreateLegalTaskUseCase(
             new OrganizationAccessAuthorization(
                 new OrganizationAccessLookup(queryContext)),
             new ProcessOrganizationOwnershipLookup(queryContext),
-            new LegalTaskCreationPersistence(options),
+            new LegalTaskCreationPersistence(
+                optionsBuilder.Options,
+                new FixedTimeProvider(TaskCreatedAt)),
             new FixedTimeProvider(TaskCreatedAt));
     }
 
@@ -427,6 +479,18 @@ public sealed class LegalTaskCreationUseCasePersistenceTests(
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         return await dbContext.LegalTasks.CountAsync();
+    }
+
+    private async Task<AuditLog> FindSingleAuditLogAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.AsNoTracking().SingleAsync();
+    }
+
+    private async Task<int> CountAuditLogsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.CountAsync();
     }
 
     private async Task SeedAsync(params object[] entities)
@@ -501,6 +565,24 @@ public sealed class LegalTaskCreationUseCasePersistenceTests(
         public override DateTimeOffset GetUtcNow()
         {
             return utcNow;
+        }
+    }
+
+    private sealed class InvalidNullDetailsInterceptor : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            EnmaDbContext dbContext = Assert.IsType<EnmaDbContext>(eventData.Context);
+            AuditLog auditLog = Assert.Single(
+                dbContext.ChangeTracker.Entries<AuditLog>(),
+                entry => entry.State == EntityState.Added).Entity;
+            dbContext.Entry(auditLog)
+                .Property<string?>("_detailsJson")
+                .CurrentValue = "{}";
+            return ValueTask.FromResult(result);
         }
     }
 }

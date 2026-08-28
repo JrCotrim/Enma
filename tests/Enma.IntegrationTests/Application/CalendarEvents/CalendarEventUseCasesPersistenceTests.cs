@@ -5,6 +5,7 @@ using Enma.Application.CalendarEvents.Create;
 using Enma.Application.CalendarEvents.Delete;
 using Enma.Application.CalendarEvents.GetById;
 using Enma.Application.CalendarEvents.Update;
+using Enma.Domain.Auditing;
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
@@ -14,6 +15,8 @@ using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 
 namespace Enma.IntegrationTests.Application.CalendarEvents;
 
@@ -98,6 +101,34 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         Assert.Equal(TimeSpan.Zero, persisted.StartsAt.Offset);
         Assert.Equal(TimeSpan.Zero, persisted.EndsAt.Offset);
         Assert.Equal(EventCreatedAt, persisted.CreatedAt);
+
+        AuditLog auditLog = Assert.Single(await FindAuditLogsAsync());
+        Assert.Equal(graph.Organization.Id, auditLog.OrganizationId);
+        Assert.Equal(graph.ActorUser.Id, auditLog.ActorUserId);
+        Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(role, auditLog.ActorRoleAtOccurrence);
+        Assert.Equal(AuditEventType.CalendarEventCreated, auditLog.EventType);
+        Assert.Equal(AuditEntityType.CalendarEvent, auditLog.EntityType);
+        Assert.Equal(persisted.Id, auditLog.EntityId);
+        Assert.Equal(EventCreatedAt, auditLog.OccurredAt);
+        Assert.Null(auditLog.Details);
+    }
+
+    [Fact]
+    public async Task Create_AuditInsertFailure_RollsBackCalendarEvent()
+    {
+        TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
+        await using EnmaDbContext queryContext = fixture.CreateDbContext();
+
+        DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(
+            () => CreateCreateUseCase(
+                    queryContext,
+                    new InvalidAuditDetailsInterceptor("{}"))
+                .ExecuteAsync(CreateCommand(graph)));
+
+        AssertAuditDetailsConstraintFailure(exception);
+        Assert.Equal(0, await CountEventsAsync());
+        Assert.Empty(await FindAuditLogsAsync());
     }
 
     [Fact]
@@ -180,7 +211,9 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
         await using EnmaDbContext queryContext = fixture.CreateDbContext();
         var persistence = new BeforeCreationPersistence(
-            new CalendarEventCreationPersistence(CreateOptions()),
+            new CalendarEventCreationPersistence(
+                CreateOptions(),
+                new FixedTimeProvider(EventCreatedAt)),
             async () => await DeactivateClientAsync(graph.Client.Id));
         var useCase = new CreateCalendarEventUseCase(
             CreateAccessAuthorization(queryContext),
@@ -203,7 +236,9 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         TenantGraph graph = await SeedTenantAsync(OrganizationRole.Administrator);
         await using EnmaDbContext queryContext = fixture.CreateDbContext();
         var persistence = new BeforeCreationPersistence(
-            new CalendarEventCreationPersistence(CreateOptions()),
+            new CalendarEventCreationPersistence(
+                CreateOptions(),
+                new FixedTimeProvider(EventCreatedAt)),
             async () => await ChangeRoleAsync(
                 graph.ActorMembership.Id,
                 OrganizationRole.Member));
@@ -371,6 +406,23 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         Assert.Equal(
             expectedSuccess ? "Updated hearing" : "Original event",
             persisted.Title);
+
+        AuditLog[] auditLogs = await FindAuditLogsAsync();
+        Assert.Equal(expectedSuccess ? 1 : 0, auditLogs.Length);
+
+        if (expectedSuccess)
+        {
+            CalendarEventUpdatedAuditDetails details =
+                Assert.IsType<CalendarEventUpdatedAuditDetails>(
+                    auditLogs[0].Details);
+            Assert.Equal(
+                [
+                    CalendarEventChangedField.Title,
+                    CalendarEventChangedField.Description,
+                    CalendarEventChangedField.Location
+                ],
+                details.ChangedFields);
+        }
     }
 
     [Fact]
@@ -419,9 +471,11 @@ public sealed class CalendarEventUseCasesPersistenceTests(
             });
         UpdateCalendarEventResult general = await useCase.ExecuteAsync(
             CreateUpdateCommand(graph, calendarEvent.Id));
+        UpdateCalendarEventResult noOp = await useCase.ExecuteAsync(
+            CreateUpdateCommand(graph, calendarEvent.Id));
 
         Assert.All(
-            new[] { directClient, process, general },
+            new[] { directClient, process, general, noOp },
             result => Assert.Equal(UpdateCalendarEventResult.Succeeded, result));
         Assert.Equal(
             offsetStart.UtcDateTime,
@@ -441,6 +495,19 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         Assert.Equal(originalOrganizationId, persisted.OrganizationId);
         Assert.Equal(originalCreatorId, persisted.CreatedByMembershipId);
         Assert.Equal(originalCreatedAt, persisted.CreatedAt);
+
+        AuditLog[] auditLogs = await FindAuditLogsAsync();
+        Assert.Equal(3, auditLogs.Length);
+        Assert.Equal(
+            Enum.GetValues<CalendarEventChangedField>(),
+            auditLogs
+                .Select(auditLog =>
+                    Assert.IsType<CalendarEventUpdatedAuditDetails>(
+                        auditLog.Details))
+                .SelectMany(details => details.ChangedFields)
+                .Distinct()
+                .OrderBy(field => field)
+                .ToArray());
     }
 
     [Fact]
@@ -504,6 +571,16 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         Assert.Equal(ChangeCalendarEventAssigneeResult.Succeeded, assignOther);
         Assert.Equal(ChangeCalendarEventAssigneeResult.Succeeded, clearOther);
 
+        AuditLog[] ownerAuditLogs = await FindAuditLogsAsync();
+        Assert.Equal(2, ownerAuditLogs.Length);
+        Assert.All(ownerAuditLogs, auditLog =>
+        {
+            Assert.Equal(owner.ActorMembership.Id, auditLog.ActorMembershipId);
+            Assert.Equal(
+                AuditEventType.CalendarEventAssigneeChanged,
+                auditLog.EventType);
+        });
+
         await fixture.ResetDatabaseAsync();
         TenantGraph member = await SeedTenantAsync(OrganizationRole.Member);
         CalendarEvent ownEvent = CreateEvent(
@@ -551,6 +628,19 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         Assert.Equal(
             member.ActorMembership.Id,
             (await FindEventAsync(otherEvent.Id)).AssigneeMembershipId);
+        AuditLog[] memberAuditLogs = await FindAuditLogsAsync();
+        Assert.Equal(2, memberAuditLogs.Length);
+        CalendarEventAssigneeChangedAuditDetails[] memberDetails = memberAuditLogs
+            .Select(auditLog =>
+                Assert.IsType<CalendarEventAssigneeChangedAuditDetails>(
+                    auditLog.Details))
+            .ToArray();
+        Assert.Contains(memberDetails, details =>
+            details.OldAssigneeMembershipId is null &&
+            details.NewAssigneeMembershipId == member.ActorMembership.Id);
+        Assert.Contains(memberDetails, details =>
+            details.OldAssigneeMembershipId == member.ActorMembership.Id &&
+            details.NewAssigneeMembershipId is null);
     }
 
     [Fact]
@@ -627,6 +717,18 @@ public sealed class CalendarEventUseCasesPersistenceTests(
                 : DeleteCalendarEventResult.AccessDenied,
             result);
         Assert.Equal(!expectedDelete, await EventExistsAsync(calendarEvent.Id));
+
+        AuditLog[] auditLogs = await FindAuditLogsAsync();
+        Assert.Equal(expectedDelete ? 1 : 0, auditLogs.Length);
+
+        if (expectedDelete)
+        {
+            Assert.Equal(
+                AuditEventType.CalendarEventDeleted,
+                auditLogs[0].EventType);
+            Assert.Equal(calendarEvent.Id, auditLogs[0].EntityId);
+            Assert.Null(auditLogs[0].Details);
+        }
     }
 
     [Fact]
@@ -661,6 +763,74 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         Assert.Equal(ChangeCalendarEventAssigneeResult.NotFound, assignment);
         Assert.Equal(DeleteCalendarEventResult.NotFound, delete);
         Assert.Equal("Original event", (await FindEventAsync(foreignEvent.Id)).Title);
+        Assert.Empty(await FindAuditLogsAsync());
+    }
+
+    [Fact]
+    public async Task Update_AuditInsertFailure_RollsBackCalendarEvent()
+    {
+        TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
+        CalendarEvent calendarEvent = CreateEvent(
+            graph,
+            graph.ActorMembership.Id);
+        await SeedAsync(calendarEvent);
+        await using EnmaDbContext queryContext = fixture.CreateDbContext();
+
+        DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(
+            () => CreateUpdateUseCase(
+                    queryContext,
+                    new InvalidAuditDetailsInterceptor(null))
+                .ExecuteAsync(CreateUpdateCommand(graph, calendarEvent.Id)));
+
+        AssertAuditDetailsConstraintFailure(exception);
+        Assert.Equal(
+            "Original event",
+            (await FindEventAsync(calendarEvent.Id)).Title);
+        Assert.Empty(await FindAuditLogsAsync());
+    }
+
+    [Theory]
+    [InlineData(CalendarAuditMutation.Assignee)]
+    [InlineData(CalendarAuditMutation.Delete)]
+    public async Task Mutation_AuditInsertFailure_RollsBackOtherCalendarMutations(
+        CalendarAuditMutation mutation)
+    {
+        TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
+        CalendarEvent calendarEvent = CreateEvent(
+            graph,
+            graph.ActorMembership.Id);
+        await SeedAsync(calendarEvent);
+        await using EnmaDbContext queryContext = fixture.CreateDbContext();
+        string? invalidDetails = mutation == CalendarAuditMutation.Assignee
+            ? null
+            : "{}";
+        var interceptor = new InvalidAuditDetailsInterceptor(invalidDetails);
+
+        DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(
+            async () =>
+            {
+                if (mutation == CalendarAuditMutation.Assignee)
+                {
+                    await CreateAssigneeUseCase(queryContext, interceptor)
+                        .ExecuteAsync(new ChangeCalendarEventAssigneeCommand(
+                            graph.ActorUser.Id,
+                            graph.Organization.Id,
+                            calendarEvent.Id,
+                            graph.OtherMembership.Id));
+                    return;
+                }
+
+                await CreateDeleteUseCase(queryContext, interceptor)
+                    .ExecuteAsync(new DeleteCalendarEventCommand(
+                        graph.ActorUser.Id,
+                        graph.Organization.Id,
+                        calendarEvent.Id));
+            });
+
+        AssertAuditDetailsConstraintFailure(exception);
+        CalendarEvent persisted = await FindEventAsync(calendarEvent.Id);
+        Assert.Null(persisted.AssigneeMembershipId);
+        Assert.Empty(await FindAuditLogsAsync());
     }
 
     public static TheoryData<OrganizationRole, AssociationSelection, AssignmentSelection>
@@ -679,14 +849,17 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         };
 
     private CreateCalendarEventUseCase CreateCreateUseCase(
-        EnmaDbContext queryContext)
+        EnmaDbContext queryContext,
+        IInterceptor? interceptor = null)
     {
         return new CreateCalendarEventUseCase(
             CreateAccessAuthorization(queryContext),
             new CalendarEventActionAuthorization(),
             new ActiveClientInOrganizationLookup(queryContext),
             new ProcessOrganizationOwnershipLookup(queryContext),
-            new CalendarEventCreationPersistence(CreateOptions()),
+            new CalendarEventCreationPersistence(
+                CreateOptions(interceptor),
+                new FixedTimeProvider(EventCreatedAt)),
             new FixedTimeProvider(EventCreatedAt));
     }
 
@@ -700,31 +873,40 @@ public sealed class CalendarEventUseCasesPersistenceTests(
     }
 
     private UpdateCalendarEventUseCase CreateUpdateUseCase(
-        EnmaDbContext queryContext)
+        EnmaDbContext queryContext,
+        IInterceptor? interceptor = null)
     {
         return new UpdateCalendarEventUseCase(
             CreateAccessAuthorization(queryContext),
             new CalendarEventActionAuthorization(),
-            new CalendarEventMutationPersistence(CreateOptions()),
+            new CalendarEventMutationPersistence(
+                CreateOptions(interceptor),
+                new FixedTimeProvider(EventCreatedAt)),
             new FixedTimeProvider(EventCreatedAt));
     }
 
     private ChangeCalendarEventAssigneeUseCase CreateAssigneeUseCase(
-        EnmaDbContext queryContext)
+        EnmaDbContext queryContext,
+        IInterceptor? interceptor = null)
     {
         return new ChangeCalendarEventAssigneeUseCase(
             CreateAccessAuthorization(queryContext),
             new CalendarEventActionAuthorization(),
-            new CalendarEventMutationPersistence(CreateOptions()));
+            new CalendarEventMutationPersistence(
+                CreateOptions(interceptor),
+                new FixedTimeProvider(EventCreatedAt)));
     }
 
     private DeleteCalendarEventUseCase CreateDeleteUseCase(
-        EnmaDbContext queryContext)
+        EnmaDbContext queryContext,
+        IInterceptor? interceptor = null)
     {
         return new DeleteCalendarEventUseCase(
             CreateAccessAuthorization(queryContext),
             new CalendarEventActionAuthorization(),
-            new CalendarEventMutationPersistence(CreateOptions()));
+            new CalendarEventMutationPersistence(
+                CreateOptions(interceptor),
+                new FixedTimeProvider(EventCreatedAt)));
     }
 
     private static CalendarEventAccessAuthorization CreateAccessAuthorization(
@@ -735,11 +917,18 @@ public sealed class CalendarEventUseCasesPersistenceTests(
                 new OrganizationAccessLookup(queryContext)));
     }
 
-    private DbContextOptions<EnmaDbContext> CreateOptions()
+    private DbContextOptions<EnmaDbContext> CreateOptions(
+        IInterceptor? interceptor = null)
     {
-        return new DbContextOptionsBuilder<EnmaDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
+        var optionsBuilder = new DbContextOptionsBuilder<EnmaDbContext>()
+            .UseNpgsql(fixture.ConnectionString);
+
+        if (interceptor is not null)
+        {
+            optionsBuilder.AddInterceptors(interceptor);
+        }
+
+        return optionsBuilder.Options;
     }
 
     private static CreateCalendarEventCommand CreateCommand(
@@ -868,6 +1057,23 @@ public sealed class CalendarEventUseCasesPersistenceTests(
             .SingleAsync(calendarEvent => calendarEvent.Id == calendarEventId);
     }
 
+    private async Task<AuditLog[]> FindAuditLogsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.AsNoTracking().ToArrayAsync();
+    }
+
+    private static void AssertAuditDetailsConstraintFailure(
+        DbUpdateException exception)
+    {
+        PostgresException postgresException = Assert.IsType<PostgresException>(
+            exception.InnerException);
+        Assert.Equal(PostgresErrorCodes.CheckViolation, postgresException.SqlState);
+        Assert.Equal(
+            "ck_audit_logs_details_contract",
+            postgresException.ConstraintName);
+    }
+
     private async Task<bool> EventExistsAsync(Guid calendarEventId)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -956,6 +1162,12 @@ public sealed class CalendarEventUseCasesPersistenceTests(
         User = 2
     }
 
+    public enum CalendarAuditMutation
+    {
+        Assignee = 0,
+        Delete = 1
+    }
+
     private sealed record TenantGraph(
         Organization Organization,
         User ActorUser,
@@ -968,6 +1180,25 @@ public sealed class CalendarEventUseCasesPersistenceTests(
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class InvalidAuditDetailsInterceptor(string? detailsJson)
+        : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            EnmaDbContext dbContext = Assert.IsType<EnmaDbContext>(eventData.Context);
+            AuditLog auditLog = Assert.Single(
+                dbContext.ChangeTracker.Entries<AuditLog>(),
+                entry => entry.State == EntityState.Added).Entity;
+            dbContext.Entry(auditLog)
+                .Property<string?>("_detailsJson")
+                .CurrentValue = detailsJson;
+            return ValueTask.FromResult(result);
+        }
     }
 
     private sealed class BeforeCreationPersistence(
