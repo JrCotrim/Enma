@@ -1,5 +1,7 @@
 using System.Data;
+using Enma.Application.Auditing;
 using Enma.Application.Organizations.Members.Role;
+using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -11,12 +13,17 @@ public sealed class OrganizationMemberRoleMutationPersistence
     : IOrganizationMemberRoleMutationPersistence
 {
     private readonly DbContextOptions<EnmaDbContext> _dbContextOptions;
+    private readonly TimeProvider _timeProvider;
 
     public OrganizationMemberRoleMutationPersistence(
-        DbContextOptions<EnmaDbContext> dbContextOptions)
+        DbContextOptions<EnmaDbContext> dbContextOptions,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(dbContextOptions);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
         _dbContextOptions = dbContextOptions;
+        _timeProvider = timeProvider;
     }
 
     public async Task<OrganizationMemberRoleMutationPersistenceResult> ExecuteAsync(
@@ -98,7 +105,20 @@ public sealed class OrganizationMemberRoleMutationPersistence
             return OrganizationMemberRoleMutationPersistenceResult.Conflict;
         }
 
+        OrganizationRole oldRole = targetMembership.Role;
         targetMembership.ChangeRole(request.Role);
+        TransactionalAuditActorContext auditActor =
+            TransactionalAuditActorContext.FromValidatedMembership(actorMembership);
+        AuditLogAppender.Append(
+            dbContext,
+            _timeProvider,
+            auditActor,
+            new AuditIntent(
+                AuditEventType.OrganizationMembershipRoleChanged,
+                targetMembership.Id,
+                new OrganizationMembershipRoleChangedAuditDetails(
+                    oldRole,
+                    targetMembership.Role)));
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

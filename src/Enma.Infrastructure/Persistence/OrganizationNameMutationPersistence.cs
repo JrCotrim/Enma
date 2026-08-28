@@ -1,5 +1,7 @@
 using System.Data;
+using Enma.Application.Auditing;
 using Enma.Application.Organizations.UpdateName;
+using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -11,12 +13,17 @@ public sealed class OrganizationNameMutationPersistence
     : IOrganizationNameMutationPersistence
 {
     private readonly DbContextOptions<EnmaDbContext> _dbContextOptions;
+    private readonly TimeProvider _timeProvider;
 
     public OrganizationNameMutationPersistence(
-        DbContextOptions<EnmaDbContext> dbContextOptions)
+        DbContextOptions<EnmaDbContext> dbContextOptions,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(dbContextOptions);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
         _dbContextOptions = dbContextOptions;
+        _timeProvider = timeProvider;
     }
 
     public async Task<OrganizationNameMutationPersistenceResult> ExecuteAsync(
@@ -64,7 +71,25 @@ public sealed class OrganizationNameMutationPersistence
             return OrganizationNameMutationPersistenceResult.AccessDenied;
         }
 
+        string oldName = organization.Name;
         organization.Rename(request.Name);
+
+        if (organization.Name == oldName)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return OrganizationNameMutationPersistenceResult.Succeeded;
+        }
+
+        TransactionalAuditActorContext auditActor =
+            TransactionalAuditActorContext.FromValidatedMembership(actorMembership);
+        AuditLogAppender.Append(
+            dbContext,
+            _timeProvider,
+            auditActor,
+            new AuditIntent(
+                AuditEventType.OrganizationRenamed,
+                organization.Id,
+                new OrganizationRenamedAuditDetails(oldName, organization.Name)));
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

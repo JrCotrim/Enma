@@ -74,6 +74,7 @@ public sealed class OrganizationMemberAdministrationQueriesTests(
         Assert.Empty(emailSearch.Items);
         Assert.Equal(2, nameSearch.TotalCount);
         Assert.All(nameSearch.Items, item => Assert.Equal("Same Name", item.Name));
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
         Assert.Empty(dbContext.ChangeTracker.Entries());
     }
 

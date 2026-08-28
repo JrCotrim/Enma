@@ -63,6 +63,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
             Assert.Equal(
                 OrganizationRole.Member,
                 await FindRoleAsync(graph.TargetMembership.Id));
+            Assert.Equal(1, await CountAuditLogsAsync());
         }
         finally
         {
@@ -108,6 +109,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
             Assert.Equal(
                 OrganizationRole.Administrator,
                 await FindRoleAsync(graph.TargetMembership.Id));
+            Assert.Equal(0, await CountAuditLogsAsync());
         }
         finally
         {
@@ -153,6 +155,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
             Assert.Equal(
                 OrganizationRole.Member,
                 await FindRoleAsync(graph.TargetMembership.Id));
+            Assert.Equal(0, await CountAuditLogsAsync());
         }
         finally
         {
@@ -201,6 +204,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
             Assert.Equal(
                 OrganizationRole.Administrator,
                 await FindRoleAsync(graph.TargetMembership.Id));
+            Assert.Equal(1, await CountAuditLogsAsync());
         }
         finally
         {
@@ -270,7 +274,9 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
             new DbContextOptionsBuilder<EnmaDbContext>()
                 .UseNpgsql(fixture.ConnectionString)
                 .Options;
-        return new OrganizationMemberRoleMutationPersistence(options);
+        return new OrganizationMemberRoleMutationPersistence(
+            options,
+            new FixedTimeProvider(CreatedAt.AddHours(1)));
     }
 
     private static OrganizationMemberRoleMutationPersistenceRequest CreateRequest(
@@ -381,6 +387,12 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
             .SingleAsync();
     }
 
+    private async Task<int> CountAuditLogsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.CountAsync();
+    }
+
     private async Task SeedAsync(params object[] entities)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -448,4 +460,9 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
         User ActorUser,
         OrganizationMembership ActorMembership,
         OrganizationMembership TargetMembership);
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
 }

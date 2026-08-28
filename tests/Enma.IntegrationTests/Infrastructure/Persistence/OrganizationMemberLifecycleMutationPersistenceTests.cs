@@ -1,4 +1,5 @@
 using Enma.Application.Organizations.Members.Lifecycle;
+using Enma.Domain.Auditing;
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Documents;
 using Enma.Domain.Notifications;
@@ -69,6 +70,22 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
             1,
             await dbContext.OrganizationMemberships.CountAsync(
                 membership => membership.Id == graph.TargetMembership.Id));
+        AuditLog auditLog = await dbContext.AuditLogs
+            .AsNoTracking()
+            .SingleAsync();
+        Assert.Equal(graph.Organization.Id, auditLog.OrganizationId);
+        Assert.Equal(graph.ActorUser.Id, auditLog.ActorUserId);
+        Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(actorRole, auditLog.ActorRoleAtOccurrence);
+        Assert.Equal(
+            operation == OrganizationMemberLifecycleOperation.Deactivate
+                ? AuditEventType.OrganizationMembershipDeactivated
+                : AuditEventType.OrganizationMembershipReactivated,
+            auditLog.EventType);
+        Assert.Equal(AuditEntityType.OrganizationMembership, auditLog.EntityType);
+        Assert.Equal(graph.TargetMembership.Id, auditLog.EntityId);
+        Assert.Equal(Now, auditLog.OccurredAt);
+        Assert.Null(auditLog.Details);
     }
 
     [Theory]
@@ -101,6 +118,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
         Assert.Equal(
             initiallyActive,
             await FindMembershipActivityAsync(graph.TargetMembership.Id));
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Theory]
@@ -185,6 +203,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
         Assert.Equal(
             initiallyActive,
             await FindMembershipActivityAsync(graph.TargetMembership.Id));
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Fact]
@@ -206,6 +225,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
                 .InactiveUserConflict,
             result);
         Assert.True(await FindMembershipActivityAsync(graph.TargetMembership.Id));
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Theory]
@@ -234,6 +254,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
             OrganizationMemberLifecycleMutationPersistenceResult.AccessDenied,
             result);
         Assert.True(await FindMembershipActivityAsync(graph.TargetMembership.Id));
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Theory]
@@ -268,6 +289,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
         Assert.Equal(
             expectedConflict,
             await FindMembershipActivityAsync(graph.TargetMembership.Id));
+        Assert.Equal(expectedConflict ? 0 : 1, await CountAuditLogsAsync());
     }
 
     [Fact]
@@ -356,6 +378,18 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
         Assert.True(await dbContext.Notifications.AnyAsync(candidate =>
             candidate.Id == notification.Id &&
             candidate.RecipientUserId == graph.TargetUser.Id));
+        Assert.Equal(2, await dbContext.AuditLogs.CountAsync());
+        Assert.Equal(
+            [
+                AuditEventType.OrganizationMembershipDeactivated,
+                AuditEventType.OrganizationMembershipReactivated
+            ],
+            await dbContext.AuditLogs
+                .AsNoTracking()
+                .OrderBy(auditLog => auditLog.OccurredAt)
+                .ThenBy(auditLog => auditLog.EventType)
+                .Select(auditLog => auditLog.EventType)
+                .ToArrayAsync());
     }
 
     private OrganizationMemberLifecycleMutationPersistence CreatePersistence()
@@ -554,6 +588,12 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
             .Where(membership => membership.Id == membershipId)
             .Select(membership => membership.IsActive)
             .SingleAsync();
+    }
+
+    private async Task<int> CountAuditLogsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.CountAsync();
     }
 
     private async Task SeedAsync(params object[] entities)

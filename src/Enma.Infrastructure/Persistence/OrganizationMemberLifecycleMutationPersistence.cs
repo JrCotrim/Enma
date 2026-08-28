@@ -1,5 +1,7 @@
 using System.Data;
+using Enma.Application.Auditing;
 using Enma.Application.Organizations.Members.Lifecycle;
+using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -159,6 +161,17 @@ public sealed class OrganizationMemberLifecycleMutationPersistence
             targetMembership.Deactivate();
         }
 
+        TransactionalAuditActorContext auditActor =
+            TransactionalAuditActorContext.FromValidatedMembership(actorMembership);
+        AuditLogAppender.Append(
+            dbContext,
+            _timeProvider,
+            auditActor,
+            new AuditIntent(
+                request.Operation == OrganizationMemberLifecycleOperation.Deactivate
+                    ? AuditEventType.OrganizationMembershipDeactivated
+                    : AuditEventType.OrganizationMembershipReactivated,
+                targetMembership.Id));
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

@@ -1,10 +1,12 @@
 using System.Data.Common;
 using Enma.Application.Organizations.UpdateName;
+using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
 
@@ -20,6 +22,7 @@ public sealed class OrganizationNameMutationPersistenceTests(
         0,
         0,
         TimeSpan.Zero);
+    private static readonly DateTimeOffset OccurredAt = CreatedAt.AddHours(3);
 
     public Task InitializeAsync() => fixture.ResetDatabaseAsync();
 
@@ -44,6 +47,19 @@ public sealed class OrganizationNameMutationPersistenceTests(
         Assert.Equal(before.Slug, after.Slug);
         Assert.Equal(before.IsActive, after.IsActive);
         Assert.Equal(before.CreatedAt, after.CreatedAt);
+        AuditLog auditLog = await FindSingleAuditLogAsync();
+        Assert.Equal(graph.Organization.Id, auditLog.OrganizationId);
+        Assert.Equal(graph.ActorUser.Id, auditLog.ActorUserId);
+        Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(OrganizationRole.Owner, auditLog.ActorRoleAtOccurrence);
+        Assert.Equal(AuditEventType.OrganizationRenamed, auditLog.EventType);
+        Assert.Equal(AuditEntityType.Organization, auditLog.EntityType);
+        Assert.Equal(graph.Organization.Id, auditLog.EntityId);
+        Assert.Equal(OccurredAt, auditLog.OccurredAt);
+        OrganizationRenamedAuditDetails details =
+            Assert.IsType<OrganizationRenamedAuditDetails>(auditLog.Details);
+        Assert.Equal(before.Name, details.OldName);
+        Assert.Equal("Renamed Legal", details.NewName);
     }
 
     [Fact]
@@ -59,6 +75,11 @@ public sealed class OrganizationNameMutationPersistenceTests(
         Assert.Equal(
             "Normalized Legal",
             (await FindOrganizationAsync(graph.Organization.Id)).Name);
+        OrganizationRenamedAuditDetails details =
+            Assert.IsType<OrganizationRenamedAuditDetails>(
+                (await FindSingleAuditLogAsync()).Details);
+        Assert.Equal(graph.Organization.Name, details.OldName);
+        Assert.Equal("Normalized Legal", details.NewName);
     }
 
     [Fact]
@@ -80,6 +101,7 @@ public sealed class OrganizationNameMutationPersistenceTests(
             command => command.StartsWith(
                 "UPDATE organizations",
                 StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Theory]
@@ -112,6 +134,28 @@ public sealed class OrganizationNameMutationPersistenceTests(
         Assert.Equal(
             graph.Organization.Name,
             (await FindOrganizationAsync(graph.Organization.Id)).Name);
+        Assert.Equal(0, await CountAuditLogsAsync());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AuditInsertFailure_RollsBackRename()
+    {
+        TestGraph graph = await SeedGraphAsync();
+
+        DbUpdateException exception = await Assert.ThrowsAsync<DbUpdateException>(
+            () => CreatePersistence(new InvalidAuditDetailsInterceptor())
+                .ExecuteAsync(CreateRequest(graph, "Rollback Legal")));
+
+        PostgresException postgresException = Assert.IsType<PostgresException>(
+            exception.InnerException);
+        Assert.Equal(PostgresErrorCodes.CheckViolation, postgresException.SqlState);
+        Assert.Equal(
+            "ck_audit_logs_details_contract",
+            postgresException.ConstraintName);
+        Assert.Equal(
+            graph.Organization.Name,
+            (await FindOrganizationAsync(graph.Organization.Id)).Name);
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Fact]
@@ -259,7 +303,7 @@ public sealed class OrganizationNameMutationPersistenceTests(
     }
 
     private OrganizationNameMutationPersistence CreatePersistence(
-        DbCommandInterceptor? interceptor = null)
+        IInterceptor? interceptor = null)
     {
         var optionsBuilder = new DbContextOptionsBuilder<EnmaDbContext>()
             .UseNpgsql(fixture.ConnectionString);
@@ -269,7 +313,9 @@ public sealed class OrganizationNameMutationPersistenceTests(
             optionsBuilder.AddInterceptors(interceptor);
         }
 
-        return new OrganizationNameMutationPersistence(optionsBuilder.Options);
+        return new OrganizationNameMutationPersistence(
+            optionsBuilder.Options,
+            new FixedTimeProvider(OccurredAt));
     }
 
     private static OrganizationNameMutationPersistenceRequest CreateRequest(
@@ -330,6 +376,18 @@ public sealed class OrganizationNameMutationPersistenceTests(
                 organization.IsActive,
                 organization.CreatedAt))
             .SingleAsync();
+    }
+
+    private async Task<AuditLog> FindSingleAuditLogAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.AsNoTracking().SingleAsync();
+    }
+
+    private async Task<int> CountAuditLogsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.CountAsync();
     }
 
     private async Task SeedAsync(params object[] entities)
@@ -415,6 +473,29 @@ public sealed class OrganizationNameMutationPersistenceTests(
             Commands.Add(command.CommandText);
             return ValueTask.FromResult(result);
         }
+    }
+
+    private sealed class InvalidAuditDetailsInterceptor : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            EnmaDbContext dbContext = Assert.IsType<EnmaDbContext>(eventData.Context);
+            AuditLog auditLog = Assert.Single(
+                dbContext.ChangeTracker.Entries<AuditLog>(),
+                entry => entry.State == EntityState.Added).Entity;
+            dbContext.Entry(auditLog)
+                .Property<string?>("_detailsJson")
+                .CurrentValue = null;
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
     private sealed record CommandSnapshot(

@@ -66,6 +66,7 @@ public sealed class OrganizationNameMutationPersistenceConcurrencyTests(
             Assert.Equal(
                 graph.Organization.Name,
                 await FindNameAsync(graph.Organization.Id));
+            Assert.Equal(0, await CountAuditLogsAsync());
         }
         finally
         {
@@ -108,6 +109,7 @@ public sealed class OrganizationNameMutationPersistenceConcurrencyTests(
             Assert.Equal(
                 graph.Organization.Name,
                 await FindNameAsync(graph.Organization.Id));
+            Assert.Equal(0, await CountAuditLogsAsync());
         }
         finally
         {
@@ -150,6 +152,7 @@ public sealed class OrganizationNameMutationPersistenceConcurrencyTests(
             Assert.Equal(
                 "Second Legal",
                 await FindNameAsync(graph.Organization.Id));
+            Assert.Equal(2, await CountAuditLogsAsync());
         }
         finally
         {
@@ -170,7 +173,9 @@ public sealed class OrganizationNameMutationPersistenceConcurrencyTests(
             optionsBuilder.AddInterceptors(interceptor);
         }
 
-        return new OrganizationNameMutationPersistence(optionsBuilder.Options);
+        return new OrganizationNameMutationPersistence(
+            optionsBuilder.Options,
+            new FixedTimeProvider(CreatedAt.AddHours(1)));
     }
 
     private static OrganizationNameMutationPersistenceRequest CreateRequest(
@@ -279,6 +284,12 @@ public sealed class OrganizationNameMutationPersistenceConcurrencyTests(
             .SingleAsync();
     }
 
+    private async Task<int> CountAuditLogsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.CountAsync();
+    }
+
     private static Task<IDbContextTransaction> BeginTransactionAsync(
         EnmaDbContext dbContext,
         CancellationToken cancellationToken)
@@ -322,6 +333,11 @@ public sealed class OrganizationNameMutationPersistenceConcurrencyTests(
         Organization Organization,
         User ActorUser,
         OrganizationMembership ActorMembership);
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
 
     private sealed class PauseAfterOrganizationLockInterceptor
         : DbCommandInterceptor

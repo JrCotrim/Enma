@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Enma.Application.Organizations.Members.Role;
+using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
@@ -20,6 +21,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
         0,
         0,
         TimeSpan.Zero);
+    private static readonly DateTimeOffset OccurredAt = CreatedAt.AddHours(3);
 
     public Task InitializeAsync() => fixture.ResetDatabaseAsync();
 
@@ -45,6 +47,22 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
             OrganizationMemberRoleMutationPersistenceResult.Succeeded,
             result);
         Assert.Equal(requestedRole, await FindRoleAsync(graph.TargetMembership.Id));
+        AuditLog auditLog = await FindSingleAuditLogAsync();
+        Assert.Equal(graph.Organization.Id, auditLog.OrganizationId);
+        Assert.Equal(graph.ActorUser.Id, auditLog.ActorUserId);
+        Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(OrganizationRole.Owner, auditLog.ActorRoleAtOccurrence);
+        Assert.Equal(
+            AuditEventType.OrganizationMembershipRoleChanged,
+            auditLog.EventType);
+        Assert.Equal(AuditEntityType.OrganizationMembership, auditLog.EntityType);
+        Assert.Equal(graph.TargetMembership.Id, auditLog.EntityId);
+        Assert.Equal(OccurredAt, auditLog.OccurredAt);
+        OrganizationMembershipRoleChangedAuditDetails details =
+            Assert.IsType<OrganizationMembershipRoleChangedAuditDetails>(
+                auditLog.Details);
+        Assert.Equal(currentRole, details.OldRole);
+        Assert.Equal(requestedRole, details.NewRole);
     }
 
     [Theory]
@@ -68,6 +86,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
             OrganizationMemberRoleMutationPersistenceResult.Succeeded,
             result);
         Assert.Equal(currentRole, await FindRoleAsync(graph.TargetMembership.Id));
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Fact]
@@ -88,6 +107,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
         Assert.Equal(
             OrganizationRole.Administrator,
             await FindRoleAsync(graph.TargetMembership.Id));
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Fact]
@@ -128,6 +148,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
         Assert.Equal(
             OrganizationRole.Owner,
             await FindRoleAsync(graph.TargetMembership.Id));
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Fact]
@@ -193,6 +214,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
         Assert.Equal(
             OrganizationRole.Member,
             await FindRoleAsync(graph.TargetMembership.Id));
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Theory]
@@ -278,7 +300,9 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
             optionsBuilder.AddInterceptors(interceptor);
         }
 
-        return new OrganizationMemberRoleMutationPersistence(optionsBuilder.Options);
+        return new OrganizationMemberRoleMutationPersistence(
+            optionsBuilder.Options,
+            new FixedTimeProvider(OccurredAt));
     }
 
     private static OrganizationMemberRoleMutationPersistenceRequest CreateRequest(
@@ -361,6 +385,18 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
             .SingleAsync();
     }
 
+    private async Task<AuditLog> FindSingleAuditLogAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.AsNoTracking().SingleAsync();
+    }
+
+    private async Task<int> CountAuditLogsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.CountAsync();
+    }
+
     private async Task SeedAsync(params object[] entities)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -425,4 +461,9 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
     private sealed record CommandSnapshot(
         string Text,
         IReadOnlyList<object?> ParameterValues);
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
 }

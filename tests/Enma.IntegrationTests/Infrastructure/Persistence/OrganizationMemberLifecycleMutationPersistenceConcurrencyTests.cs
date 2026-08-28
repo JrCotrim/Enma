@@ -269,6 +269,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
                 OrganizationMemberLifecycleMutationPersistenceResult.Succeeded,
                 result));
         Assert.False(await FindMembershipActivityAsync(graph.TargetMembership.Id));
+        Assert.Equal(1, await CountAuditLogsAsync());
     }
 
     [Fact]
@@ -310,6 +311,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
                     result));
             Assert.True(await FindMembershipActivityAsync(
                 graph.TargetMembership.Id));
+            Assert.Equal(2, await CountAuditLogsAsync());
         }
         finally
         {
@@ -363,6 +365,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
                 result);
             Assert.True(await FindMembershipActivityAsync(
                 graph.TargetMembership.Id));
+            Assert.Equal(0, await CountAuditLogsAsync());
         }
         finally
         {
@@ -411,6 +414,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
                 result);
             Assert.True(await FindMembershipActivityAsync(
                 graph.TargetMembership.Id));
+            Assert.Equal(0, await CountAuditLogsAsync());
         }
         finally
         {
@@ -468,6 +472,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
                     candidate.Id == graph.TargetMembership.Id);
             Assert.Equal(OrganizationRole.Administrator, target.Role);
             Assert.False(target.IsActive);
+            Assert.Equal(2, await dbContext.AuditLogs.CountAsync());
         }
         finally
         {
@@ -647,7 +652,8 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
         IInterceptor? interceptor = null)
     {
         return new OrganizationMemberRoleMutationPersistence(
-            CreateOptions(interceptor));
+            CreateOptions(interceptor),
+            new FixedTimeProvider(Now));
     }
 
     private DbContextOptions<EnmaDbContext> CreateOptions(
@@ -824,6 +830,12 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
             .Where(membership => membership.Id == membershipId)
             .Select(membership => membership.IsActive)
             .SingleAsync();
+    }
+
+    private async Task<int> CountAuditLogsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.AuditLogs.CountAsync();
     }
 
     private async Task SeedAsync(params object[] entities)
