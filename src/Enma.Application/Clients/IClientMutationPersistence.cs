@@ -1,26 +1,61 @@
+using Enma.Domain.Clients;
+
 namespace Enma.Application.Clients;
 
 public interface IClientMutationPersistence
 {
     Task<ClientMutationPersistenceResult> UpdateNameAsync(
-        Guid clientId,
-        Guid organizationId,
-        string name,
+        ClientMutationPersistenceRequest request,
+        Func<ClientMutationLockedState, ClientMutationDecision> decide,
         CancellationToken cancellationToken = default);
 
     Task<ClientMutationPersistenceResult> DeactivateAsync(
-        Guid clientId,
-        Guid organizationId,
+        ClientMutationPersistenceRequest request,
+        Func<ClientMutationLockedState, ClientMutationDecision> decide,
         CancellationToken cancellationToken = default);
 
     Task<ClientMutationPersistenceResult> ReactivateAsync(
-        Guid clientId,
-        Guid organizationId,
+        ClientMutationPersistenceRequest request,
+        Func<ClientMutationLockedState, ClientMutationDecision> decide,
         CancellationToken cancellationToken = default);
+}
+
+public sealed record ClientMutationPersistenceRequest(
+    Guid UserId,
+    Guid OrganizationId,
+    Guid ActorMembershipId,
+    Guid ClientId);
+
+public sealed record ClientMutationLockedState(
+    Client Client,
+    bool IsOrganizationActive,
+    ClientLockedActorState? Actor);
+
+public sealed class ClientMutationDecision
+{
+    private ClientMutationDecision(ClientMutationDecisionStatus status)
+    {
+        Status = status;
+    }
+
+    public ClientMutationDecisionStatus Status { get; }
+
+    public static ClientMutationDecision AccessDenied { get; } = new(
+        ClientMutationDecisionStatus.AccessDenied);
+
+    public static ClientMutationDecision Persist { get; } = new(
+        ClientMutationDecisionStatus.Persist);
+}
+
+public enum ClientMutationDecisionStatus
+{
+    AccessDenied = 0,
+    Persist = 1
 }
 
 public enum ClientMutationPersistenceResult
 {
-    NotFound = 0,
-    Succeeded = 1
+    AccessDenied = 0,
+    NotFound = 1,
+    Succeeded = 2
 }

@@ -26,14 +26,14 @@ public sealed class UpdateLegalProcessUseCase
         string title,
         CancellationToken cancellationToken = default)
     {
-        ProcessActionAuthorizationResult authorization =
-            await _actionAuthorization.AuthorizeAsync(
+        OrganizationAccessAuthorizationResult authorization =
+            await _actionAuthorization.AuthorizeActorAsync(
                 userId,
                 organizationId,
                 ProcessAction.Update,
                 cancellationToken);
 
-        if (authorization == ProcessActionAuthorizationResult.Denied)
+        if (authorization.MembershipId is not Guid actorMembershipId)
         {
             return UpdateLegalProcessResult.AccessDenied;
         }
@@ -43,14 +43,18 @@ public sealed class UpdateLegalProcessUseCase
             return UpdateLegalProcessResult.NotFound;
         }
 
+        var request = new LegalProcessMutationPersistenceRequest(
+            userId,
+            organizationId,
+            actorMembershipId,
+            processId);
         LegalProcessMutationPersistenceResult persistenceResult;
 
         try
         {
             persistenceResult = await _mutationPersistence.UpdateTitleAsync(
-                processId,
-                organizationId,
-                title,
+                request,
+                state => DecideUpdate(request, state, title),
                 cancellationToken);
         }
         catch (ArgumentException exception) when (exception.ParamName == "title")
@@ -58,8 +62,36 @@ public sealed class UpdateLegalProcessUseCase
             throw new RequestValidationException(exception.Message, exception);
         }
 
-        return persistenceResult == LegalProcessMutationPersistenceResult.Updated
-            ? UpdateLegalProcessResult.Updated
-            : UpdateLegalProcessResult.NotFound;
+        return persistenceResult switch
+        {
+            LegalProcessMutationPersistenceResult.AccessDenied =>
+                UpdateLegalProcessResult.AccessDenied,
+            LegalProcessMutationPersistenceResult.NotFound =>
+                UpdateLegalProcessResult.NotFound,
+            LegalProcessMutationPersistenceResult.Updated =>
+                UpdateLegalProcessResult.Updated,
+            _ => throw new InvalidOperationException(
+                "Legal process mutation persistence returned an invalid result.")
+        };
+    }
+
+    private LegalProcessMutationDecision DecideUpdate(
+        LegalProcessMutationPersistenceRequest request,
+        LegalProcessMutationLockedState state,
+        string title)
+    {
+        if (!state.IsOrganizationActive ||
+            state.Actor is not { } actor ||
+            !actor.IsAvailableFor(
+                request.UserId,
+                request.OrganizationId,
+                request.ActorMembershipId) ||
+            !_actionAuthorization.CanExecute(ProcessAction.Update, actor.Role))
+        {
+            return LegalProcessMutationDecision.AccessDenied;
+        }
+
+        state.LegalProcess.ChangeTitle(title);
+        return LegalProcessMutationDecision.Persist;
     }
 }

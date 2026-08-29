@@ -6,12 +6,15 @@ using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 
 namespace Enma.Infrastructure.Persistence;
 
 public sealed class OrganizationMemberRoleMutationPersistence
     : IOrganizationMemberRoleMutationPersistence
 {
+    private const string LockNotAvailableSqlState = "55P03";
+
     private readonly DbContextOptions<EnmaDbContext> _dbContextOptions;
     private readonly TimeProvider _timeProvider;
 
@@ -38,6 +41,24 @@ public sealed class OrganizationMemberRoleMutationPersistence
             return OrganizationMemberRoleMutationPersistenceResult.InvalidInput;
         }
 
+        while (true)
+        {
+            try
+            {
+                return await ExecuteAttemptAsync(request, cancellationToken);
+            }
+            catch (Exception exception) when (IsLockNotAvailable(exception))
+            {
+                await WaitForMembershipLocksAsync(request, cancellationToken);
+            }
+        }
+    }
+
+    private async Task<OrganizationMemberRoleMutationPersistenceResult>
+        ExecuteAttemptAsync(
+            OrganizationMemberRoleMutationPersistenceRequest request,
+            CancellationToken cancellationToken)
+    {
         await using var dbContext = new EnmaDbContext(_dbContextOptions);
         await using IDbContextTransaction transaction =
             await dbContext.Database.BeginTransactionAsync(
@@ -49,7 +70,10 @@ public sealed class OrganizationMemberRoleMutationPersistence
             request.OrganizationId,
             cancellationToken);
         IReadOnlyDictionary<Guid, OrganizationMembership> memberships =
-            await LockMembershipsAsync(dbContext, request, cancellationToken);
+            await LockMembershipsNowaitAsync(
+                dbContext,
+                request,
+                cancellationToken);
         User? actorUser = await LockActorUserAsync(
             dbContext,
             request.UserId,
@@ -125,6 +149,24 @@ public sealed class OrganizationMemberRoleMutationPersistence
         return OrganizationMemberRoleMutationPersistenceResult.Succeeded;
     }
 
+    private async Task WaitForMembershipLocksAsync(
+        OrganizationMemberRoleMutationPersistenceRequest request,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = new EnmaDbContext(_dbContextOptions);
+        await using IDbContextTransaction transaction =
+            await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                cancellationToken);
+
+        await LockMembershipsAsync(
+            dbContext,
+            request,
+            nowait: false,
+            cancellationToken);
+        await transaction.RollbackAsync(cancellationToken);
+    }
+
     private static async Task<Organization?> LockOrganizationAsync(
         EnmaDbContext dbContext,
         Guid organizationId,
@@ -142,10 +184,24 @@ public sealed class OrganizationMemberRoleMutationPersistence
     }
 
     private static async Task<IReadOnlyDictionary<Guid, OrganizationMembership>>
-        LockMembershipsAsync(
+        LockMembershipsNowaitAsync(
             EnmaDbContext dbContext,
             OrganizationMemberRoleMutationPersistenceRequest request,
             CancellationToken cancellationToken)
+    {
+        return (await LockMembershipsAsync(
+                dbContext,
+                request,
+                nowait: true,
+                cancellationToken))
+            .ToDictionary(membership => membership.Id);
+    }
+
+    private static Task<List<OrganizationMembership>> LockMembershipsAsync(
+        EnmaDbContext dbContext,
+        OrganizationMemberRoleMutationPersistenceRequest request,
+        bool nowait,
+        CancellationToken cancellationToken)
     {
         Guid[] orderedMembershipIds =
         [
@@ -157,19 +213,30 @@ public sealed class OrganizationMemberRoleMutationPersistence
             .OrderBy(membershipId => membershipId)
             .ToArray();
 
-        List<OrganizationMembership> memberships =
-            await dbContext.OrganizationMemberships
+        if (nowait)
+        {
+            return dbContext.OrganizationMemberships
                 .FromSqlInterpolated(
                     $"""
                     SELECT * FROM organization_memberships
                     WHERE organization_id = {request.OrganizationId}
                       AND id = ANY ({orderedMembershipIds})
                     ORDER BY id
-                    FOR UPDATE
+                    FOR UPDATE NOWAIT
                     """)
                 .ToListAsync(cancellationToken);
+        }
 
-        return memberships.ToDictionary(membership => membership.Id);
+        return dbContext.OrganizationMemberships
+            .FromSqlInterpolated(
+                $"""
+                SELECT * FROM organization_memberships
+                WHERE organization_id = {request.OrganizationId}
+                  AND id = ANY ({orderedMembershipIds})
+                ORDER BY id
+                FOR UPDATE
+                """)
+            .ToListAsync(cancellationToken);
     }
 
     private static async Task<User?> LockActorUserAsync(
@@ -191,5 +258,21 @@ public sealed class OrganizationMemberRoleMutationPersistence
     private static bool IsMutableRole(OrganizationRole role)
     {
         return role is OrganizationRole.Administrator or OrganizationRole.Member;
+    }
+
+    private static bool IsLockNotAvailable(Exception exception)
+    {
+        for (Exception? current = exception;
+             current is not null;
+             current = current.InnerException)
+        {
+            if (current is PostgresException postgresException &&
+                postgresException.SqlState == LockNotAvailableSqlState)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -24,14 +24,14 @@ public sealed class ReactivateClientUseCase
         Guid clientId,
         CancellationToken cancellationToken = default)
     {
-        ClientActionAuthorizationResult authorization =
-            await _actionAuthorization.AuthorizeAsync(
+        OrganizationAccessAuthorizationResult authorization =
+            await _actionAuthorization.AuthorizeActorAsync(
                 userId,
                 organizationId,
                 ClientAction.Reactivate,
                 cancellationToken);
 
-        if (authorization == ClientActionAuthorizationResult.Denied)
+        if (authorization.MembershipId is not Guid actorMembershipId)
         {
             return ReactivateClientResult.AccessDenied;
         }
@@ -41,14 +41,48 @@ public sealed class ReactivateClientUseCase
             return ReactivateClientResult.NotFound;
         }
 
+        var request = new ClientMutationPersistenceRequest(
+            userId,
+            organizationId,
+            actorMembershipId,
+            clientId);
         ClientMutationPersistenceResult persistenceResult =
             await _mutationPersistence.ReactivateAsync(
-                clientId,
-                organizationId,
+                request,
+                state => DecideReactivation(request, state),
                 cancellationToken);
 
-        return persistenceResult == ClientMutationPersistenceResult.Succeeded
-            ? ReactivateClientResult.Succeeded
-            : ReactivateClientResult.NotFound;
+        return persistenceResult switch
+        {
+            ClientMutationPersistenceResult.AccessDenied =>
+                ReactivateClientResult.AccessDenied,
+            ClientMutationPersistenceResult.NotFound =>
+                ReactivateClientResult.NotFound,
+            ClientMutationPersistenceResult.Succeeded =>
+                ReactivateClientResult.Succeeded,
+            _ => throw new InvalidOperationException(
+                "Client mutation persistence returned an invalid result.")
+        };
+    }
+
+    private ClientMutationDecision DecideReactivation(
+        ClientMutationPersistenceRequest request,
+        ClientMutationLockedState state)
+    {
+        if (!state.IsOrganizationActive ||
+            state.Actor is not { } actor ||
+            !actor.IsAvailableFor(
+                request.UserId,
+                request.OrganizationId,
+                request.ActorMembershipId) ||
+            !_actionAuthorization.CanExecute(
+                ClientAction.Reactivate,
+                actor.Role))
+        {
+            return ClientMutationDecision.AccessDenied;
+        }
+
+        state.Client.Activate();
+        return ClientMutationDecision.Persist;
     }
 }

@@ -15,6 +15,9 @@ public sealed class CreateLegalDeadlineUseCaseTests
     private static readonly Guid OrganizationId = Guid.Parse(
         "684d23b6-ebec-4f4b-9389-a9c33609fc6f");
 
+    private static readonly Guid MembershipId = Guid.Parse(
+        "74f0cd5c-53b8-4afb-8278-810718d03fd4");
+
     private static readonly Guid ProcessId = Guid.Parse(
         "1f1dc5ad-229e-41d5-bebf-6e19b6bbeea2");
 
@@ -189,7 +192,7 @@ public sealed class CreateLegalDeadlineUseCaseTests
                     DueDate));
 
         Assert.Contains(LegalDeadlineErrors.TitleRequired, exception.Message);
-        Assert.Equal(0, persistence.CallCount);
+        Assert.Equal(1, persistence.CallCount);
     }
 
     [Fact]
@@ -211,7 +214,7 @@ public sealed class CreateLegalDeadlineUseCaseTests
                     DueDate));
 
         Assert.Contains(LegalDeadlineErrors.TitleTooLong, exception.Message);
-        Assert.Equal(0, persistence.CallCount);
+        Assert.Equal(1, persistence.CallCount);
     }
 
     [Fact]
@@ -233,7 +236,7 @@ public sealed class CreateLegalDeadlineUseCaseTests
                     DateOnly.MinValue));
 
         Assert.Contains(LegalDeadlineErrors.DueDateInvalid, exception.Message);
-        Assert.Equal(0, persistence.CallCount);
+        Assert.Equal(1, persistence.CallCount);
     }
 
     [Fact]
@@ -309,6 +312,21 @@ public sealed class CreateLegalDeadlineUseCaseTests
         {
             return Task.FromResult(role);
         }
+
+        public Task<OrganizationAccessLookupResult?> FindActiveAccessAsync(
+            Guid userId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            OrganizationAccessLookupResult? result = role.HasValue
+                ? new OrganizationAccessLookupResult(
+                    userId,
+                    organizationId,
+                    MembershipId,
+                    role.Value)
+                : null;
+            return Task.FromResult(result);
+        }
     }
 
     private sealed class FakeProcessOwnershipLookup(bool exists)
@@ -344,14 +362,35 @@ public sealed class CreateLegalDeadlineUseCaseTests
 
         public CancellationToken CancellationToken { get; private set; }
 
-        public Task PersistAsync(
-            LegalDeadline legalDeadline,
+        public Task<LegalDeadlineCreationPersistenceResult> ExecuteAsync(
+            LegalDeadlineCreationPersistenceRequest request,
+            Func<LegalDeadlineCreationLockedState, LegalDeadlineCreationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             CallCount++;
-            PersistedDeadline = legalDeadline;
             CancellationToken = cancellationToken;
-            return Task.CompletedTask;
+            LegalDeadlineCreationDecision decision = decide(
+                new LegalDeadlineCreationLockedState(
+                    true,
+                    new LegalDeadlineLockedActorState(
+                        MembershipId,
+                        request.OrganizationId,
+                        request.UserId,
+                        OrganizationRole.Owner,
+                        true,
+                        true),
+                    true));
+
+            if (decision.Status != LegalDeadlineCreationDecisionStatus.Persist)
+            {
+                return Task.FromResult(
+                    LegalDeadlineCreationPersistenceResult.Rejected(decision.Status));
+            }
+
+            PersistedDeadline = decision.LegalDeadline;
+            return Task.FromResult(
+                LegalDeadlineCreationPersistenceResult.Created(
+                    decision.LegalDeadline!.Id));
         }
     }
 

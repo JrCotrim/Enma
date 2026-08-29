@@ -3,6 +3,7 @@ using Enma.Application.Auditing;
 using Enma.Application.Tasks;
 using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 using Enma.Domain.Tasks;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -41,7 +42,9 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
             selectAssigneeToLock,
             decide,
             forcedAssigneeMembershipId: null,
+            forcedProcessId: null,
             allowAssigneeRetry: true,
+            allowProcessRetry: true,
             cancellationToken);
     }
 
@@ -50,7 +53,9 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
         Func<LegalTaskMutationPreviewState, Guid?> selectAssigneeToLock,
         Func<LegalTaskMutationLockedState, LegalTaskMutationDecision> decide,
         Guid? forcedAssigneeMembershipId,
+        Guid? forcedProcessId,
         bool allowAssigneeRetry,
+        bool allowProcessRetry,
         CancellationToken cancellationToken)
     {
         await using var dbContext = new EnmaDbContext(_dbContextOptions);
@@ -77,6 +82,14 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
         Guid? oldProcessId = legalTask.ProcessId;
         Guid? oldAssigneeMembershipId = legalTask.AssigneeMembershipId;
         DateTimeOffset? oldCompletedAt = legalTask.CompletedAt;
+
+        bool? isProcessAvailable = forcedProcessId is Guid processId
+            ? await LockProcessAsync(
+                dbContext,
+                request.OrganizationId,
+                processId,
+                cancellationToken)
+            : null;
 
         LegalTaskMutationMemberState? previewActor =
             await LoadPreviewActorAsync(dbContext, request, cancellationToken);
@@ -112,8 +125,8 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
             actor,
             assigneeMembershipId is not null,
             assignee,
-            null,
-            null);
+            forcedProcessId,
+            isProcessAvailable);
 
         LegalTaskMutationDecision decision = decide(lockedState);
 
@@ -132,38 +145,32 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
                 selectAssigneeToLock,
                 decide,
                 requestedAssigneeId,
+                forcedProcessId,
                 allowAssigneeRetry: false,
+                allowProcessRetry,
                 cancellationToken);
         }
 
         if (decision.Status == LegalTaskMutationDecisionStatus.ValidateProcess)
         {
-            if (decision.RelationId is not Guid processId)
+            if (!allowProcessRetry ||
+                forcedProcessId is not null ||
+                decision.RelationId is not Guid requestedProcessId)
             {
                 throw new InvalidOperationException(
                     "Legal task mutation requested invalid process validation.");
             }
 
-            bool processExists = await dbContext.LegalProcesses
-                .AsNoTracking()
-                .AnyAsync(
-                    process => process.Id == processId &&
-                        process.OrganizationId == request.OrganizationId,
-                    cancellationToken);
-
-            decision = decide(lockedState with
-            {
-                ValidatedProcessId = processId,
-                IsProcessAvailable = processExists
-            });
-
-            if (decision.Status is
-                LegalTaskMutationDecisionStatus.ValidateProcess or
-                LegalTaskMutationDecisionStatus.LockAssignee)
-            {
-                throw new InvalidOperationException(
-                    "Legal task mutation requested repeated relation validation.");
-            }
+            await transaction.RollbackAsync(cancellationToken);
+            return await ExecuteAttemptAsync(
+                request,
+                selectAssigneeToLock,
+                decide,
+                forcedAssigneeMembershipId,
+                requestedProcessId,
+                allowAssigneeRetry,
+                allowProcessRetry: false,
+                cancellationToken);
         }
 
         if (decision.Status != LegalTaskMutationDecisionStatus.Persist)
@@ -188,6 +195,25 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
         await transaction.CommitAsync(cancellationToken);
 
         return LegalTaskMutationPersistenceResult.Succeeded;
+    }
+
+    private static async Task<bool> LockProcessAsync(
+        EnmaDbContext dbContext,
+        Guid organizationId,
+        Guid processId,
+        CancellationToken cancellationToken)
+    {
+        LegalProcess? process = await dbContext.LegalProcesses
+            .FromSqlInterpolated(
+                $"""
+                SELECT * FROM legal_processes
+                WHERE id = {processId}
+                  AND organization_id = {organizationId}
+                FOR UPDATE
+                """)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return process is not null;
     }
 
     private void AppendAuditLogs(

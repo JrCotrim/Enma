@@ -27,14 +27,14 @@ public sealed class UpdateLegalDeadlineUseCase
         DateOnly dueDate,
         CancellationToken cancellationToken = default)
     {
-        DeadlineActionAuthorizationResult authorization =
-            await _actionAuthorization.AuthorizeAsync(
+        OrganizationAccessAuthorizationResult authorization =
+            await _actionAuthorization.AuthorizeActorAsync(
                 userId,
                 organizationId,
                 DeadlineAction.Update,
                 cancellationToken);
 
-        if (authorization == DeadlineActionAuthorizationResult.Denied)
+        if (authorization.MembershipId is not Guid actorMembershipId)
         {
             return UpdateLegalDeadlineResult.AccessDenied;
         }
@@ -44,15 +44,18 @@ public sealed class UpdateLegalDeadlineUseCase
             return UpdateLegalDeadlineResult.NotFound;
         }
 
+        var request = new LegalDeadlineMutationPersistenceRequest(
+            userId,
+            organizationId,
+            actorMembershipId,
+            deadlineId);
         LegalDeadlineDetailsMutationPersistenceResult persistenceResult;
 
         try
         {
             persistenceResult = await _mutationPersistence.UpdateDetailsAsync(
-                deadlineId,
-                organizationId,
-                title,
-                dueDate,
+                request,
+                state => DecideUpdate(request, state, title, dueDate),
                 cancellationToken);
         }
         catch (ArgumentException exception) when (
@@ -63,11 +66,47 @@ public sealed class UpdateLegalDeadlineUseCase
 
         return persistenceResult switch
         {
+            LegalDeadlineDetailsMutationPersistenceResult.AccessDenied =>
+                UpdateLegalDeadlineResult.AccessDenied,
             LegalDeadlineDetailsMutationPersistenceResult.Updated =>
                 UpdateLegalDeadlineResult.Updated,
             LegalDeadlineDetailsMutationPersistenceResult.Conflict =>
                 UpdateLegalDeadlineResult.Conflict,
             _ => UpdateLegalDeadlineResult.NotFound
         };
+    }
+
+    private LegalDeadlineMutationDecision DecideUpdate(
+        LegalDeadlineMutationPersistenceRequest request,
+        LegalDeadlineMutationLockedState state,
+        string title,
+        DateOnly dueDate)
+    {
+        if (!IsAuthorized(request, state, DeadlineAction.Update))
+        {
+            return LegalDeadlineMutationDecision.AccessDenied;
+        }
+
+        if (state.LegalDeadline.CompletedAt is not null)
+        {
+            return LegalDeadlineMutationDecision.Conflict;
+        }
+
+        state.LegalDeadline.ChangeDetails(title, dueDate);
+        return LegalDeadlineMutationDecision.Persist;
+    }
+
+    private bool IsAuthorized(
+        LegalDeadlineMutationPersistenceRequest request,
+        LegalDeadlineMutationLockedState state,
+        DeadlineAction action)
+    {
+        return state.IsOrganizationActive &&
+            state.Actor is { } actor &&
+            actor.IsAvailableFor(
+                request.UserId,
+                request.OrganizationId,
+                request.ActorMembershipId) &&
+            _actionAuthorization.CanExecute(action, actor.Role);
     }
 }

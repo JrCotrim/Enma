@@ -1,8 +1,10 @@
 using System.Data;
 using Enma.Application.Processes;
+using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
+using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -13,6 +15,8 @@ namespace Enma.IntegrationTests.Infrastructure.Persistence;
 public sealed class LegalProcessMutationPersistenceConcurrencyTests(
     PostgreSqlFixture fixture) : IAsyncLifetime
 {
+    private readonly Dictionary<Guid, (Guid UserId, Guid MembershipId)> _actors = [];
+
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
         8,
@@ -63,7 +67,8 @@ public sealed class LegalProcessMutationPersistenceConcurrencyTests(
 
         try
         {
-            secondMutation = CreatePersistence().UpdateTitleAsync(
+            secondMutation = UpdateTitleAsync(
+                CreatePersistence(),
                 legalProcess.Id,
                 organization.Id,
                 "Beta",
@@ -134,8 +139,8 @@ public sealed class LegalProcessMutationPersistenceConcurrencyTests(
 
         try
         {
-            LegalProcessMutationPersistenceResult result = await CreatePersistence()
-                .UpdateTitleAsync(
+            LegalProcessMutationPersistenceResult result = await UpdateTitleAsync(
+                    CreatePersistence(),
                     processB.Id,
                     organization.Id,
                     "Updated Process B",
@@ -194,8 +199,8 @@ public sealed class LegalProcessMutationPersistenceConcurrencyTests(
 
         try
         {
-            LegalProcessMutationPersistenceResult result = await CreatePersistence()
-                .UpdateTitleAsync(
+            LegalProcessMutationPersistenceResult result = await UpdateTitleAsync(
+                    CreatePersistence(),
                     processB.Id,
                     organizationA.Id,
                     "Cross-tenant title",
@@ -222,6 +227,55 @@ public sealed class LegalProcessMutationPersistenceConcurrencyTests(
         Assert.Equal(clientB.Id, persistedProcessB.ClientId);
     }
 
+    [Fact]
+    public async Task UpdateTitleAsync_CompetingSameEffectiveTitle_EmitsExactlyOneAudit()
+    {
+        Organization organization = CreateOrganization(
+            "Concurrent audit organization",
+            "concurrent-audit-process-organization");
+        var client = new Client(organization.Id, "Audit client", CreatedAt);
+        var legalProcess = new LegalProcess(
+            organization.Id,
+            client.Id,
+            "Initial audit title",
+            CreatedAt);
+        await SeedAsync(organization, client, legalProcess);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        LegalProcessMutationPersistenceResult[] results = await Task.WhenAll(
+            UpdateTitleAsync(
+                CreatePersistence(),
+                legalProcess.Id,
+                organization.Id,
+                "Same final title",
+                timeout.Token),
+            UpdateTitleAsync(
+                CreatePersistence(),
+                legalProcess.Id,
+                organization.Id,
+                " Same final title ",
+                timeout.Token));
+
+        Assert.All(results, result => Assert.Equal(
+            LegalProcessMutationPersistenceResult.Updated,
+            result));
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.Equal(
+            "Same final title",
+            await verificationContext.LegalProcesses
+                .Where(candidate => candidate.Id == legalProcess.Id)
+                .Select(candidate => candidate.Title)
+                .SingleAsync(timeout.Token));
+        AuditLog auditLog = await verificationContext.AuditLogs
+            .AsNoTracking()
+            .SingleAsync(timeout.Token);
+        Assert.Equal(
+            AuditEventType.LegalProcessTitleChanged,
+            auditLog.EventType);
+        Assert.Equal(legalProcess.Id, auditLog.EntityId);
+        Assert.Null(auditLog.Details);
+    }
+
     private LegalProcessMutationPersistence CreatePersistence()
     {
         DbContextOptions<EnmaDbContext> options =
@@ -229,7 +283,29 @@ public sealed class LegalProcessMutationPersistenceConcurrencyTests(
                 .UseNpgsql(fixture.ConnectionString)
                 .Options;
 
-        return new LegalProcessMutationPersistence(options);
+        return new LegalProcessMutationPersistence(options, TimeProvider.System);
+    }
+
+    private Task<LegalProcessMutationPersistenceResult> UpdateTitleAsync(
+        LegalProcessMutationPersistence persistence,
+        Guid processId,
+        Guid organizationId,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        (Guid userId, Guid membershipId) = _actors[organizationId];
+        return persistence.UpdateTitleAsync(
+            new LegalProcessMutationPersistenceRequest(
+                userId,
+                organizationId,
+                membershipId,
+                processId),
+            state =>
+            {
+                state.LegalProcess.ChangeTitle(title);
+                return LegalProcessMutationDecision.Persist;
+            },
+            cancellationToken);
     }
 
     private async Task WaitForBlockedLegalProcessLockAsync(
@@ -285,6 +361,21 @@ public sealed class LegalProcessMutationPersistenceConcurrencyTests(
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         dbContext.AddRange(entities);
+        foreach (Organization organization in entities.OfType<Organization>())
+        {
+            var user = new User(
+                "Concurrent process actor",
+                $"process-concurrency-{organization.Id:N}@example.test",
+                CreatedAt);
+            var membership = new OrganizationMembership(
+                organization.Id,
+                user.Id,
+                OrganizationRole.Owner,
+                CreatedAt);
+            dbContext.AddRange(user, membership);
+            _actors[organization.Id] = (user.Id, membership.Id);
+        }
+
         await dbContext.SaveChangesAsync();
     }
 

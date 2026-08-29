@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Application.Deadlines;
 using Enma.Application.Deadlines.Create;
 using Enma.Application.Deadlines.GetById;
 using Enma.Application.Deadlines.List;
@@ -276,16 +277,72 @@ public sealed class LegalDeadlineUseCasesPersistenceTests(
         Assert.Same(CreateLegalDeadlineResult.RelatedProcessUnavailable, missing);
         Assert.Same(missing, crossTenant);
         Assert.False(await operationContext.LegalDeadlines.AnyAsync());
+        Assert.False(await operationContext.AuditLogs.AnyAsync());
     }
 
-    private static CreateLegalDeadlineUseCase CreateCreateUseCase(
+    [Fact]
+    public async Task CreateAsync_UserDeactivatedAfterInitialAuthorization_DeniesLive()
+    {
+        Organization organization = CreateOrganization(
+            "Stale deadline organization",
+            "stale-deadline-organization");
+        var user = new User(
+            "Stale deadline actor",
+            "stale-deadline@example.test",
+            CreatedAt);
+        var membership = new OrganizationMembership(
+            organization.Id,
+            user.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var client = new Client(organization.Id, "Stale deadline client", CreatedAt);
+        var process = new LegalProcess(
+            organization.Id,
+            client.Id,
+            "Stale deadline process",
+            CreatedAt);
+        await SeedAsync(organization, user, membership, client, process);
+        await using EnmaDbContext operationContext = fixture.CreateDbContext();
+        var timeProvider = new FixedTimeProvider(DeadlineCreatedAt);
+        DbContextOptions<EnmaDbContext> options =
+            new DbContextOptionsBuilder<EnmaDbContext>()
+                .UseNpgsql(fixture.ConnectionString)
+                .Options;
+        var persistence = new BeforeDeadlineCreationPersistence(
+            new LegalDeadlineCreationPersistence(options, timeProvider),
+            () => DeactivateUserAsync(user.Id));
+        var useCase = new CreateLegalDeadlineUseCase(
+            CreateActionAuthorization(operationContext),
+            new ProcessOrganizationOwnershipLookup(operationContext),
+            persistence,
+            timeProvider);
+
+        CreateLegalDeadlineResult result = await useCase.ExecuteAsync(
+            user.Id,
+            organization.Id,
+            process.Id,
+            "Must not persist",
+            new DateOnly(2026, 10, 1));
+
+        Assert.Same(CreateLegalDeadlineResult.AccessDenied, result);
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.False(await verificationContext.LegalDeadlines.AnyAsync());
+        Assert.False(await verificationContext.AuditLogs.AnyAsync());
+    }
+
+    private CreateLegalDeadlineUseCase CreateCreateUseCase(
         EnmaDbContext dbContext)
     {
+        var timeProvider = new FixedTimeProvider(DeadlineCreatedAt);
+        DbContextOptions<EnmaDbContext> options =
+            new DbContextOptionsBuilder<EnmaDbContext>()
+                .UseNpgsql(fixture.ConnectionString)
+                .Options;
         return new CreateLegalDeadlineUseCase(
             CreateActionAuthorization(dbContext),
             new ProcessOrganizationOwnershipLookup(dbContext),
-            new LegalDeadlineCreationPersistence(dbContext),
-            new FixedTimeProvider(DeadlineCreatedAt));
+            new LegalDeadlineCreationPersistence(options, timeProvider),
+            timeProvider);
     }
 
     private static GetLegalDeadlineUseCase CreateGetUseCase(
@@ -341,6 +398,15 @@ public sealed class LegalDeadlineUseCasesPersistenceTests(
         await mutationContext.SaveChangesAsync();
     }
 
+    private async Task DeactivateUserAsync(Guid userId)
+    {
+        await using EnmaDbContext mutationContext = fixture.CreateDbContext();
+        User user = await mutationContext.Users.SingleAsync(
+            candidate => candidate.Id == userId);
+        user.Deactivate();
+        await mutationContext.SaveChangesAsync();
+    }
+
     private async Task SeedAsync(params object[] entities)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -363,6 +429,20 @@ public sealed class LegalDeadlineUseCasesPersistenceTests(
         public override DateTimeOffset GetUtcNow()
         {
             return utcNow;
+        }
+    }
+
+    private sealed class BeforeDeadlineCreationPersistence(
+        ILegalDeadlineCreationPersistence inner,
+        Func<Task> before) : ILegalDeadlineCreationPersistence
+    {
+        public async Task<LegalDeadlineCreationPersistenceResult> ExecuteAsync(
+            LegalDeadlineCreationPersistenceRequest request,
+            Func<LegalDeadlineCreationLockedState, LegalDeadlineCreationDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            await before();
+            return await inner.ExecuteAsync(request, decide, cancellationToken);
         }
     }
 }

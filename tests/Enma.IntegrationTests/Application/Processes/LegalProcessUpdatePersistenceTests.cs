@@ -169,7 +169,9 @@ public sealed class LegalProcessUpdatePersistenceTests(
             new ProcessActionAuthorization(
                 new OrganizationAccessAuthorization(
                     new OrganizationAccessLookup(dbContext))),
-            new LegalProcessMutationPersistence(options));
+            new LegalProcessMutationPersistence(
+                options,
+                new FixedTimeProvider(CreatedAt.AddHours(1))));
     }
 
     private async Task ChangeRoleAsync(
@@ -206,5 +208,13 @@ public sealed class LegalProcessUpdatePersistenceTests(
     private static Organization CreateOrganization(string name, string slug)
     {
         return new Organization(name, slug, CreatedAt);
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow()
+        {
+            return utcNow;
+        }
     }
 }

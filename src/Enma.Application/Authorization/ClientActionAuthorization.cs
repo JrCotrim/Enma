@@ -38,20 +38,66 @@ public sealed class ClientActionAuthorization
             return ClientActionAuthorizationResult.Denied;
         }
 
+        return CanExecute(action, role)
+            ? ClientActionAuthorizationResult.Allowed
+            : ClientActionAuthorizationResult.Denied;
+    }
+
+    internal async Task<OrganizationAccessAuthorizationResult> AuthorizeActorAsync(
+        Guid userId,
+        Guid organizationId,
+        ClientAction action,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty ||
+            organizationId == Guid.Empty ||
+            !Enum.IsDefined(action))
+        {
+            return OrganizationAccessAuthorizationResult.Denied;
+        }
+
+        OrganizationAccessAuthorizationResult organizationAccess;
+
+        try
+        {
+            organizationAccess = await _organizationAccessAuthorization.AuthorizeAsync(
+                userId,
+                organizationId,
+                cancellationToken);
+        }
+        catch (ArgumentOutOfRangeException exception) when (
+            exception.ParamName == "role")
+        {
+            return OrganizationAccessAuthorizationResult.Denied;
+        }
+
+        return organizationAccess.Status == OrganizationAccessAuthorizationStatus.Allowed &&
+            organizationAccess.UserId == userId &&
+            organizationAccess.OrganizationId == organizationId &&
+            organizationAccess.MembershipId is Guid membershipId &&
+            membershipId != Guid.Empty &&
+            organizationAccess.Role is OrganizationRole role &&
+            CanExecute(action, role)
+                ? organizationAccess
+                : OrganizationAccessAuthorizationResult.Denied;
+    }
+
+    internal bool CanExecute(ClientAction action, OrganizationRole role)
+    {
         return (action, role) switch
         {
             (ClientAction.View, OrganizationRole.Owner or
                 OrganizationRole.Administrator or
-                OrganizationRole.Member) => ClientActionAuthorizationResult.Allowed,
+                OrganizationRole.Member) => true,
             (ClientAction.Create, OrganizationRole.Owner or
-                OrganizationRole.Administrator) => ClientActionAuthorizationResult.Allowed,
+                OrganizationRole.Administrator) => true,
             (ClientAction.Update, OrganizationRole.Owner or
-                OrganizationRole.Administrator) => ClientActionAuthorizationResult.Allowed,
+                OrganizationRole.Administrator) => true,
             (ClientAction.Deactivate, OrganizationRole.Owner or
-                OrganizationRole.Administrator) => ClientActionAuthorizationResult.Allowed,
+                OrganizationRole.Administrator) => true,
             (ClientAction.Reactivate, OrganizationRole.Owner or
-                OrganizationRole.Administrator) => ClientActionAuthorizationResult.Allowed,
-            _ => ClientActionAuthorizationResult.Denied
+                OrganizationRole.Administrator) => true,
+            _ => false
         };
     }
 }

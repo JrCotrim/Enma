@@ -35,14 +35,14 @@ public sealed class CreateLegalProcessUseCase
         string title,
         CancellationToken cancellationToken = default)
     {
-        ProcessActionAuthorizationResult authorization =
-            await _actionAuthorization.AuthorizeAsync(
+        OrganizationAccessAuthorizationResult authorization =
+            await _actionAuthorization.AuthorizeActorAsync(
                 userId,
                 organizationId,
                 ProcessAction.Create,
                 cancellationToken);
 
-        if (authorization == ProcessActionAuthorizationResult.Denied)
+        if (authorization.MembershipId is not Guid actorMembershipId)
         {
             return CreateLegalProcessResult.AccessDenied;
         }
@@ -58,15 +58,58 @@ public sealed class CreateLegalProcessUseCase
             return CreateLegalProcessResult.RelatedClientUnavailable;
         }
 
-        LegalProcess legalProcess = CreateLegalProcess(
+        var request = new LegalProcessCreationPersistenceRequest(
+            userId,
             organizationId,
-            clientId,
-            title,
-            _timeProvider.GetUtcNow());
+            actorMembershipId,
+            clientId);
+        LegalProcessCreationPersistenceResult persistenceResult =
+            await _creationPersistence.ExecuteAsync(
+                request,
+                state => DecideCreation(request, state, title),
+                cancellationToken);
 
-        await _creationPersistence.PersistAsync(legalProcess, cancellationToken);
+        return persistenceResult.Status switch
+        {
+            LegalProcessCreationDecisionStatus.AccessDenied =>
+                CreateLegalProcessResult.AccessDenied,
+            LegalProcessCreationDecisionStatus.RelatedClientUnavailable =>
+                CreateLegalProcessResult.RelatedClientUnavailable,
+            LegalProcessCreationDecisionStatus.Persist
+                when persistenceResult.ProcessId is Guid processId =>
+                CreateLegalProcessResult.Success(processId),
+            _ => throw new InvalidOperationException(
+                "Legal process creation persistence returned an invalid result.")
+        };
+    }
 
-        return CreateLegalProcessResult.Success(legalProcess.Id);
+    private LegalProcessCreationDecision DecideCreation(
+        LegalProcessCreationPersistenceRequest request,
+        LegalProcessCreationLockedState state,
+        string title)
+    {
+        if (!state.IsOrganizationActive ||
+            state.Actor is not { } actor ||
+            !actor.IsAvailableFor(
+                request.UserId,
+                request.OrganizationId,
+                request.ActorMembershipId) ||
+            !_actionAuthorization.CanExecute(ProcessAction.Create, actor.Role))
+        {
+            return LegalProcessCreationDecision.AccessDenied;
+        }
+
+        if (!state.IsClientAvailable)
+        {
+            return LegalProcessCreationDecision.RelatedClientUnavailable;
+        }
+
+        return LegalProcessCreationDecision.Persist(
+            CreateLegalProcess(
+                request.OrganizationId,
+                request.ClientId,
+                title,
+                _timeProvider.GetUtcNow()));
     }
 
     private static LegalProcess CreateLegalProcess(

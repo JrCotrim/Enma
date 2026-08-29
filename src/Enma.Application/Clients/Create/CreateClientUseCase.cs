@@ -30,26 +30,61 @@ public sealed class CreateClientUseCase
         string name,
         CancellationToken cancellationToken = default)
     {
-        ClientActionAuthorizationResult authorization =
-            await _actionAuthorization.AuthorizeAsync(
+        OrganizationAccessAuthorizationResult authorization =
+            await _actionAuthorization.AuthorizeActorAsync(
                 userId,
                 organizationId,
                 ClientAction.Create,
                 cancellationToken);
 
-        if (authorization == ClientActionAuthorizationResult.Denied)
+        if (authorization.MembershipId is not Guid actorMembershipId)
         {
             return CreateClientResult.AccessDenied;
         }
 
-        Client client = CreateClient(
+        var request = new ClientCreationPersistenceRequest(
+            userId,
             organizationId,
-            name,
-            _timeProvider.GetUtcNow());
+            actorMembershipId);
+        ClientCreationPersistenceResult persistenceResult =
+            await _creationPersistence.ExecuteAsync(
+                request,
+                state => DecideCreation(request, state, name),
+                cancellationToken);
 
-        await _creationPersistence.PersistAsync(client, cancellationToken);
+        return persistenceResult.Status switch
+        {
+            ClientCreationDecisionStatus.AccessDenied =>
+                CreateClientResult.AccessDenied,
+            ClientCreationDecisionStatus.Persist
+                when persistenceResult.ClientId is Guid clientId =>
+                CreateClientResult.Success(clientId),
+            _ => throw new InvalidOperationException(
+                "Client creation persistence returned an invalid result.")
+        };
+    }
 
-        return CreateClientResult.Success(client.Id);
+    private ClientCreationDecision DecideCreation(
+        ClientCreationPersistenceRequest request,
+        ClientCreationLockedState state,
+        string name)
+    {
+        if (!state.IsOrganizationActive ||
+            state.Actor is not { } actor ||
+            !actor.IsAvailableFor(
+                request.UserId,
+                request.OrganizationId,
+                request.ActorMembershipId) ||
+            !_actionAuthorization.CanExecute(ClientAction.Create, actor.Role))
+        {
+            return ClientCreationDecision.AccessDenied;
+        }
+
+        return ClientCreationDecision.Persist(
+            CreateClient(
+                request.OrganizationId,
+                name,
+                _timeProvider.GetUtcNow()));
     }
 
     private static Client CreateClient(

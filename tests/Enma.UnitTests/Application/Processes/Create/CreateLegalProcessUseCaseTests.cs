@@ -18,6 +18,9 @@ public sealed class CreateLegalProcessUseCaseTests
     private static readonly Guid ClientId = Guid.Parse(
         "a4a86ba3-cb04-4f01-b655-b2128116fc30");
 
+    private static readonly Guid MembershipId = Guid.Parse(
+        "b4ffd8f4-eaf4-46dc-a047-29683958e996");
+
     private static readonly DateTimeOffset UtcNow = new(
         2026,
         8,
@@ -146,7 +149,7 @@ public sealed class CreateLegalProcessUseCaseTests
                     title));
 
         Assert.Contains(LegalProcessErrors.TitleRequired, exception.Message);
-        Assert.Equal(0, persistence.CallCount);
+        Assert.Equal(1, persistence.CallCount);
     }
 
     [Fact]
@@ -167,7 +170,7 @@ public sealed class CreateLegalProcessUseCaseTests
                     new string('a', 151)));
 
         Assert.Contains(LegalProcessErrors.TitleTooLong, exception.Message);
-        Assert.Equal(0, persistence.CallCount);
+        Assert.Equal(1, persistence.CallCount);
     }
 
     [Fact]
@@ -224,6 +227,21 @@ public sealed class CreateLegalProcessUseCaseTests
         {
             return Task.FromResult(role);
         }
+
+        public Task<OrganizationAccessLookupResult?> FindActiveAccessAsync(
+            Guid userId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            OrganizationAccessLookupResult? access = role is OrganizationRole value
+                ? new OrganizationAccessLookupResult(
+                    userId,
+                    organizationId,
+                    MembershipId,
+                    value)
+                : null;
+            return Task.FromResult(access);
+        }
     }
 
     private sealed class FakeActiveClientLookup(bool exists)
@@ -260,15 +278,36 @@ public sealed class CreateLegalProcessUseCaseTests
 
         public CancellationToken CancellationToken { get; private set; }
 
-        public Task PersistAsync(
-            LegalProcess legalProcess,
+        public Task<LegalProcessCreationPersistenceResult> ExecuteAsync(
+            LegalProcessCreationPersistenceRequest request,
+            Func<LegalProcessCreationLockedState, LegalProcessCreationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             CallCount++;
-            PersistedProcess = legalProcess;
             CancellationToken = cancellationToken;
+            LegalProcessCreationDecision decision = decide(
+                new LegalProcessCreationLockedState(
+                    IsOrganizationActive: true,
+                    new LegalProcessLockedActorState(
+                        request.ActorMembershipId,
+                        request.OrganizationId,
+                        request.UserId,
+                        OrganizationRole.Owner,
+                        IsMembershipActive: true,
+                        IsUserActive: true),
+                    IsClientAvailable: true));
 
-            return Task.CompletedTask;
+            if (decision.Status != LegalProcessCreationDecisionStatus.Persist ||
+                decision.LegalProcess is not { } legalProcess)
+            {
+                return Task.FromResult(
+                    LegalProcessCreationPersistenceResult.Rejected(
+                        decision.Status));
+            }
+
+            PersistedProcess = legalProcess;
+            return Task.FromResult(
+                LegalProcessCreationPersistenceResult.Created(legalProcess.Id));
         }
     }
 

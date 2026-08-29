@@ -12,6 +12,8 @@ public sealed class ReopenLegalDeadlineUseCaseTests
         "f6abf458-40af-4166-b840-bb0f34440112");
     private static readonly Guid OrganizationId = Guid.Parse(
         "c2c25251-d959-4df2-886c-8041dd99d24f");
+    private static readonly Guid MembershipId = Guid.Parse(
+        "36468d1e-2f21-45d1-b783-a7058a49c4ee");
     private static readonly Guid ProcessId = Guid.Parse(
         "34bc4148-42e2-4b83-8c4d-e34a76067483");
     private static readonly Guid DeadlineId = Guid.Parse(
@@ -180,6 +182,27 @@ public sealed class ReopenLegalDeadlineUseCaseTests
                     : null;
             return Task.FromResult(role);
         }
+
+        public Task<OrganizationAccessLookupResult?> FindActiveAccessAsync(
+            Guid userId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            CancellationToken = cancellationToken;
+            OrganizationRole? role = organizationId == firstOrganizationId
+                ? firstRole
+                : organizationId == secondOrganizationId
+                    ? secondRole
+                    : null;
+            OrganizationAccessLookupResult? result = role.HasValue
+                ? new OrganizationAccessLookupResult(
+                    userId,
+                    organizationId,
+                    MembershipId,
+                    role.Value)
+                : null;
+            return Task.FromResult(result);
+        }
     }
 
     private sealed class FakeMutationPersistence : ILegalDeadlineMutationPersistence
@@ -212,41 +235,53 @@ public sealed class ReopenLegalDeadlineUseCaseTests
         public CancellationToken CancellationToken { get; private set; }
 
         public Task<LegalDeadlineDetailsMutationPersistenceResult> UpdateDetailsAsync(
-            Guid deadlineId,
-            Guid organizationId,
-            string title,
-            DateOnly dueDate,
+            LegalDeadlineMutationPersistenceRequest request,
+            Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
         }
 
         public Task<LegalDeadlineLifecycleMutationPersistenceResult> CompleteAsync(
-            Guid deadlineId,
-            Guid organizationId,
-            DateTimeOffset completedAt,
+            LegalDeadlineMutationPersistenceRequest request,
+            Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
         }
 
         public Task<LegalDeadlineLifecycleMutationPersistenceResult> ReopenAsync(
-            Guid deadlineId,
-            Guid organizationId,
+            LegalDeadlineMutationPersistenceRequest request,
+            Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             ReopenCallCount++;
-            DeadlineId = deadlineId;
-            OrganizationId = organizationId;
+            DeadlineId = request.DeadlineId;
+            OrganizationId = request.OrganizationId;
             CancellationToken = cancellationToken;
 
-            if (_reopenResult ==
+            if (_reopenResult !=
                 LegalDeadlineLifecycleMutationPersistenceResult.Succeeded)
             {
-                Deadline.Reopen();
+                return Task.FromResult(_reopenResult);
             }
 
-            return Task.FromResult(_reopenResult);
+            LegalDeadlineMutationDecision decision = decide(
+                new LegalDeadlineMutationLockedState(
+                    Deadline,
+                    true,
+                    new LegalDeadlineLockedActorState(
+                        MembershipId,
+                        request.OrganizationId,
+                        request.UserId,
+                        OrganizationRole.Owner,
+                        true,
+                        true)));
+
+            return Task.FromResult(decision.Status ==
+                LegalDeadlineMutationDecisionStatus.AccessDenied
+                    ? LegalDeadlineLifecycleMutationPersistenceResult.AccessDenied
+                    : LegalDeadlineLifecycleMutationPersistenceResult.Succeeded);
         }
     }
 }

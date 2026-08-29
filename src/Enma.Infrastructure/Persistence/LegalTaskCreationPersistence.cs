@@ -3,6 +3,7 @@ using Enma.Application.Auditing;
 using Enma.Application.Tasks;
 using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -38,6 +39,21 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
             await dbContext.Database.BeginTransactionAsync(
                 IsolationLevel.ReadCommitted,
                 cancellationToken);
+
+        LegalProcess? process = request.ProcessId is Guid processId
+            ? await LockProcessAsync(
+                dbContext,
+                request.OrganizationId,
+                processId,
+                cancellationToken)
+            : null;
+
+        if (request.ProcessId is not null && process is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return LegalTaskCreationPersistenceResult.Rejected(
+                LegalTaskCreationDecisionStatus.RelatedProcessUnavailable);
+        }
 
         LegalTaskLockedIdentities identities = await LegalTaskIdentityLocking.LockAsync(
             dbContext,
@@ -90,6 +106,23 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
         await transaction.CommitAsync(cancellationToken);
 
         return LegalTaskCreationPersistenceResult.Succeeded(legalTask.Id);
+    }
+
+    private static Task<LegalProcess?> LockProcessAsync(
+        EnmaDbContext dbContext,
+        Guid organizationId,
+        Guid processId,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.LegalProcesses
+            .FromSqlInterpolated(
+                $"""
+                SELECT * FROM legal_processes
+                WHERE organization_id = {organizationId}
+                  AND id = {processId}
+                FOR UPDATE
+                """)
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     private static IEnumerable<Guid> GetMembershipIds(

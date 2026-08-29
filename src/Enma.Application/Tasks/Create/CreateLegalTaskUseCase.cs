@@ -86,7 +86,8 @@ public sealed class CreateLegalTaskUseCase
             actorUserId,
             contextualOrganizationId,
             actorMembershipId,
-            command.AssigneeMembershipId);
+            command.AssigneeMembershipId,
+            command.ProcessId);
 
         LegalTaskCreationPersistenceResult persistenceResult =
             await _creationPersistence.ExecuteAsync(
@@ -103,6 +104,8 @@ public sealed class CreateLegalTaskUseCase
                 CreateLegalTaskResult.AccessDenied,
             LegalTaskCreationDecisionStatus.RelatedAssigneeUnavailable =>
                 CreateLegalTaskResult.RelatedAssigneeUnavailable,
+            LegalTaskCreationDecisionStatus.RelatedProcessUnavailable =>
+                CreateLegalTaskResult.RelatedProcessUnavailable,
             LegalTaskCreationDecisionStatus.InvalidInput =>
                 CreateLegalTaskResult.InvalidInput,
             LegalTaskCreationDecisionStatus.Persist

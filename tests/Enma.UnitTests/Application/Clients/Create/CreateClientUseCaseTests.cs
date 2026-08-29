@@ -15,6 +15,9 @@ public sealed class CreateClientUseCaseTests
     private static readonly Guid OrganizationId = Guid.Parse(
         "50504893-43f3-4c41-acb6-baa208e8b7dc");
 
+    private static readonly Guid MembershipId = Guid.Parse(
+        "4599c275-0601-46a2-98a8-095d99defc74");
+
     private static readonly DateTimeOffset UtcNow = new(
         2026,
         8,
@@ -103,7 +106,7 @@ public sealed class CreateClientUseCaseTests
                 () => useCase.ExecuteAsync(UserId, OrganizationId, name));
 
         Assert.Contains(ClientErrors.NameRequired, exception.Message);
-        Assert.Equal(0, persistence.CallCount);
+        Assert.Equal(1, persistence.CallCount);
     }
 
     [Fact]
@@ -122,7 +125,7 @@ public sealed class CreateClientUseCaseTests
                     new string('a', 151)));
 
         Assert.Contains(ClientErrors.NameTooLong, exception.Message);
-        Assert.Equal(0, persistence.CallCount);
+        Assert.Equal(1, persistence.CallCount);
     }
 
     [Fact]
@@ -193,6 +196,25 @@ public sealed class CreateClientUseCaseTests
 
             return Task.FromResult(role);
         }
+
+        public async Task<OrganizationAccessLookupResult?> FindActiveAccessAsync(
+            Guid userId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            OrganizationRole? role = await FindActiveRoleAsync(
+                userId,
+                organizationId,
+                cancellationToken);
+
+            return role is OrganizationRole value
+                ? new OrganizationAccessLookupResult(
+                    userId,
+                    organizationId,
+                    MembershipId,
+                    value)
+                : null;
+        }
     }
 
     private sealed class FakeClientCreationPersistence : IClientCreationPersistence
@@ -203,15 +225,34 @@ public sealed class CreateClientUseCaseTests
 
         public CancellationToken CancellationToken { get; private set; }
 
-        public Task PersistAsync(
-            Client client,
+        public Task<ClientCreationPersistenceResult> ExecuteAsync(
+            ClientCreationPersistenceRequest request,
+            Func<ClientCreationLockedState, ClientCreationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             CallCount++;
-            PersistedClient = client;
             CancellationToken = cancellationToken;
+            ClientCreationDecision decision = decide(
+                new ClientCreationLockedState(
+                    IsOrganizationActive: true,
+                    new ClientLockedActorState(
+                        request.ActorMembershipId,
+                        request.OrganizationId,
+                        request.UserId,
+                        OrganizationRole.Owner,
+                        IsMembershipActive: true,
+                        IsUserActive: true)));
 
-            return Task.CompletedTask;
+            if (decision.Status != ClientCreationDecisionStatus.Persist ||
+                decision.Client is not { } client)
+            {
+                return Task.FromResult(
+                    ClientCreationPersistenceResult.AccessDenied);
+            }
+
+            PersistedClient = client;
+            return Task.FromResult(
+                ClientCreationPersistenceResult.Created(client.Id));
         }
     }
 

@@ -18,6 +18,9 @@ public sealed class UpdateClientUseCaseTests
     private static readonly Guid ClientId = Guid.Parse(
         "dfd5f0c7-13a3-481c-b0b1-6c9437bc7bf3");
 
+    private static readonly Guid MembershipId = Guid.Parse(
+        "03ef1710-3fdb-469d-855d-33bc9575e1cf");
+
     [Theory]
     [InlineData(OrganizationRole.Owner)]
     [InlineData(OrganizationRole.Administrator)]
@@ -258,6 +261,25 @@ public sealed class UpdateClientUseCaseTests
 
             return Task.FromResult(role);
         }
+
+        public async Task<OrganizationAccessLookupResult?> FindActiveAccessAsync(
+            Guid userId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            OrganizationRole? role = await FindActiveRoleAsync(
+                userId,
+                organizationId,
+                cancellationToken);
+
+            return role is OrganizationRole value
+                ? new OrganizationAccessLookupResult(
+                    userId,
+                    organizationId,
+                    MembershipId,
+                    value)
+                : null;
+        }
     }
 
     private sealed class FakeClientMutationPersistence(
@@ -278,27 +300,30 @@ public sealed class UpdateClientUseCaseTests
         public CancellationToken CancellationToken { get; private set; }
 
         public Task<ClientMutationPersistenceResult> UpdateNameAsync(
-            Guid clientId,
-            Guid organizationId,
-            string name,
+            ClientMutationPersistenceRequest request,
+            Func<ClientMutationLockedState, ClientMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             UpdateCallCount++;
-            ClientId = clientId;
-            OrganizationId = organizationId;
+            ClientId = request.ClientId;
+            OrganizationId = request.OrganizationId;
             CancellationToken = cancellationToken;
 
             if (result == ClientMutationPersistenceResult.Succeeded)
             {
-                Client.ChangeName(name);
+                ClientMutationDecision decision = decide(CreateState(request));
+                return Task.FromResult(
+                    decision.Status == ClientMutationDecisionStatus.Persist
+                        ? result
+                        : ClientMutationPersistenceResult.AccessDenied);
             }
 
             return Task.FromResult(result);
         }
 
         public Task<ClientMutationPersistenceResult> DeactivateAsync(
-            Guid clientId,
-            Guid organizationId,
+            ClientMutationPersistenceRequest request,
+            Func<ClientMutationLockedState, ClientMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException(
@@ -306,12 +331,27 @@ public sealed class UpdateClientUseCaseTests
         }
 
         public Task<ClientMutationPersistenceResult> ReactivateAsync(
-            Guid clientId,
-            Guid organizationId,
+            ClientMutationPersistenceRequest request,
+            Func<ClientMutationLockedState, ClientMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException(
                 "ReactivateAsync must not be called by Update Client tests.");
+        }
+
+        private ClientMutationLockedState CreateState(
+            ClientMutationPersistenceRequest request)
+        {
+            return new ClientMutationLockedState(
+                Client,
+                IsOrganizationActive: true,
+                new ClientLockedActorState(
+                    request.ActorMembershipId,
+                    request.OrganizationId,
+                    request.UserId,
+                    OrganizationRole.Owner,
+                    IsMembershipActive: true,
+                    IsUserActive: true));
         }
     }
 }

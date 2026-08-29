@@ -36,14 +36,14 @@ public sealed class CreateLegalDeadlineUseCase
         DateOnly dueDate,
         CancellationToken cancellationToken = default)
     {
-        DeadlineActionAuthorizationResult authorization =
-            await _actionAuthorization.AuthorizeAsync(
+        OrganizationAccessAuthorizationResult authorization =
+            await _actionAuthorization.AuthorizeActorAsync(
                 userId,
                 organizationId,
                 DeadlineAction.Create,
                 cancellationToken);
 
-        if (authorization == DeadlineActionAuthorizationResult.Denied)
+        if (authorization.MembershipId is not Guid actorMembershipId)
         {
             return CreateLegalDeadlineResult.AccessDenied;
         }
@@ -59,16 +59,64 @@ public sealed class CreateLegalDeadlineUseCase
             return CreateLegalDeadlineResult.RelatedProcessUnavailable;
         }
 
-        LegalDeadline legalDeadline = CreateLegalDeadline(
+        var request = new LegalDeadlineCreationPersistenceRequest(
+            userId,
             organizationId,
-            processId,
-            title,
-            dueDate,
-            _timeProvider.GetUtcNow());
+            actorMembershipId,
+            processId);
+        LegalDeadlineCreationPersistenceResult persistenceResult =
+            await _creationPersistence.ExecuteAsync(
+                request,
+                state => DecideCreation(
+                    request,
+                    state,
+                    title,
+                    dueDate),
+                cancellationToken);
 
-        await _creationPersistence.PersistAsync(legalDeadline, cancellationToken);
+        return persistenceResult.Status switch
+        {
+            LegalDeadlineCreationDecisionStatus.AccessDenied =>
+                CreateLegalDeadlineResult.AccessDenied,
+            LegalDeadlineCreationDecisionStatus.RelatedProcessUnavailable =>
+                CreateLegalDeadlineResult.RelatedProcessUnavailable,
+            LegalDeadlineCreationDecisionStatus.Persist
+                when persistenceResult.DeadlineId is Guid deadlineId =>
+                CreateLegalDeadlineResult.Created(deadlineId),
+            _ => throw new InvalidOperationException(
+                "Legal deadline creation persistence returned an invalid result.")
+        };
+    }
 
-        return CreateLegalDeadlineResult.Created(legalDeadline.Id);
+    private LegalDeadlineCreationDecision DecideCreation(
+        LegalDeadlineCreationPersistenceRequest request,
+        LegalDeadlineCreationLockedState state,
+        string title,
+        DateOnly dueDate)
+    {
+        if (!state.IsOrganizationActive ||
+            state.Actor is not { } actor ||
+            !actor.IsAvailableFor(
+                request.UserId,
+                request.OrganizationId,
+                request.ActorMembershipId) ||
+            !_actionAuthorization.CanExecute(DeadlineAction.Create, actor.Role))
+        {
+            return LegalDeadlineCreationDecision.AccessDenied;
+        }
+
+        if (!state.IsProcessAvailable)
+        {
+            return LegalDeadlineCreationDecision.RelatedProcessUnavailable;
+        }
+
+        return LegalDeadlineCreationDecision.Persist(
+            CreateLegalDeadline(
+                request.OrganizationId,
+                request.ProcessId,
+                title,
+                dueDate,
+                _timeProvider.GetUtcNow()));
     }
 
     private static LegalDeadline CreateLegalDeadline(

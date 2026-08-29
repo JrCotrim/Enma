@@ -190,7 +190,10 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
             first = persistence.ExecuteAsync(request, timeout.Token);
             await WaitForBlockedMembershipLockAsync(timeout.Token);
             second = persistence.ExecuteAsync(request, timeout.Token);
-            await WaitForBlockedLockAsync("organizations", timeout.Token);
+            await WaitForBlockedLockAsync(
+                "organization_memberships",
+                minimumCount: 2,
+                cancellationToken: timeout.Token);
 
             await blockerTransaction.CommitAsync(timeout.Token);
             OrganizationMemberRoleMutationPersistenceResult[] results =
@@ -326,11 +329,13 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
     {
         await WaitForBlockedLockAsync(
             "organization_memberships",
-            cancellationToken);
+            minimumCount: 1,
+            cancellationToken: cancellationToken);
     }
 
     private async Task WaitForBlockedLockAsync(
         string tableName,
+        int minimumCount,
         CancellationToken cancellationToken)
     {
         await using EnmaDbContext observationContext = fixture.CreateDbContext();
@@ -349,7 +354,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
                   AND query ILIKE '%FOR UPDATE%'
                 """).SingleAsync(cancellationToken);
 
-            if (count > 0)
+            if (count >= minimumCount)
             {
                 return;
             }

@@ -24,14 +24,14 @@ public sealed class ReopenLegalDeadlineUseCase
         Guid deadlineId,
         CancellationToken cancellationToken = default)
     {
-        DeadlineActionAuthorizationResult authorization =
-            await _actionAuthorization.AuthorizeAsync(
+        OrganizationAccessAuthorizationResult authorization =
+            await _actionAuthorization.AuthorizeActorAsync(
                 userId,
                 organizationId,
                 DeadlineAction.Reopen,
                 cancellationToken);
 
-        if (authorization == DeadlineActionAuthorizationResult.Denied)
+        if (authorization.MembershipId is not Guid actorMembershipId)
         {
             return ReopenLegalDeadlineResult.AccessDenied;
         }
@@ -41,15 +41,48 @@ public sealed class ReopenLegalDeadlineUseCase
             return ReopenLegalDeadlineResult.NotFound;
         }
 
+        var request = new LegalDeadlineMutationPersistenceRequest(
+            userId,
+            organizationId,
+            actorMembershipId,
+            deadlineId);
         LegalDeadlineLifecycleMutationPersistenceResult persistenceResult =
             await _mutationPersistence.ReopenAsync(
-                deadlineId,
-                organizationId,
+                request,
+                state => DecideReopening(request, state),
                 cancellationToken);
 
-        return persistenceResult ==
-            LegalDeadlineLifecycleMutationPersistenceResult.Succeeded
-                ? ReopenLegalDeadlineResult.Succeeded
-                : ReopenLegalDeadlineResult.NotFound;
+        return persistenceResult switch
+        {
+            LegalDeadlineLifecycleMutationPersistenceResult.AccessDenied =>
+                ReopenLegalDeadlineResult.AccessDenied,
+            LegalDeadlineLifecycleMutationPersistenceResult.NotFound =>
+                ReopenLegalDeadlineResult.NotFound,
+            LegalDeadlineLifecycleMutationPersistenceResult.Succeeded =>
+                ReopenLegalDeadlineResult.Succeeded,
+            _ => throw new InvalidOperationException(
+                "Legal deadline mutation persistence returned an invalid result.")
+        };
+    }
+
+    private LegalDeadlineMutationDecision DecideReopening(
+        LegalDeadlineMutationPersistenceRequest request,
+        LegalDeadlineMutationLockedState state)
+    {
+        if (!state.IsOrganizationActive ||
+            state.Actor is not { } actor ||
+            !actor.IsAvailableFor(
+                request.UserId,
+                request.OrganizationId,
+                request.ActorMembershipId) ||
+            !_actionAuthorization.CanExecute(
+                DeadlineAction.Reopen,
+                actor.Role))
+        {
+            return LegalDeadlineMutationDecision.AccessDenied;
+        }
+
+        state.LegalDeadline.Reopen();
+        return LegalDeadlineMutationDecision.Persist;
     }
 }

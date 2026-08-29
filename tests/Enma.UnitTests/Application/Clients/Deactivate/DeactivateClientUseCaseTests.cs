@@ -17,6 +17,9 @@ public sealed class DeactivateClientUseCaseTests
     private static readonly Guid ClientId = Guid.Parse(
         "d79952f8-e29f-4e97-861d-c1ec45fbf55b");
 
+    private static readonly Guid MembershipId = Guid.Parse(
+        "5165ed38-3e7d-4623-8a5d-1c057012ab8a");
+
     [Theory]
     [InlineData(OrganizationRole.Owner)]
     [InlineData(OrganizationRole.Administrator)]
@@ -192,6 +195,22 @@ public sealed class DeactivateClientUseCaseTests
             CancellationToken = cancellationToken;
             return Task.FromResult(role);
         }
+
+        public Task<OrganizationAccessLookupResult?> FindActiveAccessAsync(
+            Guid userId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            CancellationToken = cancellationToken;
+            OrganizationAccessLookupResult? access = role is OrganizationRole value
+                ? new OrganizationAccessLookupResult(
+                    userId,
+                    organizationId,
+                    MembershipId,
+                    value)
+                : null;
+            return Task.FromResult(access);
+        }
     }
 
     private sealed class FakeClientMutationPersistence : IClientMutationPersistence
@@ -226,9 +245,8 @@ public sealed class DeactivateClientUseCaseTests
         public CancellationToken CancellationToken { get; private set; }
 
         public Task<ClientMutationPersistenceResult> UpdateNameAsync(
-            Guid clientId,
-            Guid organizationId,
-            string name,
+            ClientMutationPersistenceRequest request,
+            Func<ClientMutationLockedState, ClientMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException(
@@ -236,30 +254,49 @@ public sealed class DeactivateClientUseCaseTests
         }
 
         public Task<ClientMutationPersistenceResult> DeactivateAsync(
-            Guid clientId,
-            Guid organizationId,
+            ClientMutationPersistenceRequest request,
+            Func<ClientMutationLockedState, ClientMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             DeactivateCallCount++;
-            ClientId = clientId;
-            OrganizationId = organizationId;
+            ClientId = request.ClientId;
+            OrganizationId = request.OrganizationId;
             CancellationToken = cancellationToken;
 
             if (_result == ClientMutationPersistenceResult.Succeeded)
             {
-                Client.Deactivate();
+                ClientMutationDecision decision = decide(CreateState(request));
+                return Task.FromResult(
+                    decision.Status == ClientMutationDecisionStatus.Persist
+                        ? _result
+                        : ClientMutationPersistenceResult.AccessDenied);
             }
 
             return Task.FromResult(_result);
         }
 
         public Task<ClientMutationPersistenceResult> ReactivateAsync(
-            Guid clientId,
-            Guid organizationId,
+            ClientMutationPersistenceRequest request,
+            Func<ClientMutationLockedState, ClientMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException(
                 "ReactivateAsync must not be called by Deactivate Client tests.");
+        }
+
+        private ClientMutationLockedState CreateState(
+            ClientMutationPersistenceRequest request)
+        {
+            return new ClientMutationLockedState(
+                Client,
+                IsOrganizationActive: true,
+                new ClientLockedActorState(
+                    request.ActorMembershipId,
+                    request.OrganizationId,
+                    request.UserId,
+                    OrganizationRole.Owner,
+                    IsMembershipActive: true,
+                    IsUserActive: true));
         }
     }
 }

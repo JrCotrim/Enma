@@ -565,7 +565,8 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
             graph.ActorUser.Id,
             graph.Organization.Id,
             graph.ActorMembership.Id,
-            graph.TargetMembership.Id);
+            graph.TargetMembership.Id,
+            null);
 
         return await persistence.ExecuteAsync(
             request,

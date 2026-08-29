@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Application.Clients;
 using Enma.Application.Clients.Create;
 using Enma.Application.Clients.Deactivate;
 using Enma.Application.Clients.GetById;
@@ -657,12 +658,57 @@ public sealed class ClientUseCasesPersistenceTests(
             .SingleAsync(client => client.Id == clientB.Id)).IsActive);
     }
 
-    private static CreateClientUseCase CreateCreateUseCase(EnmaDbContext dbContext)
+    [Fact]
+    public async Task UpdateAsync_RoleDowngradedAfterInitialAuthorization_DeniesLive()
     {
+        Organization organization = CreateOrganization(
+            "Stale client organization",
+            "stale-client-organization");
+        User user = CreateUser("Stale client actor", "stale-client@example.test");
+        var membership = new OrganizationMembership(
+            organization.Id,
+            user.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var client = new Client(organization.Id, "Original client", CreatedAt);
+        await SeedAsync(organization, user, membership, client);
+        await using EnmaDbContext operationContext = fixture.CreateDbContext();
+        var persistence = new BeforeClientMutationPersistence(
+            CreateMutationPersistence(),
+            () => ChangeRoleAsync(
+                user.Id,
+                organization.Id,
+                OrganizationRole.Member));
+        var useCase = new UpdateClientUseCase(
+            CreateActionAuthorization(operationContext),
+            persistence);
+
+        UpdateClientResult result = await useCase.ExecuteAsync(
+            user.Id,
+            organization.Id,
+            client.Id,
+            "Must not persist");
+
+        Assert.Same(UpdateClientResult.AccessDenied, result);
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.Equal(
+            "Original client",
+            await verificationContext.Clients
+                .Where(candidate => candidate.Id == client.Id)
+                .Select(candidate => candidate.Name)
+                .SingleAsync());
+        Assert.False(await verificationContext.AuditLogs.AnyAsync());
+    }
+
+    private CreateClientUseCase CreateCreateUseCase(EnmaDbContext dbContext)
+    {
+        var timeProvider = new FixedTimeProvider(CreatedAt.AddHours(1));
         return new CreateClientUseCase(
             CreateActionAuthorization(dbContext),
-            new ClientCreationPersistence(dbContext),
-            new FixedTimeProvider(CreatedAt.AddHours(1)));
+            new ClientCreationPersistence(
+                CreateDbContextOptions(),
+                timeProvider),
+            timeProvider);
     }
 
     private static GetClientUseCase CreateGetUseCase(EnmaDbContext dbContext)
@@ -702,12 +748,16 @@ public sealed class ClientUseCasesPersistenceTests(
 
     private ClientMutationPersistence CreateMutationPersistence()
     {
-        DbContextOptions<EnmaDbContext> options =
-            new DbContextOptionsBuilder<EnmaDbContext>()
-                .UseNpgsql(fixture.ConnectionString)
-                .Options;
+        return new ClientMutationPersistence(
+            CreateDbContextOptions(),
+            new FixedTimeProvider(CreatedAt.AddHours(2)));
+    }
 
-        return new ClientMutationPersistence(options);
+    private DbContextOptions<EnmaDbContext> CreateDbContextOptions()
+    {
+        return new DbContextOptionsBuilder<EnmaDbContext>()
+            .UseNpgsql(fixture.ConnectionString)
+            .Options;
     }
 
     private static ClientActionAuthorization CreateActionAuthorization(
@@ -755,6 +805,36 @@ public sealed class ClientUseCasesPersistenceTests(
         public override DateTimeOffset GetUtcNow()
         {
             return utcNow;
+        }
+    }
+
+    private sealed class BeforeClientMutationPersistence(
+        IClientMutationPersistence inner,
+        Func<Task> before) : IClientMutationPersistence
+    {
+        public async Task<ClientMutationPersistenceResult> UpdateNameAsync(
+            ClientMutationPersistenceRequest request,
+            Func<ClientMutationLockedState, ClientMutationDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            await before();
+            return await inner.UpdateNameAsync(request, decide, cancellationToken);
+        }
+
+        public Task<ClientMutationPersistenceResult> DeactivateAsync(
+            ClientMutationPersistenceRequest request,
+            Func<ClientMutationLockedState, ClientMutationDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<ClientMutationPersistenceResult> ReactivateAsync(
+            ClientMutationPersistenceRequest request,
+            Func<ClientMutationLockedState, ClientMutationDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 }

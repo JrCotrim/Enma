@@ -1,9 +1,11 @@
 using System.Data;
 using Enma.Application.Deadlines;
+using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
+using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -14,6 +16,8 @@ namespace Enma.IntegrationTests.Infrastructure.Persistence;
 public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
     PostgreSqlFixture fixture) : IAsyncLifetime
 {
+    private readonly Dictionary<Guid, (Guid UserId, Guid MembershipId)> _actors = [];
+
     private static readonly DateTimeOffset CreatedAt = new(
         2026, 8, 13, 20, 0, 0, TimeSpan.Zero);
     private static readonly DateOnly OriginalDueDate = new(2026, 9, 1);
@@ -49,7 +53,8 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
 
         try
         {
-            secondMutation = CreatePersistence().UpdateDetailsAsync(
+            secondMutation = UpdateDetailsAsync(
+                CreatePersistence(),
                 deadline.Id,
                 organization.Id,
                 "Second update",
@@ -103,7 +108,8 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
 
         try
         {
-            completion = CreatePersistence().CompleteAsync(
+            completion = CompleteAsync(
+                CreatePersistence(),
                 deadline.Id,
                 organization.Id,
                 completionTime,
@@ -152,7 +158,8 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
 
         try
         {
-            update = CreatePersistence().UpdateDetailsAsync(
+            update = UpdateDetailsAsync(
+                CreatePersistence(),
                 deadline.Id,
                 organization.Id,
                 "Forbidden update",
@@ -203,7 +210,8 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
 
         try
         {
-            secondCompletion = CreatePersistence().CompleteAsync(
+            secondCompletion = CompleteAsync(
+                CreatePersistence(),
                 deadline.Id,
                 organization.Id,
                 secondCompletionTime,
@@ -247,7 +255,8 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
 
         try
         {
-            reopen = CreatePersistence().ReopenAsync(
+            reopen = ReopenAsync(
+                CreatePersistence(),
                 deadline.Id,
                 organization.Id,
                 timeout.Token);
@@ -290,7 +299,8 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
 
         try
         {
-            completion = CreatePersistence().CompleteAsync(
+            completion = CompleteAsync(
+                CreatePersistence(),
                 deadline.Id,
                 organization.Id,
                 recompletionTime,
@@ -334,7 +344,8 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
 
         try
         {
-            update = CreatePersistence().UpdateDetailsAsync(
+            update = UpdateDetailsAsync(
+                CreatePersistence(),
                 deadline.Id,
                 organization.Id,
                 "Updated after reopen",
@@ -387,7 +398,8 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
         try
         {
             LegalDeadlineLifecycleMutationPersistenceResult result =
-                await CreatePersistence().CompleteAsync(
+                await CompleteAsync(
+                    CreatePersistence(),
                     deadlineB.Id,
                     organization.Id,
                     CreatedAt.AddHours(1),
@@ -446,7 +458,8 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
         try
         {
             LegalDeadlineLifecycleMutationPersistenceResult result =
-                await CreatePersistence().ReopenAsync(
+                await ReopenAsync(
+                    CreatePersistence(),
                     deadlineB.Id,
                     organizationA.Id,
                     timeout.Token)
@@ -468,13 +481,123 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
         Assert.Equal(processB.Id, persisted.ProcessId);
     }
 
+    [Fact]
+    public async Task CompleteAsync_CompetingTransitions_EmitExactlyOneAudit()
+    {
+        (Organization organization, _, _, LegalDeadline deadline) =
+            await SeedDeadlineAsync();
+        DateTimeOffset firstTimestamp = CreatedAt.AddHours(1);
+        DateTimeOffset secondTimestamp = CreatedAt.AddHours(2);
+        using var timeout = CreateTimeout();
+
+        LegalDeadlineLifecycleMutationPersistenceResult[] results =
+            await Task.WhenAll(
+                CompleteAsync(
+                    CreatePersistence(),
+                    deadline.Id,
+                    organization.Id,
+                    firstTimestamp,
+                    timeout.Token),
+                CompleteAsync(
+                    CreatePersistence(),
+                    deadline.Id,
+                    organization.Id,
+                    secondTimestamp,
+                    timeout.Token));
+
+        Assert.All(results, result => Assert.Equal(
+            LegalDeadlineLifecycleMutationPersistenceResult.Succeeded,
+            result));
+        LegalDeadline persisted = await FindDeadlineAsync(
+            deadline.Id,
+            timeout.Token);
+        Assert.Contains(
+            Assert.IsType<DateTimeOffset>(persisted.CompletedAt),
+            new[] { firstTimestamp, secondTimestamp });
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        AuditLog auditLog = await verificationContext.AuditLogs
+            .AsNoTracking()
+            .SingleAsync(timeout.Token);
+        Assert.Equal(AuditEventType.LegalDeadlineCompleted, auditLog.EventType);
+        Assert.Equal(deadline.Id, auditLog.EntityId);
+        Assert.Null(auditLog.Details);
+    }
+
     private LegalDeadlineMutationPersistence CreatePersistence()
     {
         DbContextOptions<EnmaDbContext> options =
             new DbContextOptionsBuilder<EnmaDbContext>()
                 .UseNpgsql(fixture.ConnectionString)
                 .Options;
-        return new LegalDeadlineMutationPersistence(options);
+        return new LegalDeadlineMutationPersistence(options, TimeProvider.System);
+    }
+
+    private Task<LegalDeadlineDetailsMutationPersistenceResult> UpdateDetailsAsync(
+        LegalDeadlineMutationPersistence persistence,
+        Guid deadlineId,
+        Guid organizationId,
+        string title,
+        DateOnly dueDate,
+        CancellationToken cancellationToken)
+    {
+        return persistence.UpdateDetailsAsync(
+            CreateRequest(organizationId, deadlineId),
+            state =>
+            {
+                if (state.LegalDeadline.CompletedAt is not null)
+                {
+                    return LegalDeadlineMutationDecision.Conflict;
+                }
+
+                state.LegalDeadline.ChangeDetails(title, dueDate);
+                return LegalDeadlineMutationDecision.Persist;
+            },
+            cancellationToken);
+    }
+
+    private Task<LegalDeadlineLifecycleMutationPersistenceResult> CompleteAsync(
+        LegalDeadlineMutationPersistence persistence,
+        Guid deadlineId,
+        Guid organizationId,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken)
+    {
+        return persistence.CompleteAsync(
+            CreateRequest(organizationId, deadlineId),
+            state =>
+            {
+                state.LegalDeadline.Complete(completedAt);
+                return LegalDeadlineMutationDecision.Persist;
+            },
+            cancellationToken);
+    }
+
+    private Task<LegalDeadlineLifecycleMutationPersistenceResult> ReopenAsync(
+        LegalDeadlineMutationPersistence persistence,
+        Guid deadlineId,
+        Guid organizationId,
+        CancellationToken cancellationToken)
+    {
+        return persistence.ReopenAsync(
+            CreateRequest(organizationId, deadlineId),
+            state =>
+            {
+                state.LegalDeadline.Reopen();
+                return LegalDeadlineMutationDecision.Persist;
+            },
+            cancellationToken);
+    }
+
+    private LegalDeadlineMutationPersistenceRequest CreateRequest(
+        Guid organizationId,
+        Guid deadlineId)
+    {
+        (Guid userId, Guid membershipId) = _actors[organizationId];
+        return new LegalDeadlineMutationPersistenceRequest(
+            userId,
+            organizationId,
+            membershipId,
+            deadlineId);
     }
 
     private async Task WaitForBlockedDeadlineLockAsync(
@@ -578,6 +701,21 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         dbContext.AddRange(entities);
+        foreach (Organization organization in entities.OfType<Organization>())
+        {
+            var user = new User(
+                "Concurrent deadline actor",
+                $"deadline-concurrency-{organization.Id:N}@example.test",
+                CreatedAt);
+            var membership = new OrganizationMembership(
+                organization.Id,
+                user.Id,
+                OrganizationRole.Owner,
+                CreatedAt);
+            dbContext.AddRange(user, membership);
+            _actors[organization.Id] = (user.Id, membership.Id);
+        }
+
         await dbContext.SaveChangesAsync();
     }
 

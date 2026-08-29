@@ -21,6 +21,9 @@ public sealed class UpdateLegalProcessUseCaseTests
     private static readonly Guid ClientId = Guid.Parse(
         "a8237b0f-19c2-4a6b-a46d-dd5789ac51fc");
 
+    private static readonly Guid MembershipId = Guid.Parse(
+        "86ae765a-c79e-4bd7-a8c2-7443367b0b6b");
+
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
         8,
@@ -299,6 +302,25 @@ public sealed class UpdateLegalProcessUseCaseTests
 
             return Task.FromResult(role);
         }
+
+        public async Task<OrganizationAccessLookupResult?> FindActiveAccessAsync(
+            Guid userId,
+            Guid organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            OrganizationRole? role = await FindActiveRoleAsync(
+                userId,
+                organizationId,
+                cancellationToken);
+
+            return role is OrganizationRole value
+                ? new OrganizationAccessLookupResult(
+                    userId,
+                    organizationId,
+                    MembershipId,
+                    value)
+                : null;
+        }
     }
 
     private sealed class FakeLegalProcessMutationPersistence(
@@ -321,19 +343,32 @@ public sealed class UpdateLegalProcessUseCaseTests
         public CancellationToken CancellationToken { get; private set; }
 
         public Task<LegalProcessMutationPersistenceResult> UpdateTitleAsync(
-            Guid processId,
-            Guid organizationId,
-            string title,
+            LegalProcessMutationPersistenceRequest request,
+            Func<LegalProcessMutationLockedState, LegalProcessMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
             UpdateCallCount++;
-            ProcessId = processId;
-            OrganizationId = organizationId;
+            ProcessId = request.ProcessId;
+            OrganizationId = request.OrganizationId;
             CancellationToken = cancellationToken;
 
             if (result == LegalProcessMutationPersistenceResult.Updated)
             {
-                LegalProcess.ChangeTitle(title);
+                LegalProcessMutationDecision decision = decide(
+                    new LegalProcessMutationLockedState(
+                        LegalProcess,
+                        IsOrganizationActive: true,
+                        new LegalProcessLockedActorState(
+                            request.ActorMembershipId,
+                            request.OrganizationId,
+                            request.UserId,
+                            OrganizationRole.Owner,
+                            IsMembershipActive: true,
+                            IsUserActive: true)));
+                return Task.FromResult(
+                    decision.Status == LegalProcessMutationDecisionStatus.Persist
+                        ? result
+                        : LegalProcessMutationPersistenceResult.AccessDenied);
             }
 
             return Task.FromResult(result);

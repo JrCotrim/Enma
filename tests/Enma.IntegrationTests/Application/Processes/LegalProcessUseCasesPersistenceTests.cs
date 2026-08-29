@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
 using Enma.Application.Processes.GetById;
 using Enma.Application.Processes.List;
@@ -257,16 +258,66 @@ public sealed class LegalProcessUseCasesPersistenceTests(
         Assert.Same(missingResult, inactiveResult);
         Assert.Same(missingResult, crossTenantResult);
         Assert.False(await operationContext.LegalProcesses.AnyAsync());
+        Assert.False(await operationContext.AuditLogs.AnyAsync());
     }
 
-    private static CreateLegalProcessUseCase CreateCreateUseCase(
+    [Fact]
+    public async Task CreateAsync_MembershipDeactivatedAfterInitialAuthorization_DeniesLive()
+    {
+        Organization organization = CreateOrganization(
+            "Stale process organization",
+            "stale-process-organization");
+        var user = new User(
+            "Stale process actor",
+            "stale-process@example.test",
+            CreatedAt);
+        var membership = new OrganizationMembership(
+            organization.Id,
+            user.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var client = new Client(organization.Id, "Stale process client", CreatedAt);
+        await SeedAsync(organization, user, membership, client);
+        await using EnmaDbContext operationContext = fixture.CreateDbContext();
+        var timeProvider = new FixedTimeProvider(CreatedAt.AddHours(1));
+        DbContextOptions<EnmaDbContext> options =
+            new DbContextOptionsBuilder<EnmaDbContext>()
+                .UseNpgsql(fixture.ConnectionString)
+                .Options;
+        var persistence = new BeforeProcessCreationPersistence(
+            new LegalProcessCreationPersistence(options, timeProvider),
+            () => DeactivateMembershipAsync(membership.Id));
+        var useCase = new CreateLegalProcessUseCase(
+            CreateActionAuthorization(operationContext),
+            new ActiveClientInOrganizationLookup(operationContext),
+            persistence,
+            timeProvider);
+
+        CreateLegalProcessResult result = await useCase.ExecuteAsync(
+            user.Id,
+            organization.Id,
+            client.Id,
+            "Must not persist");
+
+        Assert.Same(CreateLegalProcessResult.AccessDenied, result);
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.False(await verificationContext.LegalProcesses.AnyAsync());
+        Assert.False(await verificationContext.AuditLogs.AnyAsync());
+    }
+
+    private CreateLegalProcessUseCase CreateCreateUseCase(
         EnmaDbContext dbContext)
     {
+        var timeProvider = new FixedTimeProvider(CreatedAt.AddHours(1));
+        DbContextOptions<EnmaDbContext> options =
+            new DbContextOptionsBuilder<EnmaDbContext>()
+                .UseNpgsql(fixture.ConnectionString)
+                .Options;
         return new CreateLegalProcessUseCase(
             CreateActionAuthorization(dbContext),
             new ActiveClientInOrganizationLookup(dbContext),
-            new LegalProcessCreationPersistence(dbContext),
-            new FixedTimeProvider(CreatedAt.AddHours(1)));
+            new LegalProcessCreationPersistence(options, timeProvider),
+            timeProvider);
     }
 
     private static GetLegalProcessUseCase CreateGetUseCase(EnmaDbContext dbContext)
@@ -316,6 +367,16 @@ public sealed class LegalProcessUseCasesPersistenceTests(
         await mutationContext.SaveChangesAsync();
     }
 
+    private async Task DeactivateMembershipAsync(Guid membershipId)
+    {
+        await using EnmaDbContext mutationContext = fixture.CreateDbContext();
+        OrganizationMembership membership = await mutationContext
+            .OrganizationMemberships
+            .SingleAsync(candidate => candidate.Id == membershipId);
+        membership.Deactivate();
+        await mutationContext.SaveChangesAsync();
+    }
+
     private async Task SeedAsync(params object[] entities)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -338,6 +399,20 @@ public sealed class LegalProcessUseCasesPersistenceTests(
         public override DateTimeOffset GetUtcNow()
         {
             return utcNow;
+        }
+    }
+
+    private sealed class BeforeProcessCreationPersistence(
+        ILegalProcessCreationPersistence inner,
+        Func<Task> before) : ILegalProcessCreationPersistence
+    {
+        public async Task<LegalProcessCreationPersistenceResult> ExecuteAsync(
+            LegalProcessCreationPersistenceRequest request,
+            Func<LegalProcessCreationLockedState, LegalProcessCreationDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            await before();
+            return await inner.ExecuteAsync(request, decide, cancellationToken);
         }
     }
 }

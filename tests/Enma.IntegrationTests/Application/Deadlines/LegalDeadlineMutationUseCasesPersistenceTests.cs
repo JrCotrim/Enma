@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Application.Deadlines;
 using Enma.Application.Deadlines.Complete;
 using Enma.Application.Deadlines.Reopen;
 using Enma.Application.Deadlines.Update;
@@ -284,6 +285,60 @@ public sealed class LegalDeadlineMutationUseCasesPersistenceTests(
         Assert.Equal(process.Id, persisted.ProcessId);
     }
 
+    [Fact]
+    public async Task CompleteAsync_OrganizationDeactivatedAfterInitialAuthorization_DeniesLive()
+    {
+        Organization organization = CreateOrganization(
+            "Stale lifecycle organization",
+            "stale-lifecycle-organization");
+        var user = new User(
+            "Stale lifecycle actor",
+            "stale-lifecycle@example.test",
+            CreatedAt);
+        var membership = new OrganizationMembership(
+            organization.Id,
+            user.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var client = new Client(organization.Id, "Stale lifecycle client", CreatedAt);
+        var process = new LegalProcess(
+            organization.Id,
+            client.Id,
+            "Stale lifecycle process",
+            CreatedAt);
+        var deadline = new LegalDeadline(
+            organization.Id,
+            process.Id,
+            "Stale lifecycle deadline",
+            OriginalDueDate,
+            CreatedAt);
+        await SeedAsync(
+            organization,
+            user,
+            membership,
+            client,
+            process,
+            deadline);
+        await using EnmaDbContext authorizationContext = fixture.CreateDbContext();
+        var persistence = new BeforeDeadlineMutationPersistence(
+            CreatePersistence(),
+            () => DeactivateOrganizationAsync(organization.Id));
+        var useCase = new CompleteLegalDeadlineUseCase(
+            CreateAuthorization(authorizationContext),
+            persistence,
+            new FixedTimeProvider(CompletedAt));
+
+        CompleteLegalDeadlineResult result = await useCase.ExecuteAsync(
+            user.Id,
+            organization.Id,
+            deadline.Id);
+
+        Assert.Same(CompleteLegalDeadlineResult.AccessDenied, result);
+        Assert.Null((await FindDeadlineAsync(deadline.Id)).CompletedAt);
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.False(await verificationContext.AuditLogs.AnyAsync());
+    }
+
     private DeadlineActionAuthorization CreateAuthorization(
         EnmaDbContext dbContext)
     {
@@ -298,7 +353,9 @@ public sealed class LegalDeadlineMutationUseCasesPersistenceTests(
             new DbContextOptionsBuilder<EnmaDbContext>()
                 .UseNpgsql(fixture.ConnectionString)
                 .Options;
-        return new LegalDeadlineMutationPersistence(options);
+        return new LegalDeadlineMutationPersistence(
+            options,
+            new FixedTimeProvider(CompletedAt));
     }
 
     private async Task ChangeRoleAsync(
@@ -312,6 +369,15 @@ public sealed class LegalDeadlineMutationUseCasesPersistenceTests(
                 candidate.UserId == userId &&
                 candidate.OrganizationId == organizationId);
         membership.ChangeRole(role);
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task DeactivateOrganizationAsync(Guid organizationId)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Organization organization = await dbContext.Organizations.SingleAsync(
+            candidate => candidate.Id == organizationId);
+        organization.Deactivate();
         await dbContext.SaveChangesAsync();
     }
 
@@ -340,6 +406,40 @@ public sealed class LegalDeadlineMutationUseCasesPersistenceTests(
         public override DateTimeOffset GetUtcNow()
         {
             return utcNow;
+        }
+    }
+
+    private sealed class BeforeDeadlineMutationPersistence(
+        ILegalDeadlineMutationPersistence inner,
+        Func<Task> before) : ILegalDeadlineMutationPersistence
+    {
+        public Task<LegalDeadlineDetailsMutationPersistenceResult>
+            UpdateDetailsAsync(
+                LegalDeadlineMutationPersistenceRequest request,
+                Func<LegalDeadlineMutationLockedState,
+                    LegalDeadlineMutationDecision> decide,
+                CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public async Task<LegalDeadlineLifecycleMutationPersistenceResult>
+            CompleteAsync(
+                LegalDeadlineMutationPersistenceRequest request,
+                Func<LegalDeadlineMutationLockedState,
+                    LegalDeadlineMutationDecision> decide,
+                CancellationToken cancellationToken = default)
+        {
+            await before();
+            return await inner.CompleteAsync(request, decide, cancellationToken);
+        }
+
+        public Task<LegalDeadlineLifecycleMutationPersistenceResult> ReopenAsync(
+            LegalDeadlineMutationPersistenceRequest request,
+            Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 }

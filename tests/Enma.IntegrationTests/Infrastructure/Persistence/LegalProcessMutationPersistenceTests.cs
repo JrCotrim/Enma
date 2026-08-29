@@ -2,6 +2,7 @@ using Enma.Application.Processes;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
+using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,6 +12,8 @@ namespace Enma.IntegrationTests.Infrastructure.Persistence;
 public sealed class LegalProcessMutationPersistenceTests(
     PostgreSqlFixture fixture) : IAsyncLifetime
 {
+    private readonly Dictionary<Guid, (Guid UserId, Guid MembershipId)> _actors = [];
+
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
         8,
@@ -44,8 +47,8 @@ public sealed class LegalProcessMutationPersistenceTests(
             CreatedAt);
         await SeedAsync(organization, client, legalProcess);
 
-        LegalProcessMutationPersistenceResult result = await CreatePersistence()
-            .UpdateTitleAsync(
+        LegalProcessMutationPersistenceResult result = await UpdateTitleAsync(
+                CreatePersistence(),
                 legalProcess.Id,
                 organization.Id,
                 "  Novo título  ");
@@ -82,12 +85,14 @@ public sealed class LegalProcessMutationPersistenceTests(
         LegalProcessMutationPersistence persistence = CreatePersistence();
 
         LegalProcessMutationPersistenceResult missingResult =
-            await persistence.UpdateTitleAsync(
+            await UpdateTitleAsync(
+                persistence,
                 Guid.NewGuid(),
                 organizationA.Id,
                 "Missing update");
         LegalProcessMutationPersistenceResult crossTenantResult =
-            await persistence.UpdateTitleAsync(
+            await UpdateTitleAsync(
+                persistence,
                 processB.Id,
                 organizationA.Id,
                 "Cross-tenant update");
@@ -115,7 +120,8 @@ public sealed class LegalProcessMutationPersistenceTests(
             await SeedProcessAsync();
 
         ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(
-            () => CreatePersistence().UpdateTitleAsync(
+            () => UpdateTitleAsync(
+                CreatePersistence(),
                 legalProcess.Id,
                 organization.Id,
                 title));
@@ -133,7 +139,8 @@ public sealed class LegalProcessMutationPersistenceTests(
 
         ArgumentOutOfRangeException exception =
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
-                CreatePersistence().UpdateTitleAsync(
+                UpdateTitleAsync(
+                    CreatePersistence(),
                     legalProcess.Id,
                     organization.Id,
                     new string('a', 151)));
@@ -150,8 +157,11 @@ public sealed class LegalProcessMutationPersistenceTests(
             await SeedProcessAsync();
         string title = new('a', 150);
 
-        LegalProcessMutationPersistenceResult result = await CreatePersistence()
-            .UpdateTitleAsync(legalProcess.Id, organization.Id, title);
+        LegalProcessMutationPersistenceResult result = await UpdateTitleAsync(
+            CreatePersistence(),
+            legalProcess.Id,
+            organization.Id,
+            title);
 
         Assert.Equal(LegalProcessMutationPersistenceResult.Updated, result);
 
@@ -171,7 +181,29 @@ public sealed class LegalProcessMutationPersistenceTests(
                 .UseNpgsql(fixture.ConnectionString)
                 .Options;
 
-        return new LegalProcessMutationPersistence(options);
+        return new LegalProcessMutationPersistence(options, TimeProvider.System);
+    }
+
+    private Task<LegalProcessMutationPersistenceResult> UpdateTitleAsync(
+        LegalProcessMutationPersistence persistence,
+        Guid processId,
+        Guid organizationId,
+        string title,
+        CancellationToken cancellationToken = default)
+    {
+        (Guid userId, Guid membershipId) = _actors[organizationId];
+        return persistence.UpdateTitleAsync(
+            new LegalProcessMutationPersistenceRequest(
+                userId,
+                organizationId,
+                membershipId,
+                processId),
+            state =>
+            {
+                state.LegalProcess.ChangeTitle(title);
+                return LegalProcessMutationDecision.Persist;
+            },
+            cancellationToken);
     }
 
     private async Task<(Organization, Client, LegalProcess)> SeedProcessAsync()
@@ -210,6 +242,21 @@ public sealed class LegalProcessMutationPersistenceTests(
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         dbContext.AddRange(entities);
+        foreach (Organization organization in entities.OfType<Organization>())
+        {
+            var user = new User(
+                "Process audit actor",
+                $"process-{organization.Id:N}@example.test",
+                CreatedAt);
+            var membership = new OrganizationMembership(
+                organization.Id,
+                user.Id,
+                OrganizationRole.Owner,
+                CreatedAt);
+            dbContext.AddRange(user, membership);
+            _actors[organization.Id] = (user.Id, membership.Id);
+        }
+
         await dbContext.SaveChangesAsync();
     }
 

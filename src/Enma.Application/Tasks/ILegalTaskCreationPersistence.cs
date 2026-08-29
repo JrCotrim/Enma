@@ -15,7 +15,8 @@ public sealed record LegalTaskCreationPersistenceRequest(
     Guid UserId,
     Guid OrganizationId,
     Guid ActorMembershipId,
-    Guid? AssigneeMembershipId);
+    Guid? AssigneeMembershipId,
+    Guid? ProcessId);
 
 public sealed record LegalTaskCreationLockedState(
     LegalTaskCreationMemberState? Actor,
@@ -51,6 +52,10 @@ public sealed class LegalTaskCreationDecision
         LegalTaskCreationDecisionStatus.RelatedAssigneeUnavailable,
         null);
 
+    public static LegalTaskCreationDecision RelatedProcessUnavailable { get; } = new(
+        LegalTaskCreationDecisionStatus.RelatedProcessUnavailable,
+        null);
+
     public static LegalTaskCreationDecision InvalidInput { get; } = new(
         LegalTaskCreationDecisionStatus.InvalidInput,
         null);
@@ -70,7 +75,8 @@ public enum LegalTaskCreationDecisionStatus
     AccessDenied = 0,
     RelatedAssigneeUnavailable = 1,
     InvalidInput = 2,
-    Persist = 3
+    Persist = 3,
+    RelatedProcessUnavailable = 4
 }
 
 public sealed class LegalTaskCreationPersistenceResult

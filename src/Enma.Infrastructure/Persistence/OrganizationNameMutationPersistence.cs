@@ -6,12 +6,15 @@ using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 
 namespace Enma.Infrastructure.Persistence;
 
 public sealed class OrganizationNameMutationPersistence
     : IOrganizationNameMutationPersistence
 {
+    private const string LockNotAvailableSqlState = "55P03";
+
     private readonly DbContextOptions<EnmaDbContext> _dbContextOptions;
     private readonly TimeProvider _timeProvider;
 
@@ -39,6 +42,23 @@ public sealed class OrganizationNameMutationPersistence
             return OrganizationNameMutationPersistenceResult.InvalidInput;
         }
 
+        while (true)
+        {
+            try
+            {
+                return await ExecuteAttemptAsync(request, cancellationToken);
+            }
+            catch (Exception exception) when (IsLockNotAvailable(exception))
+            {
+                await WaitForActorMembershipLockAsync(request, cancellationToken);
+            }
+        }
+    }
+
+    private async Task<OrganizationNameMutationPersistenceResult> ExecuteAttemptAsync(
+        OrganizationNameMutationPersistenceRequest request,
+        CancellationToken cancellationToken)
+    {
         await using var dbContext = new EnmaDbContext(_dbContextOptions);
         await using IDbContextTransaction transaction =
             await dbContext.Database.BeginTransactionAsync(
@@ -53,6 +73,7 @@ public sealed class OrganizationNameMutationPersistence
             dbContext,
             request.OrganizationId,
             request.ActorMembershipId,
+            nowait: true,
             cancellationToken);
         User? actorUser = await LockActorUserAsync(
             dbContext,
@@ -96,6 +117,25 @@ public sealed class OrganizationNameMutationPersistence
         return OrganizationNameMutationPersistenceResult.Succeeded;
     }
 
+    private async Task WaitForActorMembershipLockAsync(
+        OrganizationNameMutationPersistenceRequest request,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = new EnmaDbContext(_dbContextOptions);
+        await using IDbContextTransaction transaction =
+            await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                cancellationToken);
+
+        await LockActorMembershipAsync(
+            dbContext,
+            request.OrganizationId,
+            request.ActorMembershipId,
+            nowait: false,
+            cancellationToken);
+        await transaction.RollbackAsync(cancellationToken);
+    }
+
     private static async Task<Organization?> LockOrganizationAsync(
         EnmaDbContext dbContext,
         Guid organizationId,
@@ -116,8 +156,23 @@ public sealed class OrganizationNameMutationPersistence
         EnmaDbContext dbContext,
         Guid organizationId,
         Guid actorMembershipId,
+        bool nowait,
         CancellationToken cancellationToken)
     {
+        if (nowait)
+        {
+            return (await dbContext.OrganizationMemberships
+                    .FromSqlInterpolated(
+                        $"""
+                        SELECT * FROM organization_memberships
+                        WHERE organization_id = {organizationId}
+                          AND id = {actorMembershipId}
+                        FOR UPDATE NOWAIT
+                        """)
+                    .ToListAsync(cancellationToken))
+                .SingleOrDefault();
+        }
+
         return (await dbContext.OrganizationMemberships
                 .FromSqlInterpolated(
                     $"""
@@ -144,5 +199,21 @@ public sealed class OrganizationNameMutationPersistence
                     """)
                 .ToListAsync(cancellationToken))
             .SingleOrDefault();
+    }
+
+    private static bool IsLockNotAvailable(Exception exception)
+    {
+        for (Exception? current = exception;
+             current is not null;
+             current = current.InnerException)
+        {
+            if (current is PostgresException postgresException &&
+                postgresException.SqlState == LockNotAvailableSqlState)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

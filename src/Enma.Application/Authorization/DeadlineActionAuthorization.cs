@@ -47,18 +47,64 @@ public sealed class DeadlineActionAuthorization
             return DeadlineActionAuthorizationResult.Denied;
         }
 
+        return CanExecute(action, role)
+            ? DeadlineActionAuthorizationResult.Allowed
+            : DeadlineActionAuthorizationResult.Denied;
+    }
+
+    internal async Task<OrganizationAccessAuthorizationResult> AuthorizeActorAsync(
+        Guid userId,
+        Guid organizationId,
+        DeadlineAction action,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty ||
+            organizationId == Guid.Empty ||
+            !Enum.IsDefined(action))
+        {
+            return OrganizationAccessAuthorizationResult.Denied;
+        }
+
+        OrganizationAccessAuthorizationResult organizationAccess;
+
+        try
+        {
+            organizationAccess = await _organizationAccessAuthorization.AuthorizeAsync(
+                userId,
+                organizationId,
+                cancellationToken);
+        }
+        catch (ArgumentOutOfRangeException exception) when (
+            exception.ParamName == "role")
+        {
+            return OrganizationAccessAuthorizationResult.Denied;
+        }
+
+        return organizationAccess.Status == OrganizationAccessAuthorizationStatus.Allowed &&
+            organizationAccess.UserId == userId &&
+            organizationAccess.OrganizationId == organizationId &&
+            organizationAccess.MembershipId is Guid membershipId &&
+            membershipId != Guid.Empty &&
+            organizationAccess.Role is OrganizationRole role &&
+            CanExecute(action, role)
+                ? organizationAccess
+                : OrganizationAccessAuthorizationResult.Denied;
+    }
+
+    internal bool CanExecute(DeadlineAction action, OrganizationRole role)
+    {
         return (action, role) switch
         {
             (DeadlineAction.View, OrganizationRole.Owner or
                 OrganizationRole.Administrator or
-                OrganizationRole.Member) => DeadlineActionAuthorizationResult.Allowed,
+                OrganizationRole.Member) => true,
             (DeadlineAction.Create, OrganizationRole.Owner or
-                OrganizationRole.Administrator) => DeadlineActionAuthorizationResult.Allowed,
+                OrganizationRole.Administrator) => true,
             (DeadlineAction.Update or
                 DeadlineAction.Complete or
                 DeadlineAction.Reopen, OrganizationRole.Owner or
-                OrganizationRole.Administrator) => DeadlineActionAuthorizationResult.Allowed,
-            _ => DeadlineActionAuthorizationResult.Denied
+                OrganizationRole.Administrator) => true,
+            _ => false
         };
     }
 }

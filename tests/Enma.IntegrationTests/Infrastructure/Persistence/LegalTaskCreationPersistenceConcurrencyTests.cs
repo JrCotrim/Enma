@@ -214,7 +214,8 @@ public sealed class LegalTaskCreationPersistenceConcurrencyTests(
             graph.ActorUser.Id,
             graph.Organization.Id,
             graph.ActorMembership.Id,
-            graph.TargetMembership.Id);
+            graph.TargetMembership.Id,
+            null);
         Task<LegalTaskCreationPersistenceResult>? creation = null;
         Task? deactivation = null;
 
@@ -330,6 +331,7 @@ public sealed class LegalTaskCreationPersistenceConcurrencyTests(
             graph.ActorUser.Id,
             graph.Organization.Id,
             graph.ActorMembership.Id,
+            null,
             null);
 
         await Assert.ThrowsAsync<DbUpdateException>(() =>

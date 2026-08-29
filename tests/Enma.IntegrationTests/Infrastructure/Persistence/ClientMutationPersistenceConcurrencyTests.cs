@@ -1,7 +1,9 @@
 using System.Data;
 using Enma.Application.Clients;
+using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
+using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -12,6 +14,8 @@ namespace Enma.IntegrationTests.Infrastructure.Persistence;
 public sealed class ClientMutationPersistenceConcurrencyTests(
     PostgreSqlFixture fixture) : IAsyncLifetime
 {
+    private readonly Dictionary<Guid, (Guid UserId, Guid MembershipId)> _actors = [];
+
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
         8,
@@ -57,7 +61,8 @@ public sealed class ClientMutationPersistenceConcurrencyTests(
 
         try
         {
-            secondMutation = CreatePersistence().UpdateNameAsync(
+            secondMutation = UpdateNameAsync(
+                CreatePersistence(),
                 client.Id,
                 organization.Id,
                 "Beta",
@@ -121,8 +126,8 @@ public sealed class ClientMutationPersistenceConcurrencyTests(
 
         try
         {
-            ClientMutationPersistenceResult result = await CreatePersistence()
-                .UpdateNameAsync(
+            ClientMutationPersistenceResult result = await UpdateNameAsync(
+                    CreatePersistence(),
                     clientB.Id,
                     organizationB.Id,
                     "Updated Client B",
@@ -148,6 +153,44 @@ public sealed class ClientMutationPersistenceConcurrencyTests(
         }
     }
 
+    [Fact]
+    public async Task DeactivateAsync_CompetingTransitions_EmitExactlyOneAudit()
+    {
+        Organization organization = CreateOrganization(
+            "Concurrent transition organization",
+            "concurrent-transition-organization");
+        var client = new Client(organization.Id, "Transition client", CreatedAt);
+        await SeedAsync(organization, client);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+        ClientMutationPersistenceResult[] results = await Task.WhenAll(
+            DeactivateAsync(
+                CreatePersistence(),
+                client.Id,
+                organization.Id,
+                timeout.Token),
+            DeactivateAsync(
+                CreatePersistence(),
+                client.Id,
+                organization.Id,
+                timeout.Token));
+
+        Assert.All(results, result => Assert.Equal(
+            ClientMutationPersistenceResult.Succeeded,
+            result));
+        await using EnmaDbContext verificationContext = fixture.CreateDbContext();
+        Assert.False((await verificationContext.Clients
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == client.Id, timeout.Token))
+            .IsActive);
+        AuditLog auditLog = await verificationContext.AuditLogs
+            .AsNoTracking()
+            .SingleAsync(timeout.Token);
+        Assert.Equal(AuditEventType.ClientDeactivated, auditLog.EventType);
+        Assert.Equal(client.Id, auditLog.EntityId);
+        Assert.Null(auditLog.Details);
+    }
+
     private ClientMutationPersistence CreatePersistence()
     {
         DbContextOptions<EnmaDbContext> options =
@@ -155,7 +198,50 @@ public sealed class ClientMutationPersistenceConcurrencyTests(
                 .UseNpgsql(fixture.ConnectionString)
                 .Options;
 
-        return new ClientMutationPersistence(options);
+        return new ClientMutationPersistence(options, TimeProvider.System);
+    }
+
+    private Task<ClientMutationPersistenceResult> UpdateNameAsync(
+        ClientMutationPersistence persistence,
+        Guid clientId,
+        Guid organizationId,
+        string name,
+        CancellationToken cancellationToken)
+    {
+        (Guid userId, Guid membershipId) = _actors[organizationId];
+        return persistence.UpdateNameAsync(
+            new ClientMutationPersistenceRequest(
+                userId,
+                organizationId,
+                membershipId,
+                clientId),
+            state =>
+            {
+                state.Client.ChangeName(name);
+                return ClientMutationDecision.Persist;
+            },
+            cancellationToken);
+    }
+
+    private Task<ClientMutationPersistenceResult> DeactivateAsync(
+        ClientMutationPersistence persistence,
+        Guid clientId,
+        Guid organizationId,
+        CancellationToken cancellationToken)
+    {
+        (Guid userId, Guid membershipId) = _actors[organizationId];
+        return persistence.DeactivateAsync(
+            new ClientMutationPersistenceRequest(
+                userId,
+                organizationId,
+                membershipId,
+                clientId),
+            state =>
+            {
+                state.Client.Deactivate();
+                return ClientMutationDecision.Persist;
+            },
+            cancellationToken);
     }
 
     private async Task WaitForBlockedClientLockAsync(
@@ -211,6 +297,21 @@ public sealed class ClientMutationPersistenceConcurrencyTests(
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         dbContext.AddRange(entities);
+        foreach (Organization organization in entities.OfType<Organization>())
+        {
+            var user = new User(
+                "Client audit actor",
+                $"client-{organization.Id:N}@example.test",
+                CreatedAt);
+            var membership = new OrganizationMembership(
+                organization.Id,
+                user.Id,
+                OrganizationRole.Owner,
+                CreatedAt);
+            dbContext.AddRange(user, membership);
+            _actors[organization.Id] = (user.Id, membership.Id);
+        }
+
         await dbContext.SaveChangesAsync();
     }
 
