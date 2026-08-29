@@ -47,6 +47,9 @@ public sealed class OrganizationAdministrationAuthorizationTests
             result.Allows(
                 OrganizationAdministrationAction.ViewTeamAdministrationDetails));
         Assert.Equal(
+            canViewAdministrationDetails,
+            result.Allows(OrganizationAdministrationAction.ViewAuditLog));
+        Assert.Equal(
             canChangeMemberRole,
             result.Allows(OrganizationAdministrationAction.ChangeMemberRole));
         Assert.Equal(
@@ -108,6 +111,8 @@ public sealed class OrganizationAdministrationAuthorizationTests
         Assert.False(result.Allows(OrganizationAdministrationAction.ViewTeam));
         Assert.False(result.Allows(
             OrganizationAdministrationAction.ViewTeamAdministrationDetails));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.ViewAuditLog));
         Assert.False(result.Allows(
             OrganizationAdministrationAction.ChangeMemberRole));
         Assert.False(result.Allows(

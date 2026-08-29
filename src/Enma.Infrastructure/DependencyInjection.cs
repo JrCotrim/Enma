@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using Enma.Application.Abstractions;
 using Enma.Application.Agenda;
 using Enma.Application.Authorization;
+using Enma.Application.Auditing.List;
 using Enma.Application.Authentication;
 using Enma.Application.CalendarEvents;
 using Enma.Application.CalendarEvents.Assignment;
@@ -325,6 +326,7 @@ public static class DependencyInjection
             ILegalDocumentContentReadQueries,
             LegalDocumentContentReadQueries>();
         services.AddScoped<IOrganizationAccessLookup, OrganizationAccessLookup>();
+        services.AddScoped<IAuditLogReadQueries, AuditLogReadQueries>();
         services.AddScoped<
             ICurrentUserOrganizationQueries,
             CurrentUserOrganizationQueries>();
@@ -355,6 +357,7 @@ public static class DependencyInjection
         services.AddScoped<VerifyEmailUseCase>();
         services.AddScoped<OrganizationAccessAuthorization>();
         services.AddScoped<OrganizationAdministrationAuthorization>();
+        services.AddScoped<ListAuditLogsUseCase>();
         services.AddScoped<GetCurrentUserOrganizationsUseCase>();
         services.AddScoped<ListOrganizationMembersUseCase>();
         services.AddScoped<SearchActiveOrganizationMembersUseCase>();
