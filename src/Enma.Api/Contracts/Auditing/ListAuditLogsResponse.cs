@@ -26,6 +26,9 @@ public sealed record AuditLogResponse(
     typeof(OrganizationMembershipRoleChangedAuditLogDetailsResponse),
     "organization_membership.role_changed")]
 [JsonDerivedType(
+    typeof(OrganizationInvitationCreatedAuditLogDetailsResponse),
+    "organization_invitation.created")]
+[JsonDerivedType(
     typeof(LegalDeadlineDetailsChangedAuditLogDetailsResponse),
     "legal_deadline.details_changed")]
 [JsonDerivedType(
@@ -49,6 +52,9 @@ public sealed record OrganizationRenamedAuditLogDetailsResponse(
 public sealed record OrganizationMembershipRoleChangedAuditLogDetailsResponse(
     string OldRole,
     string NewRole) : AuditLogDetailsResponse;
+
+public sealed record OrganizationInvitationCreatedAuditLogDetailsResponse(
+    string Role) : AuditLogDetailsResponse;
 
 public sealed record LegalDeadlineDetailsChangedAuditLogDetailsResponse(
     IReadOnlyList<string> ChangedFields) : AuditLogDetailsResponse;

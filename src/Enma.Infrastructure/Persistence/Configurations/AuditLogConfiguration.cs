@@ -7,7 +7,7 @@ namespace Enma.Infrastructure.Persistence.Configurations;
 
 public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
 {
-    private const string EventsWithDetails = "1, 2, 12, 16, 17, 21, 22";
+    private const string EventsWithDetails = "1, 2, 12, 16, 17, 21, 22, 25";
 
     public void Configure(EntityTypeBuilder<AuditLog> builder)
     {
@@ -21,10 +21,11 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
                 tableBuilder.HasCheckConstraint(
                     "ck_audit_logs_event_type",
                     "event_type IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, " +
-                    "13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)");
+                    "13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, " +
+                    "25, 26, 27, 28)");
                 tableBuilder.HasCheckConstraint(
                     "ck_audit_logs_entity_type",
-                    "entity_type IN (1, 2, 3, 4, 5, 6, 7, 8)");
+                    "entity_type IN (1, 2, 3, 4, 5, 6, 7, 8, 9)");
                 tableBuilder.HasCheckConstraint(
                     "ck_audit_logs_event_entity_type",
                     "(event_type = 1 AND entity_type = 1) OR " +
@@ -34,7 +35,8 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
                     "(event_type IN (11, 12, 13, 14) AND entity_type = 5) OR " +
                     "(event_type IN (15, 16, 17, 18, 19) AND entity_type = 6) OR " +
                     "(event_type IN (20, 21, 22, 23) AND entity_type = 7) OR " +
-                    "(event_type = 24 AND entity_type = 8)");
+                    "(event_type = 24 AND entity_type = 8) OR " +
+                    "(event_type IN (25, 26, 27, 28) AND entity_type = 9)");
                 tableBuilder.HasCheckConstraint(
                     "ck_audit_logs_details_contract",
                     $"(event_type IN ({EventsWithDetails}) AND " +

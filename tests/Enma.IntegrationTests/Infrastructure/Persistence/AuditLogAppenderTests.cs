@@ -175,6 +175,59 @@ public sealed class AuditLogAppenderTests(
     }
 
     [Fact]
+    public async Task Append_WithNewResultingMembership_PersistsAcceptedActorTogether()
+    {
+        ActorGraph graph = await SeedActorGraphAsync();
+        var acceptedUser = new User(
+            "Accepted Invitation User",
+            "accepted.invitation.user@example.test",
+            CreatedAt);
+
+        await using (EnmaDbContext userContext = fixture.CreateDbContext())
+        {
+            userContext.Users.Add(acceptedUser);
+            await userContext.SaveChangesAsync();
+        }
+
+        Guid invitationId = Guid.NewGuid();
+        var resultingMembership = new OrganizationMembership(
+            graph.Organization.Id,
+            acceptedUser.Id,
+            OrganizationRole.Member,
+            OccurredAt);
+
+        await using (EnmaDbContext dbContext = fixture.CreateDbContext())
+        await using (IDbContextTransaction transaction =
+            await dbContext.Database.BeginTransactionAsync())
+        {
+            dbContext.OrganizationMemberships.Add(resultingMembership);
+            AuditLogAppender.Append(
+                dbContext,
+                new FixedTimeProvider(OccurredAt),
+                TransactionalAuditActorContext.FromValidatedMembership(
+                    resultingMembership),
+                new AuditIntent(
+                    AuditEventType.OrganizationInvitationAccepted,
+                    invitationId));
+
+            await dbContext.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+
+        await using EnmaDbContext readContext = fixture.CreateDbContext();
+        AuditLog auditLog = await readContext.AuditLogs
+            .AsNoTracking()
+            .SingleAsync();
+
+        Assert.Equal(resultingMembership.Id, auditLog.ActorMembershipId);
+        Assert.Equal(acceptedUser.Id, auditLog.ActorUserId);
+        Assert.Equal(AuditEventType.OrganizationInvitationAccepted, auditLog.EventType);
+        Assert.Equal(AuditEntityType.OrganizationInvitation, auditLog.EntityType);
+        Assert.Equal(invitationId, auditLog.EntityId);
+        Assert.Null(auditLog.Details);
+    }
+
+    [Fact]
     public async Task SaveThenRollback_PersistsNeitherBusinessMutationNorAudit()
     {
         ActorGraph graph = await SeedActorGraphAsync();

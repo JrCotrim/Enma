@@ -214,6 +214,30 @@ public sealed class AuditTaxonomyTests
                 24,
                 "legal_document.uploaded",
                 AuditEntityType.LegalDocument
+            },
+            {
+                AuditEventType.OrganizationInvitationCreated,
+                25,
+                "organization_invitation.created",
+                AuditEntityType.OrganizationInvitation
+            },
+            {
+                AuditEventType.OrganizationInvitationRevoked,
+                26,
+                "organization_invitation.revoked",
+                AuditEntityType.OrganizationInvitation
+            },
+            {
+                AuditEventType.OrganizationInvitationAccepted,
+                27,
+                "organization_invitation.accepted",
+                AuditEntityType.OrganizationInvitation
+            },
+            {
+                AuditEventType.OrganizationInvitationResent,
+                28,
+                "organization_invitation.resent",
+                AuditEntityType.OrganizationInvitation
             }
         };
 
@@ -231,6 +255,11 @@ public sealed class AuditTaxonomyTests
             { AuditEntityType.LegalDeadline, 5, "legal_deadline" },
             { AuditEntityType.LegalTask, 6, "legal_task" },
             { AuditEntityType.CalendarEvent, 7, "calendar_event" },
-            { AuditEntityType.LegalDocument, 8, "legal_document" }
+            { AuditEntityType.LegalDocument, 8, "legal_document" },
+            {
+                AuditEntityType.OrganizationInvitation,
+                9,
+                "organization_invitation"
+            }
         };
 }

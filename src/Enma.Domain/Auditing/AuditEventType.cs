@@ -29,7 +29,27 @@ public enum AuditEventType
     CalendarEventUpdated = 21,
     CalendarEventAssigneeChanged = 22,
     CalendarEventDeleted = 23,
-    LegalDocumentUploaded = 24
+    LegalDocumentUploaded = 24,
+    /// <summary>
+    /// The actor is the live administrative Membership revalidated by the
+    /// authoritative creation transaction.
+    /// </summary>
+    OrganizationInvitationCreated = 25,
+    /// <summary>
+    /// The actor is the live administrative Membership revalidated with the
+    /// target invitation and its role by the authoritative revoke transaction.
+    /// </summary>
+    OrganizationInvitationRevoked = 26,
+    /// <summary>
+    /// The actor is the resulting active Membership created or reactivated by
+    /// acceptance in the authoritative transaction, never the invitation creator.
+    /// </summary>
+    OrganizationInvitationAccepted = 27,
+    /// <summary>
+    /// The actor is the live administrative Membership revalidated with the
+    /// target invitation and its role by the authoritative resend transaction.
+    /// </summary>
+    OrganizationInvitationResent = 28
 }
 
 public static class AuditEventTypeExtensions
@@ -67,6 +87,14 @@ public static class AuditEventTypeExtensions
                 "calendar_event.assignee_changed",
             AuditEventType.CalendarEventDeleted => "calendar_event.deleted",
             AuditEventType.LegalDocumentUploaded => "legal_document.uploaded",
+            AuditEventType.OrganizationInvitationCreated =>
+                "organization_invitation.created",
+            AuditEventType.OrganizationInvitationRevoked =>
+                "organization_invitation.revoked",
+            AuditEventType.OrganizationInvitationAccepted =>
+                "organization_invitation.accepted",
+            AuditEventType.OrganizationInvitationResent =>
+                "organization_invitation.resent",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -102,6 +130,11 @@ public static class AuditEventTypeExtensions
                 AuditEventType.CalendarEventAssigneeChanged or
                 AuditEventType.CalendarEventDeleted => AuditEntityType.CalendarEvent,
             AuditEventType.LegalDocumentUploaded => AuditEntityType.LegalDocument,
+            AuditEventType.OrganizationInvitationCreated or
+                AuditEventType.OrganizationInvitationRevoked or
+                AuditEventType.OrganizationInvitationAccepted or
+                AuditEventType.OrganizationInvitationResent =>
+                AuditEntityType.OrganizationInvitation,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -128,6 +161,8 @@ public static class AuditEventTypeExtensions
                 typeof(CalendarEventUpdatedAuditDetails),
             AuditEventType.CalendarEventAssigneeChanged =>
                 typeof(CalendarEventAssigneeChangedAuditDetails),
+            AuditEventType.OrganizationInvitationCreated =>
+                typeof(OrganizationInvitationCreatedAuditDetails),
             AuditEventType.OrganizationMembershipDeactivated or
                 AuditEventType.OrganizationMembershipReactivated or
                 AuditEventType.ClientCreated or
@@ -144,7 +179,10 @@ public static class AuditEventTypeExtensions
                 AuditEventType.LegalTaskReopened or
                 AuditEventType.CalendarEventCreated or
                 AuditEventType.CalendarEventDeleted or
-                AuditEventType.LegalDocumentUploaded => null,
+                AuditEventType.LegalDocumentUploaded or
+                AuditEventType.OrganizationInvitationRevoked or
+                AuditEventType.OrganizationInvitationAccepted or
+                AuditEventType.OrganizationInvitationResent => null,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)

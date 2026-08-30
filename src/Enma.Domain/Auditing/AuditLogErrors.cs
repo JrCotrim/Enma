@@ -27,5 +27,7 @@ public static class AuditLogErrors
         "Audit changed fields must not contain duplicates.";
     public const string AssigneeMembershipIdInvalid =
         "Assignee membership identifier is invalid.";
+    public const string OrganizationInvitationRoleInvalid =
+        "Organization invitation role is invalid.";
     public const string TraceIdInvalid = "Audit trace identifier is invalid.";
 }

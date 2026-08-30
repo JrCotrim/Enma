@@ -69,6 +69,28 @@ public sealed class AuditIntentTests
     }
 
     [Fact]
+    public void Constructor_InvitationEvents_EnforceFrozenDetailsContract()
+    {
+        var invitationDetails = new OrganizationInvitationCreatedAuditDetails(
+            OrganizationRole.Member);
+
+        Assert.Throws<ArgumentException>(() => new AuditIntent(
+            AuditEventType.OrganizationInvitationCreated,
+            EntityId));
+
+        foreach (AuditEventType eventType in new[]
+        {
+            AuditEventType.OrganizationInvitationRevoked,
+            AuditEventType.OrganizationInvitationAccepted,
+            AuditEventType.OrganizationInvitationResent
+        })
+        {
+            Assert.Throws<ArgumentException>(() =>
+                new AuditIntent(eventType, EntityId, invitationDetails));
+        }
+    }
+
+    [Fact]
     public void PublicContract_CannotCarryAuthoritativeContextOrGenericMetadata()
     {
         string[] forbiddenNames =
@@ -231,6 +253,27 @@ public sealed class AuditIntentTests
             {
                 AuditEventType.LegalDocumentUploaded,
                 AuditEntityType.LegalDocument,
+                null
+            },
+            {
+                AuditEventType.OrganizationInvitationCreated,
+                AuditEntityType.OrganizationInvitation,
+                new OrganizationInvitationCreatedAuditDetails(
+                    OrganizationRole.Administrator)
+            },
+            {
+                AuditEventType.OrganizationInvitationRevoked,
+                AuditEntityType.OrganizationInvitation,
+                null
+            },
+            {
+                AuditEventType.OrganizationInvitationAccepted,
+                AuditEntityType.OrganizationInvitation,
+                null
+            },
+            {
+                AuditEventType.OrganizationInvitationResent,
+                AuditEntityType.OrganizationInvitation,
                 null
             }
         };

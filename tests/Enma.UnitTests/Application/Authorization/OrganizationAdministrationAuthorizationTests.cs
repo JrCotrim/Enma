@@ -64,6 +64,87 @@ public sealed class OrganizationAdministrationAuthorizationTests
     }
 
     [Theory]
+    [InlineData(OrganizationRole.Owner, true, true, true, true, true, true, true)]
+    [InlineData(
+        OrganizationRole.Administrator,
+        true,
+        true,
+        false,
+        true,
+        false,
+        true,
+        false)]
+    [InlineData(OrganizationRole.Member, false, false, false, false, false, false, false)]
+    public async Task AuthorizeAsync_InvitationActions_EnforceActorAndTargetRoles(
+        OrganizationRole actorRole,
+        bool canList,
+        bool canCreateMember,
+        bool canCreateAdministrator,
+        bool canRevokeMember,
+        bool canRevokeAdministrator,
+        bool canResendMember,
+        bool canResendAdministrator)
+    {
+        OrganizationAdministrationAuthorization authorization = Create(
+            new StubAccessLookup(CreateAccess(role: actorRole)));
+
+        OrganizationAdministrationAuthorizationResult result =
+            await authorization.AuthorizeAsync(UserId, OrganizationId);
+
+        Assert.Equal(
+            canList,
+            result.Allows(OrganizationAdministrationAction.ListInvitations));
+        Assert.Equal(
+            canCreateMember,
+            result.Allows(
+                OrganizationAdministrationAction.CreateInvitation,
+                OrganizationRole.Member));
+        Assert.Equal(
+            canCreateAdministrator,
+            result.Allows(
+                OrganizationAdministrationAction.CreateInvitation,
+                OrganizationRole.Administrator));
+        Assert.Equal(
+            canRevokeMember,
+            result.Allows(
+                OrganizationAdministrationAction.RevokeInvitation,
+                OrganizationRole.Member));
+        Assert.Equal(
+            canRevokeAdministrator,
+            result.Allows(
+                OrganizationAdministrationAction.RevokeInvitation,
+                OrganizationRole.Administrator));
+        Assert.Equal(
+            canResendMember,
+            result.Allows(
+                OrganizationAdministrationAction.ResendInvitation,
+                OrganizationRole.Member));
+        Assert.Equal(
+            canResendAdministrator,
+            result.Allows(
+                OrganizationAdministrationAction.ResendInvitation,
+                OrganizationRole.Administrator));
+
+        // This precheck never authorizes an Owner invitation. Future mutation
+        // transactions must still revalidate all live actor and target state.
+        foreach (OrganizationAdministrationAction action in new[]
+        {
+            OrganizationAdministrationAction.CreateInvitation,
+            OrganizationAdministrationAction.RevokeInvitation,
+            OrganizationAdministrationAction.ResendInvitation
+        })
+        {
+            Assert.False(result.Allows(action, OrganizationRole.Owner));
+        }
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.CreateInvitation));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.RevokeInvitation));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.ResendInvitation));
+    }
+
+    [Theory]
     [InlineData(LiveAccessVariant.MismatchedUser)]
     [InlineData(LiveAccessVariant.MismatchedOrganization)]
     [InlineData(LiveAccessVariant.MissingMembership)]
@@ -121,6 +202,17 @@ public sealed class OrganizationAdministrationAuthorizationTests
             OrganizationAdministrationAction.DeactivateMember));
         Assert.False(result.Allows(
             OrganizationAdministrationAction.ReactivateMember));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.ListInvitations));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.CreateInvitation,
+            OrganizationRole.Member));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.RevokeInvitation,
+            OrganizationRole.Member));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.ResendInvitation,
+            OrganizationRole.Member));
     }
 
     [Fact]
@@ -171,6 +263,12 @@ public sealed class OrganizationAdministrationAuthorizationTests
                 OrganizationRole.Owner);
 
         Assert.False(result.Allows((OrganizationAdministrationAction)999));
+        Assert.False(result.Allows(
+            (OrganizationAdministrationAction)999,
+            OrganizationRole.Member));
+        Assert.False(result.Allows(
+            OrganizationAdministrationAction.CreateInvitation,
+            (OrganizationRole)999));
     }
 
     [Fact]

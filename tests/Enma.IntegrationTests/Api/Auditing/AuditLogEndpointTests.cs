@@ -246,6 +246,106 @@ public sealed class AuditLogEndpointTests : IAsyncLifetime
         Assert.DoesNotContain("objectKey", json, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(OrganizationRole.Administrator, "Administrator")]
+    [InlineData(OrganizationRole.Member, "Member")]
+    public async Task List_OrganizationInvitationCreated_ReturnsClosedPublicDetails(
+        OrganizationRole invitedRole,
+        string expectedRole)
+    {
+        TestActor actor = CreateActor("Invitation Created", OrganizationRole.Owner);
+        AuditLog auditLog = CreateAuditLog(
+            actor,
+            Guid.Parse("41100000-0000-0000-0000-000000000001"),
+            AuditEventType.OrganizationInvitationCreated,
+            Guid.NewGuid(),
+            new OrganizationInvitationCreatedAuditDetails(invitedRole));
+        string rawHandle = await SeedAuthenticatedCallerAsync(
+            actor,
+            [actor.Organization],
+            [actor.User],
+            [actor.Membership],
+            [auditLog]);
+
+        using HttpResponseMessage response = await SendAsync(
+            GetPath(actor.Organization.Id),
+            rawHandle);
+        string json = await response.Content.ReadAsStringAsync();
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement item = Assert.Single(document.RootElement
+            .GetProperty("items")
+            .EnumerateArray());
+        JsonElement details = item.GetProperty("details");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            "organization_invitation.created",
+            item.GetProperty("eventType").GetString());
+        Assert.Equal(
+            "organization_invitation",
+            item.GetProperty("entityType").GetString());
+        Assert.Equal(
+            ["type", "role"],
+            details.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(
+            "organization_invitation.created",
+            details.GetProperty("type").GetString());
+        Assert.Equal(expectedRole, details.GetProperty("role").GetString());
+        Assert.DoesNotContain("organizationId", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("actorUserId", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("traceId", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("email", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("token", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("tokenHash", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task List_InvitationEventsWithoutDetails_ReturnNullDetails()
+    {
+        TestActor actor = CreateActor("Invitation Null", OrganizationRole.Owner);
+        AuditEventType[] eventTypes =
+        [
+            AuditEventType.OrganizationInvitationRevoked,
+            AuditEventType.OrganizationInvitationAccepted,
+            AuditEventType.OrganizationInvitationResent
+        ];
+        AuditLog[] auditLogs = eventTypes
+            .Select((eventType, index) => CreateAuditLog(
+                actor,
+                Guid.Parse($"41200000-0000-0000-0000-{index + 1:D12}"),
+                eventType,
+                Guid.NewGuid()))
+            .ToArray();
+        string rawHandle = await SeedAuthenticatedCallerAsync(
+            actor,
+            [actor.Organization],
+            [actor.User],
+            [actor.Membership],
+            auditLogs);
+
+        using HttpResponseMessage response = await SendAsync(
+            GetPath(actor.Organization.Id),
+            rawHandle);
+        string json = await response.Content.ReadAsStringAsync();
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement[] items = document.RootElement
+            .GetProperty("items")
+            .EnumerateArray()
+            .ToArray();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(3, items.Length);
+
+        foreach (AuditEventType eventType in eventTypes)
+        {
+            JsonElement item = FindByEventType(items, eventType.ToCode());
+            Assert.Equal(
+                "organization_invitation",
+                item.GetProperty("entityType").GetString());
+            Assert.Equal(JsonValueKind.Null, item.GetProperty("details").ValueKind);
+        }
+    }
+
     [Fact]
     public async Task List_PaginatesAndFiltersTenantDataThroughHttpContract()
     {

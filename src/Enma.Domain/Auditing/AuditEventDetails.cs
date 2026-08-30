@@ -141,6 +141,9 @@ public abstract class AuditEventDetails
             AuditEventType.OrganizationMembershipRoleChanged =>
                 Deserialize<OrganizationMembershipRoleChangedAuditDetails>(
                     serializedDetails),
+            AuditEventType.OrganizationInvitationCreated =>
+                Deserialize<OrganizationInvitationCreatedAuditDetails>(
+                    serializedDetails),
             AuditEventType.LegalDeadlineDetailsChanged =>
                 new LegalDeadlineDetailsChangedAuditDetails(
                     DeserializeChangedFields<LegalDeadlineChangedField>(
@@ -249,6 +252,24 @@ public sealed class OrganizationMembershipRoleChangedAuditDetails : AuditEventDe
     public OrganizationRole OldRole { get; }
 
     public OrganizationRole NewRole { get; }
+}
+
+public sealed class OrganizationInvitationCreatedAuditDetails : AuditEventDetails
+{
+    public OrganizationInvitationCreatedAuditDetails(OrganizationRole role)
+    {
+        if (role is not (
+            OrganizationRole.Administrator or OrganizationRole.Member))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(role),
+                AuditLogErrors.OrganizationInvitationRoleInvalid);
+        }
+
+        Role = role;
+    }
+
+    public OrganizationRole Role { get; }
 }
 
 /// <summary>

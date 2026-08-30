@@ -631,6 +631,13 @@ public sealed class AuditLogPersistenceTests(
                 ["oldRole", "newRole"]
             },
             {
+                AuditEventType.OrganizationInvitationCreated,
+                AuditEntityType.OrganizationInvitation,
+                new OrganizationInvitationCreatedAuditDetails(
+                    OrganizationRole.Member),
+                ["role"]
+            },
+            {
                 AuditEventType.LegalDeadlineDetailsChanged,
                 AuditEntityType.LegalDeadline,
                 new LegalDeadlineDetailsChangedAuditDetails(

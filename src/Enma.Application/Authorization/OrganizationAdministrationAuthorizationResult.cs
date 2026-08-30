@@ -57,6 +57,9 @@ public sealed class OrganizationAdministrationAuthorizationResult
             (OrganizationAdministrationAction.ViewAuditLog,
                 OrganizationRole.Owner or
                 OrganizationRole.Administrator) => true,
+            (OrganizationAdministrationAction.ListInvitations,
+                OrganizationRole.Owner or
+                OrganizationRole.Administrator) => true,
             (OrganizationAdministrationAction.ChangeMemberRole,
                 OrganizationRole.Owner) => true,
             (OrganizationAdministrationAction.EditOrganization,
@@ -65,6 +68,39 @@ public sealed class OrganizationAdministrationAuthorizationResult
                 OrganizationAdministrationAction.ReactivateMember,
                 OrganizationRole.Owner or
                 OrganizationRole.Administrator) => true,
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Performs only the Application authorization precheck for an invitation
+    /// mutation. Create, revoke, and resend persistence workflows must revalidate
+    /// the active organization, user, membership, live actor role, target tenant,
+    /// and target invitation role inside their transaction.
+    /// </summary>
+    public bool Allows(
+        OrganizationAdministrationAction action,
+        OrganizationRole targetRole)
+    {
+        if (!Allows(OrganizationAdministrationAction.ListInvitations) ||
+            !Enum.IsDefined(action) ||
+            !Enum.IsDefined(targetRole))
+        {
+            return false;
+        }
+
+        return (Role, action, targetRole) switch
+        {
+            (OrganizationRole.Owner,
+                OrganizationAdministrationAction.CreateInvitation or
+                OrganizationAdministrationAction.RevokeInvitation or
+                OrganizationAdministrationAction.ResendInvitation,
+                OrganizationRole.Administrator or OrganizationRole.Member) => true,
+            (OrganizationRole.Administrator,
+                OrganizationAdministrationAction.CreateInvitation or
+                OrganizationAdministrationAction.RevokeInvitation or
+                OrganizationAdministrationAction.ResendInvitation,
+                OrganizationRole.Member) => true,
             _ => false
         };
     }
@@ -122,5 +158,9 @@ public enum OrganizationAdministrationAction
     DeactivateMember = 4,
     ReactivateMember = 5,
     EditOrganization = 6,
-    ViewAuditLog = 7
+    ViewAuditLog = 7,
+    ListInvitations = 8,
+    CreateInvitation = 9,
+    RevokeInvitation = 10,
+    ResendInvitation = 11
 }

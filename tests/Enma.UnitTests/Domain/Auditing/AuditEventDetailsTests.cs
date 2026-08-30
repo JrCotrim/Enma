@@ -65,6 +65,36 @@ public sealed class AuditEventDetailsTests
         Assert.Equal(expectedParameterName, exception.ParamName);
     }
 
+    [Theory]
+    [InlineData(OrganizationRole.Administrator)]
+    [InlineData(OrganizationRole.Member)]
+    public void OrganizationInvitationCreated_WithInvitableRole_PreservesRole(
+        OrganizationRole role)
+    {
+        var details = new OrganizationInvitationCreatedAuditDetails(role);
+
+        Assert.Equal(role, details.Role);
+        Assert.Equal(
+            [nameof(OrganizationInvitationCreatedAuditDetails.Role)],
+            details.GetType()
+                .GetProperties()
+                .Select(property => property.Name)
+                .ToArray());
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner)]
+    [InlineData((OrganizationRole)999)]
+    public void OrganizationInvitationCreated_WithForbiddenRole_Throws(
+        OrganizationRole role)
+    {
+        ArgumentOutOfRangeException exception =
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                new OrganizationInvitationCreatedAuditDetails(role));
+
+        Assert.Equal("role", exception.ParamName);
+    }
+
     [Fact]
     public void ChangedFields_AreClosedCanonicalAndDefensivelyCopied()
     {
@@ -169,6 +199,19 @@ public sealed class AuditEventDetailsTests
             Json));
     }
 
+    [Fact]
+    public void OrganizationInvitationCreated_DeserializationRejectsSecurityMetadata()
+    {
+        const string Json =
+            """
+            {"role":3,"invitedEmail":"recipient@example.test","tokenHash":"secret"}
+            """;
+
+        Assert.Throws<JsonException>(() => AuditEventDetails.Deserialize(
+            AuditEventType.OrganizationInvitationCreated,
+            Json));
+    }
+
     public static TheoryData<Guid?, Guid?> ValidAssigneeChanges =>
         new()
         {
@@ -199,6 +242,11 @@ public sealed class AuditEventDetailsTests
                 new OrganizationMembershipRoleChangedAuditDetails(
                     OrganizationRole.Member,
                     OrganizationRole.Administrator)
+            },
+            {
+                AuditEventType.OrganizationInvitationCreated,
+                new OrganizationInvitationCreatedAuditDetails(
+                    OrganizationRole.Member)
             },
             {
                 AuditEventType.LegalDeadlineDetailsChanged,

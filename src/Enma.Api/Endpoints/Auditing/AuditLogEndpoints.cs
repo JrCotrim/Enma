@@ -101,6 +101,9 @@ public static class AuditLogEndpoints
                 new OrganizationMembershipRoleChangedAuditLogDetailsResponse(
                     MapRole(value.OldRole),
                     MapRole(value.NewRole)),
+            OrganizationInvitationCreatedAuditDetails value =>
+                new OrganizationInvitationCreatedAuditLogDetailsResponse(
+                    MapRole(value.Role)),
             LegalDeadlineDetailsChangedAuditDetails value =>
                 new LegalDeadlineDetailsChangedAuditLogDetailsResponse(
                     value.ChangedFields.Select(MapChangedField).ToArray()),
