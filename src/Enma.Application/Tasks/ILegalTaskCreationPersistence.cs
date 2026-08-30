@@ -19,6 +19,7 @@ public sealed record LegalTaskCreationPersistenceRequest(
     Guid? ProcessId);
 
 public sealed record LegalTaskCreationLockedState(
+    bool IsOrganizationActive,
     LegalTaskCreationMemberState? Actor,
     LegalTaskCreationMemberState? Assignee);
 

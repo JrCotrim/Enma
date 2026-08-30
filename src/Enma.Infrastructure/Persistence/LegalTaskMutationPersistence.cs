@@ -120,8 +120,13 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
         LegalTaskMutationMemberState? assignee = assigneeMembershipId is Guid lockedId
             ? CreateMemberState(lockedId, identities)
             : null;
+        Organization? organization = await LockOrganizationAsync(
+            dbContext,
+            request.OrganizationId,
+            cancellationToken);
         var lockedState = new LegalTaskMutationLockedState(
             legalTask,
+            organization?.IsActive == true,
             actor,
             assigneeMembershipId is not null,
             assignee,
@@ -214,6 +219,21 @@ public sealed class LegalTaskMutationPersistence : ILegalTaskMutationPersistence
             .SingleOrDefaultAsync(cancellationToken);
 
         return process is not null;
+    }
+
+    private static Task<Organization?> LockOrganizationAsync(
+        EnmaDbContext dbContext,
+        Guid organizationId,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.Organizations
+            .FromSqlInterpolated(
+                $"""
+                SELECT * FROM organizations
+                WHERE id = {organizationId}
+                FOR UPDATE
+                """)
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     private void AppendAuditLogs(

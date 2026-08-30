@@ -79,7 +79,8 @@ public sealed class CompleteLegalTaskUseCase
         LegalTaskMutationPersistenceRequest request,
         LegalTaskMutationLockedState state)
     {
-        if (!LegalTaskMutationUseCaseSupport.IsAvailableActor(
+        if (!state.IsOrganizationActive ||
+            !LegalTaskMutationUseCaseSupport.IsAvailableActor(
                 state.Actor,
                 request))
         {

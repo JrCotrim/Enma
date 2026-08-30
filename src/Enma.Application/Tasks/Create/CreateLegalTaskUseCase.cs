@@ -121,7 +121,8 @@ public sealed class CreateLegalTaskUseCase
         LegalTaskCreationPersistenceRequest request,
         LegalTaskCreationLockedState lockedState)
     {
-        if (lockedState.Actor is not LegalTaskCreationMemberState actor ||
+        if (!lockedState.IsOrganizationActive ||
+            lockedState.Actor is not LegalTaskCreationMemberState actor ||
             !IsAvailableActor(actor, request))
         {
             return LegalTaskCreationDecision.AccessDenied;

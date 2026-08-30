@@ -66,6 +66,10 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
                 membership => CreateMemberState(
                     membership,
                     identities.UsersById));
+        Organization? organization = await LockOrganizationAsync(
+            dbContext,
+            request.OrganizationId,
+            cancellationToken);
 
         statesById.TryGetValue(
             request.ActorMembershipId,
@@ -78,7 +82,10 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
         }
 
         LegalTaskCreationDecision decision = decide(
-            new LegalTaskCreationLockedState(actor, assignee));
+            new LegalTaskCreationLockedState(
+                organization?.IsActive == true,
+                actor,
+                assignee));
 
         if (decision.Status != LegalTaskCreationDecisionStatus.Persist)
         {
@@ -120,6 +127,21 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
                 SELECT * FROM legal_processes
                 WHERE organization_id = {organizationId}
                   AND id = {processId}
+                FOR UPDATE
+                """)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private static Task<Organization?> LockOrganizationAsync(
+        EnmaDbContext dbContext,
+        Guid organizationId,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.Organizations
+            .FromSqlInterpolated(
+                $"""
+                SELECT * FROM organizations
+                WHERE id = {organizationId}
                 FOR UPDATE
                 """)
             .SingleOrDefaultAsync(cancellationToken);

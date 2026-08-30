@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Application.Tasks;
 using Enma.Application.Tasks.Create;
 using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
@@ -190,6 +191,44 @@ public sealed class LegalTaskCreationUseCasePersistenceTests(
 
         Assert.Same(CreateLegalTaskResult.AccessDenied, result);
         Assert.Equal(0, await CountTasksAsync());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_OrganizationDeactivatedAfterAuthorization_DeniesWithoutPersistence()
+    {
+        TenantMembers graph = CreateTenantMembers(OrganizationRole.Owner);
+        await SeedAsync(
+            graph.Organization,
+            graph.ActorUser,
+            graph.ActorMembership,
+            graph.TargetUser,
+            graph.TargetMembership);
+        await using EnmaDbContext queryContext = fixture.CreateDbContext();
+        var options = new DbContextOptionsBuilder<EnmaDbContext>()
+            .UseNpgsql(fixture.ConnectionString)
+            .Options;
+        var persistence = new BeforeCreationPersistence(
+            new LegalTaskCreationPersistence(
+                options,
+                new FixedTimeProvider(TaskCreatedAt)),
+            () => DeactivateOrganizationAsync(graph.Organization.Id));
+        var useCase = new CreateLegalTaskUseCase(
+            new OrganizationAccessAuthorization(
+                new OrganizationAccessLookup(queryContext)),
+            new ProcessOrganizationOwnershipLookup(queryContext),
+            persistence,
+            new FixedTimeProvider(TaskCreatedAt));
+
+        CreateLegalTaskResult result = await useCase.ExecuteAsync(
+            CreateCommand(
+                graph.ActorUser.Id,
+                graph.Organization.Id,
+                processId: null,
+                assigneeMembershipId: null));
+
+        Assert.Same(CreateLegalTaskResult.AccessDenied, result);
+        Assert.Equal(0, await CountTasksAsync());
+        Assert.Equal(0, await CountAuditLogsAsync());
     }
 
     [Theory]
@@ -500,6 +539,15 @@ public sealed class LegalTaskCreationUseCasePersistenceTests(
         await dbContext.SaveChangesAsync();
     }
 
+    private async Task DeactivateOrganizationAsync(Guid organizationId)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Organization organization = await dbContext.Organizations
+            .SingleAsync(candidate => candidate.Id == organizationId);
+        organization.Deactivate();
+        await dbContext.SaveChangesAsync();
+    }
+
     private static Guid AssertTaskId(CreateLegalTaskResult result)
     {
         return Assert.IsType<Guid>(result.LegalTaskId);
@@ -565,6 +613,20 @@ public sealed class LegalTaskCreationUseCasePersistenceTests(
         public override DateTimeOffset GetUtcNow()
         {
             return utcNow;
+        }
+    }
+
+    private sealed class BeforeCreationPersistence(
+        ILegalTaskCreationPersistence inner,
+        Func<Task> beforeExecute) : ILegalTaskCreationPersistence
+    {
+        public async Task<LegalTaskCreationPersistenceResult> ExecuteAsync(
+            LegalTaskCreationPersistenceRequest request,
+            Func<LegalTaskCreationLockedState, LegalTaskCreationDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            await beforeExecute();
+            return await inner.ExecuteAsync(request, decide, cancellationToken);
         }
     }
 

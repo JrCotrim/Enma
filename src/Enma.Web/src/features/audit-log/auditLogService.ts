@@ -29,6 +29,25 @@ export class AuditLogRequestError extends Error {
 const emptyGuid = '00000000-0000-0000-0000-000000000000'
 const knownEventTypes = new Set<string>(auditEventTypes)
 const knownEntityTypes = new Set<string>(auditEntityTypes)
+const knownOrganizationRoles = new Set(['Owner', 'Administrator', 'Member'])
+const knownChangedFields = {
+  'legal_deadline.details_changed': new Set(['Title', 'DueDate']),
+  'legal_task.details_changed': new Set([
+    'Title',
+    'Description',
+    'DueDate',
+    'ProcessId',
+  ]),
+  'calendar_event.updated': new Set([
+    'Title',
+    'Description',
+    'StartsAt',
+    'EndsAt',
+    'Location',
+    'ClientId',
+    'ProcessId',
+  ]),
+} as const
 
 export function isAuditEventType(value: string): value is AuditEventType {
   return knownEventTypes.has(value)
@@ -52,6 +71,23 @@ function parseStringArray(value: unknown): readonly string[] | undefined {
     : undefined
 }
 
+function parseChangedFields(
+  value: unknown,
+  eventType: keyof typeof knownChangedFields,
+): readonly string[] | undefined {
+  const fields = parseStringArray(value)
+  if (
+    !fields ||
+    fields.length === 0 ||
+    new Set(fields).size !== fields.length ||
+    fields.some((field) => !knownChangedFields[eventType].has(field))
+  ) {
+    return undefined
+  }
+
+  return fields
+}
+
 function parseNullableGuid(value: unknown): string | null | undefined {
   if (value === null) return null
   return typeof value === 'string' && isUsableGuid(value) ? value : undefined
@@ -72,16 +108,22 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
       }
       break
     case 'organization_membership.role_changed':
-      if (typeof value.oldRole === 'string' && typeof value.newRole === 'string') {
+      if (
+        typeof value.oldRole === 'string' &&
+        typeof value.newRole === 'string' &&
+        value.oldRole !== value.newRole &&
+        knownOrganizationRoles.has(value.oldRole) &&
+        knownOrganizationRoles.has(value.newRole)
+      ) {
         return { type: value.type, oldRole: value.oldRole, newRole: value.newRole }
       }
-      break
+      return { type: 'unsupported' }
     case 'legal_deadline.details_changed':
     case 'legal_task.details_changed':
     case 'calendar_event.updated': {
-      const changedFields = parseStringArray(value.changedFields)
+      const changedFields = parseChangedFields(value.changedFields, value.type)
       if (changedFields) return { type: value.type, changedFields }
-      break
+      return { type: 'unsupported' }
     }
     case 'legal_task.assignee_changed':
     case 'calendar_event.assignee_changed': {
@@ -89,7 +131,8 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
       const newAssigneeMembershipId = parseNullableGuid(value.newAssigneeMembershipId)
       if (
         oldAssigneeMembershipId !== undefined &&
-        newAssigneeMembershipId !== undefined
+        newAssigneeMembershipId !== undefined &&
+        oldAssigneeMembershipId !== newAssigneeMembershipId
       ) {
         return {
           type: value.type,
@@ -97,7 +140,7 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
           newAssigneeMembershipId,
         }
       }
-      break
+      return { type: 'unsupported' }
     }
     default:
       return { type: 'unsupported' }

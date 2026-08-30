@@ -58,11 +58,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
                     graph,
                     OrganizationMemberLifecycleOperation.Deactivate),
                 timeout.Token);
-            await WaitForBlockedLockAsync(
-                kind == AssignmentKind.CalendarEvent
-                    ? "organizations"
-                    : "organization_memberships",
-                timeout.Token);
+            await WaitForBlockedLockAsync("organizations", timeout.Token);
 
             pause.Release();
             object assignmentResult = await assignment.WaitAsync(timeout.Token);
@@ -165,11 +161,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
                     graph,
                     OrganizationMemberLifecycleOperation.Deactivate),
                 timeout.Token);
-            await WaitForBlockedLockAsync(
-                kind == OperationalTransitionKind.RescheduleEvent
-                    ? "organizations"
-                    : "organization_memberships",
-                timeout.Token);
+            await WaitForBlockedLockAsync("organizations", timeout.Token);
 
             pause.Release();
             object transitionResult = await transition.WaitAsync(timeout.Token);
@@ -572,7 +564,8 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceConcurrencyTes
             request,
             state =>
             {
-                if (state.Actor?.IsMembershipActive != true ||
+                if (!state.IsOrganizationActive ||
+                    state.Actor?.IsMembershipActive != true ||
                     state.Actor.IsUserActive != true)
                 {
                     return LegalTaskCreationDecision.AccessDenied;

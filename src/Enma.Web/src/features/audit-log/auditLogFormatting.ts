@@ -81,11 +81,11 @@ export function getAuditEntityLabel(value: string): string {
 export function getAuditRoleLabel(value: string): string {
   return isOrganizationRole(value)
     ? getOrganizationRoleLabel(value)
-    : `Papel desconhecido (${value})`
+    : 'Papel desconhecido'
 }
 
 export function getAuditChangedFieldLabel(value: string): string {
-  return changedFieldLabels.get(value) ?? `Campo desconhecido (${value})`
+  return changedFieldLabels.get(value) ?? 'Campo desconhecido'
 }
 
 export function formatAuditTimestamp(value: string): string {

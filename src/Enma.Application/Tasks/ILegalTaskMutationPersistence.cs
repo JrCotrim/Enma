@@ -54,6 +54,7 @@ public sealed record LegalTaskMutationPreviewState(
 
 public sealed record LegalTaskMutationLockedState(
     LegalTask LegalTask,
+    bool IsOrganizationActive,
     LegalTaskMutationMemberState? Actor,
     bool AssigneeLookupPerformed,
     LegalTaskMutationMemberState? Assignee,

@@ -148,6 +148,60 @@ describe('Audit G flow', () => {
     )
   })
 
+  it('aborta e ignora resposta obsoleta ao trocar de organização', async () => {
+    const otherOrganization = {
+      ...organization('Administrator'),
+      id: '99999999-9999-4999-8999-999999999999',
+      name: 'Organização Beta',
+    }
+    let resolveStaleResponse!: (value: Response) => void
+    let staleResponseSettled = false
+    const staleResponse = new Promise<Response>((resolve) => {
+      resolveStaleResponse = resolve
+    }).finally(() => {
+      staleResponseSettled = true
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200))
+      .mockResolvedValueOnce(response(200, { items: [organization(), otherOrganization] }))
+      .mockReturnValueOnce(staleResponse)
+      .mockResolvedValueOnce(auditList([
+        auditItem({
+          eventType: 'legal_task.completed',
+          entityType: 'legal_task',
+        }),
+      ]))
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute()
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    const staleSignal = (fetchMock.mock.calls[2]?.[1] as RequestInit | undefined)
+      ?.signal
+    await router.navigate(`/organizations/${otherOrganization.id}/audit-log`)
+
+    expect(await screen.findByRole('cell', { name: 'Tarefa concluída' })).toBeInTheDocument()
+    expect(requestUrl(fetchMock, 3).pathname).toBe(
+      `/api/organizations/${otherOrganization.id}/audit-logs`,
+    )
+    expect(staleSignal?.aborted).toBe(true)
+
+    resolveStaleResponse(auditList([
+      auditItem({
+        eventType: 'organization.renamed',
+        entityType: 'organization',
+        details: {
+          type: 'organization.renamed',
+          oldName: 'Nome confidencial obsoleto',
+          newName: 'Outro nome confidencial',
+        },
+      }),
+    ]))
+    await waitFor(() => expect(staleResponseSettled).toBe(true))
+    expect(screen.queryByText('Nome confidencial obsoleto')).not.toBeInTheDocument()
+    expect(screen.queryByText('Outro nome confidencial')).not.toBeInTheDocument()
+  })
+
   it('anuncia loading enquanto a API está pendente', async () => {
     const pending = new Promise<Response>(() => undefined)
     vi.stubGlobal('fetch', authenticatedFetch('Owner', pending))
@@ -343,14 +397,35 @@ describe('Audit G flow', () => {
         entityType: 'future_entity',
         details: { type: 'future.event', secret: 'segredo arbitrário', traceId: 'trace-interno' },
       }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333341',
+        eventType: 'legal_task.details_changed',
+        entityType: 'legal_task',
+        details: {
+          type: 'legal_task.details_changed',
+          changedFields: ['Description', 'segredo-em-campo-desconhecido'],
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333342',
+        eventType: 'organization_membership.role_changed',
+        entityType: 'organization_membership',
+        details: {
+          type: 'organization_membership.role_changed',
+          oldRole: 'segredo-em-papel-desconhecido',
+          newRole: 'Owner',
+        },
+      }),
     ])))
 
     renderRoute()
 
     expect(await screen.findByText('Evento desconhecido (future.event)')).toBeInTheDocument()
-    expect(screen.getByText('Detalhes indisponíveis para este tipo de evento.')).toBeInTheDocument()
+    expect(screen.getAllByText('Detalhes indisponíveis para este tipo de evento.')).toHaveLength(3)
     expect(screen.queryByText('segredo arbitrário')).not.toBeInTheDocument()
     expect(screen.queryByText('trace-interno')).not.toBeInTheDocument()
+    expect(screen.queryByText('segredo-em-campo-desconhecido')).not.toBeInTheDocument()
+    expect(screen.queryByText('segredo-em-papel-desconhecido')).not.toBeInTheDocument()
   })
 
   it('trata 403 como acesso negado sem exibir detalhes da resposta', async () => {

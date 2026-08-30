@@ -117,15 +117,18 @@ public sealed class CreateLegalTaskUseCaseTests
     }
 
     [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public async Task ExecuteAsync_ActorNoLongerActive_ReturnsAccessDenied(
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public async Task ExecuteAsync_LockedAccessNoLongerActive_ReturnsAccessDenied(
+        bool organizationActive,
         bool membershipActive,
         bool userActive)
     {
         LegalTaskCreationLockedState lockedState = CreateLockedState(
             OrganizationRole.Owner,
             AssignmentSelection.None,
+            organizationActive,
             actorMembershipActive: membershipActive,
             actorUserActive: userActive);
         CreateLegalTaskUseCase useCase = CreateUseCase(
@@ -394,6 +397,7 @@ public sealed class CreateLegalTaskUseCaseTests
     private static LegalTaskCreationLockedState CreateLockedState(
         OrganizationRole role,
         AssignmentSelection assignment,
+        bool organizationActive = true,
         bool actorMembershipActive = true,
         bool actorUserActive = true,
         AssigneeAvailability assigneeAvailability = AssigneeAvailability.Available)
@@ -413,7 +417,10 @@ public sealed class CreateLegalTaskUseCaseTests
             _ => throw new ArgumentOutOfRangeException(nameof(assignment))
         };
 
-        return new LegalTaskCreationLockedState(actor, assignee);
+        return new LegalTaskCreationLockedState(
+            organizationActive,
+            actor,
+            assignee);
     }
 
     private static LegalTaskCreationMemberState? CreateOtherAssignee(

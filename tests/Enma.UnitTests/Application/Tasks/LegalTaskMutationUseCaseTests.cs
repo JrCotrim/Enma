@@ -49,6 +49,69 @@ public sealed class LegalTaskMutationUseCaseTests
         Assert.Equal(0, persistence.CallCount);
     }
 
+    [Theory]
+    [InlineData(TaskMutationOperation.Update)]
+    [InlineData(TaskMutationOperation.ChangeAssignee)]
+    [InlineData(TaskMutationOperation.Complete)]
+    [InlineData(TaskMutationOperation.Reopen)]
+    public async Task MutationAsync_OrganizationBecomesInactiveInsidePersistence_Denies(
+        TaskMutationOperation operation)
+    {
+        LegalTask legalTask = CreateTask(
+            null,
+            ActorMembershipId,
+            completed: operation == TaskMutationOperation.Reopen);
+        var persistence = CreatePersistence(legalTask, OrganizationRole.Owner);
+        persistence.IsOrganizationActive = false;
+        OrganizationAccessLookupResult access = CreateAccess(OrganizationRole.Owner);
+
+        bool accessDenied = operation switch
+        {
+            TaskMutationOperation.Update =>
+                await CreateUpdateUseCase(access, persistence).ExecuteAsync(
+                    CreateUpdateCommand(legalTask.Id, ProcessId)) ==
+                UpdateLegalTaskResult.AccessDenied,
+            TaskMutationOperation.ChangeAssignee =>
+                await CreateAssignmentUseCase(access, persistence).ExecuteAsync(
+                    new ChangeLegalTaskAssigneeCommand(
+                        UserId,
+                        OrganizationId,
+                        legalTask.Id,
+                        OtherMembershipId)) ==
+                ChangeLegalTaskAssigneeResult.AccessDenied,
+            TaskMutationOperation.Complete =>
+                await new CompleteLegalTaskUseCase(
+                    CreateOrganizationAccess(access),
+                    new LegalTaskMutationAuthorization(),
+                    persistence,
+                    new FixedTimeProvider(CompletedAt)).ExecuteAsync(
+                        new CompleteLegalTaskCommand(
+                            UserId,
+                            OrganizationId,
+                            legalTask.Id)) ==
+                CompleteLegalTaskResult.AccessDenied,
+            TaskMutationOperation.Reopen =>
+                await new ReopenLegalTaskUseCase(
+                    CreateOrganizationAccess(access),
+                    new LegalTaskMutationAuthorization(),
+                    persistence).ExecuteAsync(
+                        new ReopenLegalTaskCommand(
+                            UserId,
+                            OrganizationId,
+                            legalTask.Id)) ==
+                ReopenLegalTaskResult.AccessDenied,
+            _ => throw new ArgumentOutOfRangeException(nameof(operation))
+        };
+
+        Assert.True(accessDenied);
+        Assert.Equal("Original task", legalTask.Title);
+        Assert.Null(legalTask.AssigneeMembershipId);
+        Assert.Equal(
+            operation == TaskMutationOperation.Reopen ? CompletedAt : null,
+            legalTask.CompletedAt);
+        Assert.Equal(0, persistence.ProcessValidationCount);
+    }
+
     [Fact]
     public async Task UpdateAsync_AuthorizedPendingTask_ValidatesProcessAndUpdatesDetails()
     {
@@ -483,6 +546,8 @@ public sealed class LegalTaskMutationUseCaseTests
 
         public int ProcessValidationCount { get; private set; }
 
+        public bool IsOrganizationActive { get; set; } = true;
+
         public int AssigneeLockRetryCount { get; private set; }
 
         public Guid? SelectedAssigneeMembershipId { get; private set; }
@@ -540,6 +605,7 @@ public sealed class LegalTaskMutationUseCaseTests
 
             return new LegalTaskMutationLockedState(
                 legalTask,
+                IsOrganizationActive,
                 actor,
                 assigneeLookupPerformed,
                 assigneeLookupPerformed ? assignee : null,
@@ -573,5 +639,13 @@ public sealed class LegalTaskMutationUseCaseTests
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    public enum TaskMutationOperation
+    {
+        Update = 0,
+        ChangeAssignee = 1,
+        Complete = 2,
+        Reopen = 3
     }
 }

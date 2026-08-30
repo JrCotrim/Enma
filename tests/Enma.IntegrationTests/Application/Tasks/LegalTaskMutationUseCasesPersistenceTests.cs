@@ -707,6 +707,35 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
     }
 
     [Fact]
+    public async Task UpdateAsync_OrganizationDeactivatedAfterAuthorization_DeniesWithoutMutation()
+    {
+        TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
+        LegalTask legalTask = CreateTask(
+            graph,
+            null,
+            graph.ActorMembership.Id);
+        await SeedAsync(legalTask);
+        await using EnmaDbContext queryContext = fixture.CreateDbContext();
+        var persistence = new BeforeMutationPersistence(
+            CreatePersistence(),
+            () => DeactivateOrganizationAsync(graph.Organization.Id));
+        var useCase = new UpdateLegalTaskUseCase(
+            CreateAccessAuthorization(queryContext),
+            new LegalTaskMutationAuthorization(),
+            persistence);
+
+        UpdateLegalTaskResult result = await UpdateTitleAsync(
+            useCase,
+            graph,
+            legalTask.Id,
+            "Must not update");
+
+        Assert.Equal(UpdateLegalTaskResult.AccessDenied, result);
+        Assert.Equal("Original task", (await FindTaskAsync(legalTask.Id)).Title);
+        Assert.Empty(await FindAuditLogsAsync());
+    }
+
+    [Fact]
     public async Task MutationPersistence_SaveFailure_RollsBackTrackedTaskMutation()
     {
         TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
@@ -1033,6 +1062,15 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
         await dbContext.SaveChangesAsync();
     }
 
+    private async Task DeactivateOrganizationAsync(Guid organizationId)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Organization organization = await dbContext.Organizations
+            .SingleAsync(candidate => candidate.Id == organizationId);
+        organization.Deactivate();
+        await dbContext.SaveChangesAsync();
+    }
+
     private async Task UpdateMembershipAsync(OrganizationMembership membership)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -1072,6 +1110,25 @@ public sealed class LegalTaskMutationUseCasesPersistenceTests(
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class BeforeMutationPersistence(
+        ILegalTaskMutationPersistence inner,
+        Func<Task> beforeExecute) : ILegalTaskMutationPersistence
+    {
+        public async Task<LegalTaskMutationPersistenceResult> ExecuteAsync(
+            LegalTaskMutationPersistenceRequest request,
+            Func<LegalTaskMutationPreviewState, Guid?> selectAssigneeToLock,
+            Func<LegalTaskMutationLockedState, LegalTaskMutationDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            await beforeExecute();
+            return await inner.ExecuteAsync(
+                request,
+                selectAssigneeToLock,
+                decide,
+                cancellationToken);
+        }
     }
 
     private sealed class InvalidAuditDetailsInterceptor(string? detailsJson)
