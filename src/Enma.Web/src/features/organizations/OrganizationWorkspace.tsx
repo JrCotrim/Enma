@@ -122,6 +122,16 @@ export function OrganizationWorkspace() {
         >
           Equipe
         </NavLink>
+        {currentOrganization.role !== 'Member' ? (
+          <NavLink
+            className={({ isActive }) =>
+              `workspace-navigation-link${isActive ? ' is-active' : ''}`
+            }
+            to="audit-log"
+          >
+            Audit Log
+          </NavLink>
+        ) : null}
       </nav>
 
       <Outlet key={currentOrganization.id} />

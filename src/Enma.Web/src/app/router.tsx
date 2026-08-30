@@ -1,5 +1,6 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom'
 import { AgendaPage } from '../features/agenda/AgendaPage'
+import { AuditLogPage } from '../features/audit-log/AuditLogPage'
 import { AuthProvider } from '../features/authentication/AuthProvider'
 import { LoginPage } from '../features/authentication/LoginPage'
 import { ProtectedRoute } from '../features/authentication/SessionStatus'
@@ -113,6 +114,10 @@ export function createAppRoutes(
                         {
                           path: 'team',
                           element: <TeamPage />,
+                        },
+                        {
+                          path: 'audit-log',
+                          element: <AuditLogPage />,
                         },
                       ],
                     },
