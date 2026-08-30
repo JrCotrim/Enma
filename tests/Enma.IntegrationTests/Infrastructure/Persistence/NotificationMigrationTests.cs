@@ -56,6 +56,7 @@ public sealed class NotificationMigrationTests(
             tablesBefore
                 .Append("notifications")
                 .Append("audit_logs")
+                .Append("organization_invitations")
                 .OrderBy(table => table),
             await GetPublicTablesAsync());
         await using EnmaDbContext dbContext = fixture.CreateDbContext();

@@ -57,6 +57,9 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     public DbSet<OrganizationMembership> OrganizationMemberships =>
         Set<OrganizationMembership>();
 
+    public DbSet<OrganizationInvitation> OrganizationInvitations =>
+        Set<OrganizationInvitation>();
+
     async Task<int> IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken)
     {
         try

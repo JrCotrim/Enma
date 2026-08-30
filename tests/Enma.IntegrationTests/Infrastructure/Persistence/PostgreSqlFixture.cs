@@ -56,6 +56,7 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         await dbContext.EmailVerificationChallenges.ExecuteDeleteAsync(cancellationToken);
         await dbContext.AuthenticationSessions.ExecuteDeleteAsync(cancellationToken);
         await dbContext.UserCredentials.ExecuteDeleteAsync(cancellationToken);
+        await dbContext.OrganizationInvitations.ExecuteDeleteAsync(cancellationToken);
         await dbContext.OrganizationMemberships.ExecuteDeleteAsync(cancellationToken);
         await dbContext.Users.ExecuteDeleteAsync(cancellationToken);
         await dbContext.Organizations.ExecuteDeleteAsync(cancellationToken);

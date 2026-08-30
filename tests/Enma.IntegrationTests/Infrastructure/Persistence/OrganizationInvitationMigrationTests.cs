@@ -9,15 +9,15 @@ using Npgsql;
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
 
 [Collection(PostgreSqlCollection.Name)]
-public sealed class AuditLogMigrationTests(
+public sealed class OrganizationInvitationMigrationTests(
     PostgreSqlFixture fixture) : IAsyncLifetime
 {
     private const string PreviousMigration =
-        "20260824170123_AddNotifications";
+        "20260827182006_AddAuditLogs";
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
         8,
-        27,
+        30,
         12,
         0,
         0,
@@ -28,21 +28,21 @@ public sealed class AuditLogMigrationTests(
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
-    public async Task MigrateAsync_FromPreviousSchema_PreservesDataAndCreatesAuditSchema()
+    public async Task MigrateAsync_FromPreviousSchema_PreservesDataAndCreatesInvitationSchema()
     {
         await MigrateAsync(PreviousMigration);
         var organization = new Organization(
-            "Existing Audit Tenant",
-            "existing-audit-tenant",
+            "Existing Invitation Tenant",
+            "existing-invitation-tenant",
             CreatedAt);
         var user = new User(
-            "Existing Audit Actor",
-            "existing.audit.actor@example.test",
+            "Existing Invitation Creator",
+            "existing.invitation.creator@example.test",
             CreatedAt);
         var membership = new OrganizationMembership(
             organization.Id,
             user.Id,
-            OrganizationRole.Member,
+            OrganizationRole.Administrator,
             CreatedAt);
 
         await using (EnmaDbContext seedContext = fixture.CreateDbContext())
@@ -52,16 +52,12 @@ public sealed class AuditLogMigrationTests(
         }
 
         string[] tablesBefore = await GetPublicTablesAsync();
-        Assert.Equal(0, await CountDuplicateMembershipIdsAsync());
-        Assert.Null(await GetConstraintColumnsAsync(
-            "organization_memberships",
-            "ak_organization_memberships_organization_id_id_user_id"));
+        Assert.DoesNotContain("organization_invitations", tablesBefore);
 
         await MigrateAsync();
 
         Assert.Equal(
             tablesBefore
-                .Append("audit_logs")
                 .Append("organization_invitations")
                 .Order(StringComparer.Ordinal),
             await GetPublicTablesAsync());
@@ -78,7 +74,6 @@ public sealed class AuditLogMigrationTests(
         await AssertColumnsAsync();
         await AssertConstraintsAsync();
         await AssertIndexesAsync();
-        await AssertAppendOnlyTriggerAsync();
     }
 
     private async Task AssertColumnsAsync()
@@ -92,7 +87,7 @@ public sealed class AuditLogMigrationTests(
                 character_maximum_length
             FROM information_schema.columns
             WHERE table_schema = 'public'
-              AND table_name = 'audit_logs'
+              AND table_name = 'organization_invitations'
             ORDER BY ordinal_position
             """;
         var actual = new List<string>();
@@ -114,52 +109,57 @@ public sealed class AuditLogMigrationTests(
             [
                 "id|uuid|NO|",
                 "organization_id|uuid|NO|",
-                "actor_user_id|uuid|NO|",
-                "actor_membership_id|uuid|NO|",
-                "actor_role_at_occurrence|integer|NO|",
-                "event_type|integer|NO|",
-                "entity_type|integer|NO|",
-                "entity_id|uuid|NO|",
-                "occurred_at|timestamp with time zone|NO|",
-                "trace_id|character varying|YES|32",
-                "details|jsonb|YES|"
+                "invited_email|character varying|NO|254",
+                "role|integer|NO|",
+                "created_by_membership_id|uuid|NO|",
+                "token_hash|bytea|YES|",
+                "created_at|timestamp with time zone|NO|",
+                "token_issued_at|timestamp with time zone|NO|",
+                "expires_at|timestamp with time zone|NO|",
+                "accepted_at|timestamp with time zone|YES|",
+                "accepted_by_user_id|uuid|YES|",
+                "revoked_at|timestamp with time zone|YES|",
+                "expired_at|timestamp with time zone|YES|"
             ],
             actual);
     }
 
     private async Task AssertConstraintsAsync()
     {
-        string[] expectedAuditConstraints =
+        string[] expectedConstraints =
         [
-            "ck_audit_logs_actor_role_at_occurrence",
-            "ck_audit_logs_details_contract",
-            "ck_audit_logs_details_size",
-            "ck_audit_logs_entity_type",
-            "ck_audit_logs_event_entity_type",
-            "ck_audit_logs_event_type",
-            "ck_audit_logs_trace_id",
-            "fk_audit_logs_memberships_org_membership_user_id",
-            "fk_audit_logs_organizations_organization_id",
-            "pk_audit_logs"
+            "ck_organization_invitations_acceptance_time",
+            "ck_organization_invitations_accepted_by_user",
+            "ck_organization_invitations_expiration",
+            "ck_organization_invitations_expired_at",
+            "ck_organization_invitations_revocation_time",
+            "ck_organization_invitations_role",
+            "ck_organization_invitations_terminal_state",
+            "ck_organization_invitations_token_hash_length",
+            "ck_organization_invitations_token_issued_at",
+            "ck_organization_invitations_token_state",
+            "fk_organization_invitations_memberships_org_created_by_id",
+            "fk_organization_invitations_organizations_organization_id",
+            "fk_organization_invitations_users_accepted_by_user_id",
+            "pk_organization_invitations"
         ];
 
         Assert.Equal(
-            expectedAuditConstraints,
-            await GetConstraintNamesAsync("audit_logs"));
+            expectedConstraints,
+            await GetConstraintNamesAsync());
         Assert.Equal(
-            "organization_id,id,user_id",
-            await GetConstraintColumnsAsync(
-                "organization_memberships",
-                "ak_organization_memberships_organization_id_id_user_id"));
-        Assert.Equal(
-            "organization_id,actor_membership_id,actor_user_id=>" +
-            "organization_id,id,user_id|RESTRICT",
+            "organization_id,created_by_membership_id=>" +
+            "organization_id,id|RESTRICT",
             await GetForeignKeyShapeAsync(
-                "fk_audit_logs_memberships_org_membership_user_id"));
+                "fk_organization_invitations_memberships_org_created_by_id"));
         Assert.Equal(
             "organization_id=>id|RESTRICT",
             await GetForeignKeyShapeAsync(
-                "fk_audit_logs_organizations_organization_id"));
+                "fk_organization_invitations_organizations_organization_id"));
+        Assert.Equal(
+            "accepted_by_user_id=>id|RESTRICT",
+            await GetForeignKeyShapeAsync(
+                "fk_organization_invitations_users_accepted_by_user_id"));
     }
 
     private async Task AssertIndexesAsync()
@@ -167,61 +167,43 @@ public sealed class AuditLogMigrationTests(
         Dictionary<string, string> indexes = await GetIndexesAsync();
         string[] expectedNames =
         [
-            "ix_audit_logs_org_actor_membership_id_actor_user_id",
-            "ix_audit_logs_org_actor_user_id_occurred_at_id",
-            "ix_audit_logs_org_entity_type_entity_id_occurred_at_id",
-            "ix_audit_logs_org_event_type_occurred_at_id",
-            "ix_audit_logs_organization_id_occurred_at_id",
-            "pk_audit_logs"
+            "ix_organization_invitations_accepted_by_user_id",
+            "ix_organization_invitations_org_created_by_membership_id",
+            "ix_organization_invitations_organization_id_created_at_id",
+            "pk_organization_invitations",
+            "ux_organization_invitations_open_organization_id_email",
+            "ux_organization_invitations_token_hash"
         ];
 
         Assert.Equal(expectedNames, indexes.Keys.Order(StringComparer.Ordinal));
         Assert.Contains(
-            "(organization_id, occurred_at DESC, id DESC)",
-            indexes["ix_audit_logs_organization_id_occurred_at_id"],
+            "(organization_id, created_at DESC, id DESC)",
+            indexes["ix_organization_invitations_organization_id_created_at_id"],
             StringComparison.Ordinal);
         Assert.Contains(
-            "(organization_id, entity_type, entity_id, occurred_at DESC, id DESC)",
-            indexes["ix_audit_logs_org_entity_type_entity_id_occurred_at_id"],
+            "UNIQUE INDEX",
+            indexes["ux_organization_invitations_token_hash"],
             StringComparison.Ordinal);
         Assert.Contains(
-            "(organization_id, actor_user_id, occurred_at DESC, id DESC)",
-            indexes["ix_audit_logs_org_actor_user_id_occurred_at_id"],
+            "WHERE (token_hash IS NOT NULL)",
+            indexes["ux_organization_invitations_token_hash"],
             StringComparison.Ordinal);
         Assert.Contains(
-            "(organization_id, event_type, occurred_at DESC, id DESC)",
-            indexes["ix_audit_logs_org_event_type_occurred_at_id"],
+            "UNIQUE INDEX",
+            indexes[
+                "ux_organization_invitations_open_organization_id_email"],
             StringComparison.Ordinal);
-    }
-
-    private async Task AssertAppendOnlyTriggerAsync()
-    {
-        const string Query =
-            """
-            SELECT pg_get_triggerdef(trigger.oid), trigger.tgenabled
-            FROM pg_trigger AS trigger
-            WHERE trigger.tgrelid = 'public.audit_logs'::regclass
-              AND trigger.tgname = 'trg_audit_logs_append_only'
-              AND NOT trigger.tgisinternal
-            """;
-
-        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(Query, connection);
-        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
-
-        Assert.True(await reader.ReadAsync());
-        string triggerDefinition = reader.GetString(0);
-        Assert.Contains("BEFORE", triggerDefinition, StringComparison.Ordinal);
-        Assert.Contains("UPDATE", triggerDefinition, StringComparison.Ordinal);
-        Assert.Contains("DELETE", triggerDefinition, StringComparison.Ordinal);
-        Assert.Contains("TRUNCATE", triggerDefinition, StringComparison.Ordinal);
         Assert.Contains(
-            "FOR EACH STATEMENT",
-            triggerDefinition,
+            "(organization_id, invited_email)",
+            indexes[
+                "ux_organization_invitations_open_organization_id_email"],
             StringComparison.Ordinal);
-        Assert.Equal('O', reader.GetChar(1));
-        Assert.False(await reader.ReadAsync());
+        Assert.Contains(
+            "WHERE ((accepted_at IS NULL) AND (revoked_at IS NULL) " +
+            "AND (expired_at IS NULL))",
+            indexes[
+                "ux_organization_invitations_open_organization_id_email"],
+            StringComparison.Ordinal);
     }
 
     private async Task MigrateAsync(string? targetMigration = null)
@@ -256,58 +238,13 @@ public sealed class AuditLogMigrationTests(
         return tables.ToArray();
     }
 
-    private async Task<int> CountDuplicateMembershipIdsAsync()
-    {
-        const string Query =
-            """
-            SELECT count(*)::integer
-            FROM
-            (
-                SELECT id
-                FROM organization_memberships
-                GROUP BY id
-                HAVING count(*) > 1
-            ) AS duplicates
-            """;
-
-        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(Query, connection);
-        return Assert.IsType<int>(await command.ExecuteScalarAsync());
-    }
-
-    private async Task<string?> GetConstraintColumnsAsync(
-        string tableName,
-        string constraintName)
-    {
-        const string Query =
-            """
-            SELECT string_agg(kcu.column_name, ',' ORDER BY kcu.ordinal_position)
-            FROM information_schema.table_constraints AS tc
-            INNER JOIN information_schema.key_column_usage AS kcu
-                ON kcu.constraint_schema = tc.constraint_schema
-                AND kcu.constraint_name = tc.constraint_name
-            WHERE tc.constraint_schema = 'public'
-              AND tc.table_name = @tableName
-              AND tc.constraint_name = @constraintName
-            """;
-
-        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(Query, connection);
-        command.Parameters.AddWithValue("tableName", tableName);
-        command.Parameters.AddWithValue("constraintName", constraintName);
-        object? result = await command.ExecuteScalarAsync();
-        return result is null or DBNull ? null : (string)result;
-    }
-
-    private async Task<string[]> GetConstraintNamesAsync(string tableName)
+    private async Task<string[]> GetConstraintNamesAsync()
     {
         const string Query =
             """
             SELECT conname
             FROM pg_constraint
-            WHERE conrelid = ('public.' || @tableName)::regclass
+            WHERE conrelid = 'public.organization_invitations'::regclass
               AND contype IN ('p', 'f', 'c')
             ORDER BY conname
             """;
@@ -316,7 +253,6 @@ public sealed class AuditLogMigrationTests(
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
         await connection.OpenAsync();
         await using var command = new NpgsqlCommand(Query, connection);
-        command.Parameters.AddWithValue("tableName", tableName);
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
 
         while (await reader.ReadAsync())
@@ -365,7 +301,7 @@ public sealed class AuditLogMigrationTests(
             SELECT indexname, indexdef
             FROM pg_indexes
             WHERE schemaname = 'public'
-              AND tablename = 'audit_logs'
+              AND tablename = 'organization_invitations'
             ORDER BY indexname
             """;
         var indexes = new Dictionary<string, string>(StringComparer.Ordinal);

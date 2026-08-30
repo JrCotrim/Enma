@@ -42,6 +42,7 @@ using Enma.Application.Notifications.MarkAllRead;
 using Enma.Application.Notifications.MarkRead;
 using Enma.Application.Organizations;
 using Enma.Application.Organizations.CurrentUser;
+using Enma.Application.Organizations.Invitations;
 using Enma.Application.Organizations.Members.List;
 using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Application.Organizations.Members.Lookup;
@@ -198,6 +199,9 @@ public static class DependencyInjection
         services.AddSingleton<
             IEmailVerificationTokenService,
             CryptographicEmailVerificationTokenService>();
+        services.AddSingleton<
+            IOrganizationInvitationTokenService,
+            CryptographicOrganizationInvitationTokenService>();
         if (isDevelopment)
         {
             services.AddSingleton<DevelopmentEmailVerificationDelivery>();
