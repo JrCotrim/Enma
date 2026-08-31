@@ -21,6 +21,68 @@ public sealed class OrganizationInvitationUseCaseTests
         TimeSpan.Zero);
 
     [Fact]
+    public async Task Preview_UsableToken_ReturnsOnlyMaskedRecipientData()
+    {
+        var tokenService = new StubTokenService { HashSucceeds = true };
+        var persistence = new StubMutationPersistence
+        {
+            PreviewResult = new PreviewOrganizationInvitationPersistenceResult(
+                PreviewOrganizationInvitationPersistenceStatus.Usable,
+                "Synthetic Legal",
+                "member@example.test",
+                OrganizationRole.Member)
+        };
+        var useCase = new PreviewOrganizationInvitationUseCase(
+            tokenService,
+            persistence);
+
+        PreviewOrganizationInvitationResult result = await useCase.ExecuteAsync(
+            StubTokenService.RawToken);
+
+        Assert.Equal(PreviewOrganizationInvitationStatus.Usable, result.Status);
+        Assert.Equal("Synthetic Legal", result.OrganizationName);
+        Assert.Equal(OrganizationRole.Member, result.Role);
+        Assert.Equal("m***@example.test", result.InvitedEmail);
+        Assert.Equal(tokenService.TokenHash, persistence.PreviewTokenHash);
+    }
+
+    [Fact]
+    public async Task Preview_InvalidToken_DoesNotQueryPersistence()
+    {
+        var persistence = new StubMutationPersistence();
+        var useCase = new PreviewOrganizationInvitationUseCase(
+            new StubTokenService(),
+            persistence);
+
+        PreviewOrganizationInvitationResult result = await useCase.ExecuteAsync(
+            "malformed");
+
+        Assert.Equal(PreviewOrganizationInvitationStatus.Invalid, result.Status);
+        Assert.Null(persistence.PreviewTokenHash);
+    }
+
+    [Fact]
+    public async Task Accept_ValidToken_UsesAuthenticatedUserAndMapsPersistence()
+    {
+        var tokenService = new StubTokenService { HashSucceeds = true };
+        var persistence = new StubMutationPersistence
+        {
+            AcceptResult = AcceptOrganizationInvitationPersistenceResult.Succeeded
+        };
+        var useCase = new AcceptOrganizationInvitationUseCase(
+            tokenService,
+            persistence);
+
+        AcceptOrganizationInvitationResult result = await useCase.ExecuteAsync(
+            UserId,
+            StubTokenService.RawToken);
+
+        Assert.Equal(AcceptOrganizationInvitationResult.Succeeded, result);
+        Assert.Equal(UserId, persistence.AcceptUserId);
+        Assert.Equal(tokenService.TokenHash, persistence.AcceptTokenHash);
+    }
+
+    [Fact]
     public async Task Create_OwnerAdministratorInvite_NormalizesAndDeliversAfterPersistence()
     {
         var persistence = new StubMutationPersistence();
@@ -235,6 +297,22 @@ public sealed class OrganizationInvitationUseCaseTests
     private sealed class StubMutationPersistence
         : IOrganizationInvitationMutationPersistence
     {
+        public PreviewOrganizationInvitationPersistenceResult PreviewResult
+            { get; init; } = new(
+                PreviewOrganizationInvitationPersistenceStatus.Invalid);
+
+        public AcceptOrganizationInvitationPersistenceResult AcceptResult
+            { get; init; } =
+                AcceptOrganizationInvitationPersistenceResult.Rejected;
+
+        public OrganizationInvitationTokenHash? PreviewTokenHash
+            { get; private set; }
+
+        public Guid? AcceptUserId { get; private set; }
+
+        public OrganizationInvitationTokenHash? AcceptTokenHash
+            { get; private set; }
+
         public CreateOrganizationInvitationPersistenceResult CreateResult { get; set; } =
             new(CreateOrganizationInvitationPersistenceStatus.AccessDenied);
 
@@ -247,6 +325,24 @@ public sealed class OrganizationInvitationUseCaseTests
             { get; private set; }
 
         public bool CreateCompletedBeforeDelivery { get; private set; }
+
+        public Task<PreviewOrganizationInvitationPersistenceResult> PreviewAsync(
+            OrganizationInvitationTokenHash tokenHash,
+            CancellationToken cancellationToken = default)
+        {
+            PreviewTokenHash = tokenHash;
+            return Task.FromResult(PreviewResult);
+        }
+
+        public Task<AcceptOrganizationInvitationPersistenceResult> AcceptAsync(
+            Guid userId,
+            OrganizationInvitationTokenHash tokenHash,
+            CancellationToken cancellationToken = default)
+        {
+            AcceptUserId = userId;
+            AcceptTokenHash = tokenHash;
+            return Task.FromResult(AcceptResult);
+        }
 
         public Task<CreateOrganizationInvitationPersistenceResult> CreateAsync(
             CreateOrganizationInvitationPersistenceRequest request,
@@ -325,5 +421,30 @@ public sealed class OrganizationInvitationUseCaseTests
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class StubTokenService : IOrganizationInvitationTokenService
+    {
+        internal const string RawToken =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno-_";
+
+        public OrganizationInvitationTokenHash TokenHash { get; } =
+            new(Enumerable.Repeat((byte)1, 32).ToArray());
+
+        public bool HashSucceeds { get; init; }
+
+        public string GenerateToken(out OrganizationInvitationTokenHash tokenHash)
+        {
+            tokenHash = TokenHash;
+            return RawToken;
+        }
+
+        public bool TryHashToken(
+            string? rawToken,
+            out OrganizationInvitationTokenHash? tokenHash)
+        {
+            tokenHash = HashSucceeds ? TokenHash : null;
+            return HashSucceeds;
+        }
     }
 }

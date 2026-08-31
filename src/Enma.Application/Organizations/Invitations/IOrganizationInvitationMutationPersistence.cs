@@ -4,6 +4,15 @@ namespace Enma.Application.Organizations.Invitations;
 
 public interface IOrganizationInvitationMutationPersistence
 {
+    Task<PreviewOrganizationInvitationPersistenceResult> PreviewAsync(
+        OrganizationInvitationTokenHash tokenHash,
+        CancellationToken cancellationToken = default);
+
+    Task<AcceptOrganizationInvitationPersistenceResult> AcceptAsync(
+        Guid userId,
+        OrganizationInvitationTokenHash tokenHash,
+        CancellationToken cancellationToken = default);
+
     Task<CreateOrganizationInvitationPersistenceResult> CreateAsync(
         CreateOrganizationInvitationPersistenceRequest request,
         CancellationToken cancellationToken = default);
@@ -15,6 +24,25 @@ public interface IOrganizationInvitationMutationPersistence
     Task<ResendOrganizationInvitationPersistenceResult> ResendAsync(
         OrganizationInvitationMutationPersistenceRequest request,
         CancellationToken cancellationToken = default);
+}
+
+public sealed record PreviewOrganizationInvitationPersistenceResult(
+    PreviewOrganizationInvitationPersistenceStatus Status,
+    string? OrganizationName = null,
+    string? InvitedEmail = null,
+    OrganizationRole? Role = null);
+
+public enum PreviewOrganizationInvitationPersistenceStatus
+{
+    Invalid = 0,
+    Expired = 1,
+    Usable = 2
+}
+
+public enum AcceptOrganizationInvitationPersistenceResult
+{
+    Rejected = 0,
+    Succeeded = 1
 }
 
 public sealed record CreateOrganizationInvitationPersistenceRequest(

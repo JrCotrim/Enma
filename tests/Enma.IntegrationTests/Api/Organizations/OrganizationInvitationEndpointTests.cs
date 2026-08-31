@@ -26,6 +26,8 @@ public sealed class OrganizationInvitationEndpointTests : IAsyncLifetime
     private const string AntiforgeryCookieName = "__Host-enma_csrf";
     private const string CsrfHeaderName = "X-CSRF-TOKEN";
     private const string CsrfPath = "/api/auth/csrf";
+    private const string PreviewPath = "/api/invitations/preview";
+    private const string AcceptPath = "/api/invitations/accept";
     private const string PasswordHash = "synthetic-invitation-password-hash";
 
     private static readonly DateTimeOffset Now = new(
@@ -82,6 +84,17 @@ public sealed class OrganizationInvitationEndpointTests : IAsyncLifetime
             typeof(OrganizationInvitationResponse).GetProperties(),
             property => property.Name.Contains("Token", StringComparison.Ordinal) ||
                 property.Name.Contains("AcceptedBy", StringComparison.Ordinal));
+        Assert.Equal(
+            [nameof(OrganizationInvitationTokenRequest.Token)],
+            typeof(OrganizationInvitationTokenRequest)
+                .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                .Select(property => property.Name)
+                .ToArray());
+        Assert.DoesNotContain(
+            typeof(OrganizationInvitationPreviewResponse).GetProperties(),
+            property => property.Name.EndsWith("Id", StringComparison.Ordinal) ||
+                property.Name.Contains("Token", StringComparison.Ordinal) ||
+                property.Name.Contains("CreatedBy", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -457,6 +470,98 @@ public sealed class OrganizationInvitationEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task RecipientTokenRateLimit_RejectsExcessWithoutMutationAndIsIndependent()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var recipient = new User(
+            "Rate Limited Recipient",
+            "rate-limited-recipient@example.test",
+            Now.AddHours(-2));
+        recipient.VerifyEmail(Now.AddHours(-1));
+        AuthenticatedSession authenticated = CreateSession(recipient);
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        string rawToken = tokenService.GenerateToken(out var tokenHash);
+        var invitation = new OrganizationInvitation(
+            graph.Organization.Id,
+            recipient.Email,
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            tokenHash,
+            Now.AddHours(-1),
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
+        await SeedAsync(
+            recipient,
+            authenticated.Credential,
+            authenticated.Session,
+            invitation);
+        CsrfPair recipientCsrf = await GetCsrfPairAsync(authenticated.RawHandle);
+        CsrfPair adminCsrf = await GetCsrfPairAsync(graph.RawHandle);
+        var admitted = new List<HttpResponseMessage>();
+
+        try
+        {
+            for (int index = 0; index < 20; index++)
+            {
+                admitted.Add(await client.PostAsJsonAsync(
+                    PreviewPath,
+                    new { token = "malformed" }));
+            }
+
+            Assert.All(
+                admitted,
+                response =>
+                {
+                    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                    Assert.True(response.Headers.CacheControl?.NoStore);
+                });
+
+            using HttpResponseMessage rejected = await SendRecipientAsync(
+                AcceptPath,
+                authenticated.RawHandle,
+                recipientCsrf,
+                rawToken);
+            Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
+            Assert.True(rejected.Headers.CacheControl?.NoStore);
+            Assert.Equal(string.Empty, await rejected.Content.ReadAsStringAsync());
+
+            await using (EnmaDbContext dbContext = fixture.CreateDbContext())
+            {
+                OrganizationInvitation stored = await dbContext
+                    .OrganizationInvitations
+                    .SingleAsync(candidate => candidate.Id == invitation.Id);
+                Assert.Null(stored.AcceptedAt);
+                Assert.Equal(tokenHash, stored.TokenHash);
+                Assert.Equal(0, await dbContext.OrganizationMemberships.CountAsync(
+                    membership => membership.UserId == recipient.Id));
+                Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+            }
+
+            using HttpResponseMessage admin = await SendCreateAsync(
+                graph,
+                adminCsrf,
+                "independent-admin-rate@example.test",
+                "Member");
+            Assert.Equal(HttpStatusCode.Created, admin.StatusCode);
+            Assert.True(admin.Headers.CacheControl?.NoStore);
+
+            await using EnmaDbContext verification = fixture.CreateDbContext();
+            Assert.Equal(0, await verification.AuditLogs.CountAsync(audit =>
+                audit.EventType ==
+                    AuditEventType.OrganizationInvitationAccepted));
+            Assert.Equal(1, await verification.AuditLogs.CountAsync(audit =>
+                audit.EventType == AuditEventType.OrganizationInvitationCreated));
+        }
+        finally
+        {
+            foreach (HttpResponseMessage response in admitted)
+            {
+                response.Dispose();
+            }
+        }
+    }
+
+    [Fact]
     public async Task List_IsAdminOnlyTenantQualifiedBoundedAndNeverExposesToken()
     {
         TestGraph owner = await SeedGraphAsync(OrganizationRole.Owner, "owner");
@@ -549,6 +654,363 @@ public sealed class OrganizationInvitationEndpointTests : IAsyncLifetime
             HttpStatusCode.Unauthorized);
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         Assert.Equal(0, await dbContext.OrganizationInvitations.CountAsync());
+    }
+
+    [Fact]
+    public async Task Preview_UsableToken_ReturnsMaskedMinimalNoStoreBody()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        string rawToken = tokenService.GenerateToken(out var tokenHash);
+        var invitation = new OrganizationInvitation(
+            graph.Organization.Id,
+            "recipient.preview@example.test",
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            tokenHash,
+            Now.AddHours(-1),
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
+        await SeedAsync(invitation);
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync(
+            PreviewPath,
+            new { token = rawToken });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        OrganizationInvitationPreviewResponse body = Assert.IsType<
+            OrganizationInvitationPreviewResponse>(
+                await response.Content.ReadFromJsonAsync<
+                    OrganizationInvitationPreviewResponse>());
+        Assert.Equal("usable", body.Status);
+        Assert.Equal(graph.Organization.Name, body.OrganizationName);
+        Assert.Equal("Member", body.Role);
+        Assert.Equal("r***@example.test", body.InvitedEmail);
+        string content = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(rawToken, content, StringComparison.Ordinal);
+        Assert.DoesNotContain("tokenHash", content, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(string.Empty, response.RequestMessage!.RequestUri!.Query);
+    }
+
+    [Fact]
+    public async Task Preview_ExpiredDoesNotMaterializeAndTerminalMatchesInvalid()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        string expiredRawToken = tokenService.GenerateToken(out var expiredHash);
+        string revokedRawToken = tokenService.GenerateToken(out var revokedHash);
+        var expired = new OrganizationInvitation(
+            graph.Organization.Id,
+            "expired@example.test",
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            expiredHash,
+            Now.AddDays(-2),
+            Now.AddDays(-1),
+            Now);
+        var revoked = new OrganizationInvitation(
+            graph.Organization.Id,
+            "revoked@example.test",
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            revokedHash,
+            Now.AddHours(-1),
+            Now.AddMinutes(-2),
+            Now.AddDays(1));
+        revoked.Revoke(Now.AddMinutes(-1));
+        await SeedAsync(expired, revoked);
+
+        using HttpResponseMessage expiredResponse = await client.PostAsJsonAsync(
+            PreviewPath,
+            new { token = expiredRawToken });
+        using HttpResponseMessage revokedResponse = await client.PostAsJsonAsync(
+            PreviewPath,
+            new { token = revokedRawToken });
+        using HttpResponseMessage invalidResponse = await client.PostAsJsonAsync(
+            PreviewPath,
+            new { token = "malformed" });
+
+        OrganizationInvitationPreviewResponse expiredBody = Assert.IsType<
+            OrganizationInvitationPreviewResponse>(
+                await expiredResponse.Content.ReadFromJsonAsync<
+                    OrganizationInvitationPreviewResponse>());
+        OrganizationInvitationPreviewResponse revokedBody = Assert.IsType<
+            OrganizationInvitationPreviewResponse>(
+                await revokedResponse.Content.ReadFromJsonAsync<
+                    OrganizationInvitationPreviewResponse>());
+        OrganizationInvitationPreviewResponse invalidBody = Assert.IsType<
+            OrganizationInvitationPreviewResponse>(
+                await invalidResponse.Content.ReadFromJsonAsync<
+                    OrganizationInvitationPreviewResponse>());
+        Assert.Equal("expired", expiredBody.Status);
+        Assert.Null(expiredBody.OrganizationName);
+        Assert.Equal(invalidBody, revokedBody);
+        Assert.Equal("invalid", invalidBody.Status);
+        Assert.True(expiredResponse.Headers.CacheControl?.NoStore);
+        Assert.True(revokedResponse.Headers.CacheControl?.NoStore);
+        Assert.True(invalidResponse.Headers.CacheControl?.NoStore);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationInvitation storedExpired = await dbContext
+            .OrganizationInvitations
+            .SingleAsync(invitation => invitation.Id == expired.Id);
+        Assert.Null(storedExpired.ExpiredAt);
+        Assert.Equal(expiredHash, storedExpired.TokenHash);
+    }
+
+    [Fact]
+    public async Task Accept_AuthenticatedRecipient_CreatesMembershipConsumesAndAudits()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var recipient = new User(
+            "Invitation Recipient",
+            "recipient.accept@example.test",
+            Now.AddHours(-2));
+        recipient.VerifyEmail(Now.AddHours(-1));
+        AuthenticatedSession authenticated = CreateSession(recipient);
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        string rawToken = tokenService.GenerateToken(out var tokenHash);
+        var invitation = new OrganizationInvitation(
+            graph.Organization.Id,
+            recipient.Email,
+            OrganizationRole.Administrator,
+            graph.Membership.Id,
+            tokenHash,
+            Now.AddHours(-1),
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
+        await SeedAsync(
+            recipient,
+            authenticated.Credential,
+            authenticated.Session,
+            invitation);
+        CsrfPair csrf = await GetCsrfPairAsync(authenticated.RawHandle);
+
+        using HttpResponseMessage response = await SendRecipientAsync(
+            AcceptPath,
+            authenticated.RawHandle,
+            csrf,
+            rawToken);
+
+        await AssertEmptyResponseAsync(response, HttpStatusCode.NoContent);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationMembership membership = await dbContext
+            .OrganizationMemberships
+            .SingleAsync(candidate => candidate.UserId == recipient.Id);
+        OrganizationInvitation stored = await dbContext.OrganizationInvitations
+            .SingleAsync(candidate => candidate.Id == invitation.Id);
+        AuditLog audit = await dbContext.AuditLogs.SingleAsync();
+        Assert.Equal(OrganizationRole.Administrator, membership.Role);
+        Assert.Null(stored.TokenHash);
+        Assert.Equal(recipient.Id, stored.AcceptedByUserId);
+        Assert.Equal(AuditEventType.OrganizationInvitationAccepted, audit.EventType);
+        Assert.Equal(membership.Id, audit.ActorMembershipId);
+        Assert.Equal(recipient.Id, audit.ActorUserId);
+        Assert.Equal(invitation.Id, audit.EntityId);
+        Assert.Null(audit.Details);
+    }
+
+    [Fact]
+    public async Task Accept_AnonymousOrMissingCsrf_FailsBeforeMutation()
+    {
+        using HttpResponseMessage anonymous = await client.PostAsJsonAsync(
+            AcceptPath,
+            new { token = "malformed" });
+        await AssertEmptyResponseAsync(anonymous, HttpStatusCode.Unauthorized);
+
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        using HttpResponseMessage missingCsrf = await SendRecipientAsync(
+            AcceptPath,
+            graph.RawHandle,
+            csrf: null,
+            rawToken: "malformed");
+        Assert.Equal(HttpStatusCode.BadRequest, missingCsrf.StatusCode);
+        Assert.True(missingCsrf.Headers.CacheControl?.NoStore);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
+    public async Task Accept_WrongEmailUnverifiedAndInactiveUser_FailClosedWithoutPii()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var wrongUser = new User(
+            "Wrong Recipient",
+            "wrong-recipient@example.test",
+            Now.AddHours(-2));
+        wrongUser.VerifyEmail(Now.AddHours(-1));
+        var unverifiedUser = new User(
+            "Unverified Recipient",
+            "unverified-recipient@example.test",
+            Now.AddHours(-2));
+        var inactiveUser = new User(
+            "Inactive Recipient",
+            "inactive-recipient@example.test",
+            Now.AddHours(-2));
+        inactiveUser.VerifyEmail(Now.AddHours(-1));
+        AuthenticatedSession wrongSession = CreateSession(wrongUser);
+        AuthenticatedSession unverifiedSession = CreateSession(unverifiedUser);
+        AuthenticatedSession inactiveSession = CreateSession(inactiveUser);
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        string wrongToken = tokenService.GenerateToken(out var wrongHash);
+        string unverifiedToken = tokenService.GenerateToken(out var unverifiedHash);
+        string inactiveToken = tokenService.GenerateToken(out var inactiveHash);
+        var wrongInvitation = new OrganizationInvitation(
+            graph.Organization.Id,
+            "intended-recipient@example.test",
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            wrongHash,
+            Now.AddHours(-1),
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
+        var unverifiedInvitation = new OrganizationInvitation(
+            graph.Organization.Id,
+            unverifiedUser.Email,
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            unverifiedHash,
+            Now.AddHours(-1),
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
+        var inactiveInvitation = new OrganizationInvitation(
+            graph.Organization.Id,
+            inactiveUser.Email,
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            inactiveHash,
+            Now.AddHours(-1),
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
+        await SeedAsync(
+            wrongUser,
+            wrongSession.Credential,
+            wrongSession.Session,
+            unverifiedUser,
+            unverifiedSession.Credential,
+            unverifiedSession.Session,
+            inactiveUser,
+            inactiveSession.Credential,
+            inactiveSession.Session,
+            wrongInvitation,
+            unverifiedInvitation,
+            inactiveInvitation);
+        await MutateUserAsync(inactiveUser.Id);
+        CsrfPair wrongCsrf = await GetCsrfPairAsync(wrongSession.RawHandle);
+        CsrfPair unverifiedCsrf = await GetCsrfPairAsync(
+            unverifiedSession.RawHandle);
+
+        using HttpResponseMessage wrong = await SendRecipientAsync(
+            AcceptPath,
+            wrongSession.RawHandle,
+            wrongCsrf,
+            wrongToken);
+        using HttpResponseMessage unverified = await SendRecipientAsync(
+            AcceptPath,
+            unverifiedSession.RawHandle,
+            unverifiedCsrf,
+            unverifiedToken);
+        using HttpResponseMessage inactive = await SendRecipientAsync(
+            AcceptPath,
+            inactiveSession.RawHandle,
+            csrf: null,
+            inactiveToken);
+
+        string wrongContent = await AssertInvalidInvitationAsync(wrong);
+        string unverifiedContent = await AssertInvalidInvitationAsync(unverified);
+        await AssertEmptyResponseAsync(inactive, HttpStatusCode.Unauthorized);
+        Assert.DoesNotContain(wrongUser.Email, wrongContent, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            unverifiedUser.Email,
+            unverifiedContent,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(wrongToken, wrongContent, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            unverifiedToken,
+            unverifiedContent,
+            StringComparison.Ordinal);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+        Assert.Equal(3, await dbContext.OrganizationInvitations.CountAsync(
+            invitation => invitation.TokenHash != null));
+    }
+
+    [Fact]
+    public async Task Accept_ExpiredRevokedAcceptedOrForeignToken_ReturnsSameSafeFailure()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var recipient = new User(
+            "Terminal Recipient",
+            "terminal-recipient@example.test",
+            Now.AddHours(-3));
+        recipient.VerifyEmail(Now.AddHours(-2));
+        AuthenticatedSession authenticated = CreateSession(recipient);
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        string expiredToken = tokenService.GenerateToken(out var expiredHash);
+        string revokedToken = tokenService.GenerateToken(out var revokedHash);
+        string acceptedToken = tokenService.GenerateToken(out var acceptedHash);
+        string foreignToken = tokenService.GenerateToken(out _);
+        var expired = new OrganizationInvitation(
+            graph.Organization.Id,
+            recipient.Email,
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            expiredHash,
+            Now.AddDays(-2),
+            Now.AddDays(-1),
+            Now);
+        var revoked = new OrganizationInvitation(
+            graph.Organization.Id,
+            recipient.Email,
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            revokedHash,
+            Now.AddHours(-2),
+            Now.AddHours(-1),
+            Now.AddDays(1));
+        revoked.Revoke(Now.AddMinutes(-1));
+        var accepted = new OrganizationInvitation(
+            graph.Organization.Id,
+            recipient.Email,
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            acceptedHash,
+            Now.AddHours(-2),
+            Now.AddHours(-1),
+            Now.AddDays(1));
+        accepted.Accept(recipient.Id, Now.AddMinutes(-1));
+        await SeedAsync(
+            recipient,
+            authenticated.Credential,
+            authenticated.Session,
+            expired,
+            revoked,
+            accepted);
+        CsrfPair csrf = await GetCsrfPairAsync(authenticated.RawHandle);
+
+        foreach (string token in new[]
+            {
+                expiredToken,
+                revokedToken,
+                acceptedToken,
+                foreignToken,
+                "malformed"
+            })
+        {
+            using HttpResponseMessage response = await SendRecipientAsync(
+                AcceptPath,
+                authenticated.RawHandle,
+                csrf,
+                token);
+            string content = await AssertInvalidInvitationAsync(response);
+            Assert.DoesNotContain(token, content, StringComparison.Ordinal);
+            Assert.DoesNotContain(recipient.Email, content, StringComparison.Ordinal);
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+        Assert.Equal(0, await dbContext.OrganizationMemberships.CountAsync(
+            membership => membership.UserId == recipient.Id));
     }
 
     private async Task<HttpResponseMessage> SendCreateWithoutCsrfAsync(
@@ -686,6 +1148,21 @@ public sealed class OrganizationInvitationEndpointTests : IAsyncLifetime
         return await client.SendAsync(request);
     }
 
+    private async Task<HttpResponseMessage> SendRecipientAsync(
+        string path,
+        string rawHandle,
+        CsrfPair? csrf,
+        string rawToken)
+    {
+        using HttpRequestMessage request = CreateAuthenticatedRequest(
+            HttpMethod.Post,
+            path,
+            rawHandle,
+            csrf);
+        request.Content = JsonContent.Create(new { token = rawToken });
+        return await client.SendAsync(request);
+    }
+
     private async Task<HttpResponseMessage> SendGetAsync(
         string path,
         string rawHandle)
@@ -805,6 +1282,25 @@ public sealed class OrganizationInvitationEndpointTests : IAsyncLifetime
         Assert.DoesNotContain("stackTrace", content, StringComparison.Ordinal);
         Assert.DoesNotContain("token", content, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("SMTP", content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string> AssertInvalidInvitationAsync(
+        HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers.ContentType?.MediaType);
+        string content = await response.Content.ReadAsStringAsync();
+        Assert.Contains(
+            "organization_invitation_invalid",
+            content,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("System.", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("stackTrace", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("tokenHash", content, StringComparison.OrdinalIgnoreCase);
+        return content;
     }
 
     private sealed record TestGraph(

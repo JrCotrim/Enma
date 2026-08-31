@@ -493,6 +493,242 @@ public sealed class OrganizationInvitationMutationPersistenceTests(
         Assert.Equal(4, commandCounter.ReaderCount);
     }
 
+    [Fact]
+    public async Task PreviewAsync_ReturnsMinimalUsableOrExpiredStateWithoutMutation()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        tokenService.GenerateToken(out var usableHash);
+        tokenService.GenerateToken(out var expiredHash);
+        var usable = new OrganizationInvitation(
+            graph.Organization.Id,
+            "preview@example.test",
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            usableHash,
+            CreatedAt,
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
+        var expired = new OrganizationInvitation(
+            graph.Organization.Id,
+            "expired-preview@example.test",
+            OrganizationRole.Administrator,
+            graph.Membership.Id,
+            expiredHash,
+            CreatedAt,
+            Now.AddHours(-1),
+            Now);
+        await SeedAsync(usable, expired);
+        OrganizationInvitationMutationPersistence persistence = CreatePersistence();
+
+        PreviewOrganizationInvitationPersistenceResult usableResult =
+            await persistence.PreviewAsync(usableHash);
+        PreviewOrganizationInvitationPersistenceResult expiredResult =
+            await persistence.PreviewAsync(expiredHash);
+        PreviewOrganizationInvitationPersistenceResult invalidResult =
+            await persistence.PreviewAsync(new OrganizationInvitationTokenHash(
+                System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+
+        Assert.Equal(
+            PreviewOrganizationInvitationPersistenceStatus.Usable,
+            usableResult.Status);
+        Assert.Equal(graph.Organization.Name, usableResult.OrganizationName);
+        Assert.Equal(usable.InvitedEmail, usableResult.InvitedEmail);
+        Assert.Equal(OrganizationRole.Member, usableResult.Role);
+        Assert.Equal(
+            PreviewOrganizationInvitationPersistenceStatus.Expired,
+            expiredResult.Status);
+        Assert.Null(expiredResult.OrganizationName);
+        Assert.Equal(
+            PreviewOrganizationInvitationPersistenceStatus.Invalid,
+            invalidResult.Status);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationInvitation storedExpired = await dbContext
+            .OrganizationInvitations
+            .SingleAsync(invitation => invitation.Id == expired.Id);
+        Assert.Null(storedExpired.ExpiredAt);
+        Assert.Equal(expiredHash, storedExpired.TokenHash);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_NewMembership_ConsumesTokenAndAppendsRecipientAudit()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var invitee = new User(
+            "Invited User",
+            "accept-new@example.test",
+            CreatedAt);
+        invitee.VerifyEmail(CreatedAt.AddMinutes(1));
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        tokenService.GenerateToken(out var tokenHash);
+        var invitation = new OrganizationInvitation(
+            graph.Organization.Id,
+            invitee.Email,
+            OrganizationRole.Administrator,
+            graph.Membership.Id,
+            tokenHash,
+            CreatedAt,
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
+        await SeedAsync(invitee, invitation);
+
+        AcceptOrganizationInvitationPersistenceResult result =
+            await CreatePersistence().AcceptAsync(invitee.Id, tokenHash);
+
+        Assert.Equal(AcceptOrganizationInvitationPersistenceResult.Succeeded, result);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationMembership membership = await dbContext
+            .OrganizationMemberships
+            .SingleAsync(candidate => candidate.UserId == invitee.Id);
+        OrganizationInvitation storedInvitation = await dbContext
+            .OrganizationInvitations
+            .SingleAsync(candidate => candidate.Id == invitation.Id);
+        AuditLog audit = await dbContext.AuditLogs.SingleAsync();
+        Assert.True(membership.IsActive);
+        Assert.Equal(OrganizationRole.Administrator, membership.Role);
+        Assert.Equal(invitee.Id, storedInvitation.AcceptedByUserId);
+        Assert.Equal(Now, storedInvitation.AcceptedAt);
+        Assert.Null(storedInvitation.TokenHash);
+        Assert.Equal(AuditEventType.OrganizationInvitationAccepted, audit.EventType);
+        Assert.Equal(invitation.Id, audit.EntityId);
+        Assert.Equal(invitee.Id, audit.ActorUserId);
+        Assert.Equal(membership.Id, audit.ActorMembershipId);
+        Assert.Equal(OrganizationRole.Administrator, audit.ActorRoleAtOccurrence);
+        Assert.Null(audit.Details);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_CompatibleExistingMembership_ReusesAndReactivates()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var invitee = new User(
+            "Returning User",
+            "returning@example.test",
+            CreatedAt);
+        invitee.VerifyEmail(CreatedAt.AddMinutes(1));
+        var membership = new OrganizationMembership(
+            graph.Organization.Id,
+            invitee.Id,
+            OrganizationRole.Member,
+            CreatedAt);
+        membership.Deactivate();
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        tokenService.GenerateToken(out var tokenHash);
+        var invitation = new OrganizationInvitation(
+            graph.Organization.Id,
+            invitee.Email,
+            OrganizationRole.Member,
+            graph.Membership.Id,
+            tokenHash,
+            CreatedAt,
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
+        await SeedAsync(invitee, membership, invitation);
+
+        AcceptOrganizationInvitationPersistenceResult result =
+            await CreatePersistence().AcceptAsync(invitee.Id, tokenHash);
+
+        Assert.Equal(AcceptOrganizationInvitationPersistenceResult.Succeeded, result);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationMembership stored = await dbContext.OrganizationMemberships
+            .SingleAsync(candidate =>
+                candidate.OrganizationId == graph.Organization.Id &&
+                candidate.UserId == invitee.Id);
+        Assert.Equal(membership.Id, stored.Id);
+        Assert.True(stored.IsActive);
+        AuditLog audit = await dbContext.AuditLogs.SingleAsync();
+        Assert.Equal(membership.Id, audit.ActorMembershipId);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_StaleRecipientStateOrRole_RejectsWithoutConsumption()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var wrongUser = new User(
+            "Wrong User",
+            "wrong@example.test",
+            CreatedAt);
+        wrongUser.VerifyEmail(CreatedAt.AddMinutes(1));
+        var unverifiedUser = new User(
+            "Unverified User",
+            "unverified@example.test",
+            CreatedAt);
+        var inactiveUser = new User(
+            "Inactive User",
+            "inactive@example.test",
+            CreatedAt);
+        inactiveUser.VerifyEmail(CreatedAt.AddMinutes(1));
+        inactiveUser.Deactivate();
+        var incompatibleUser = new User(
+            "Incompatible User",
+            "incompatible@example.test",
+            CreatedAt);
+        incompatibleUser.VerifyEmail(CreatedAt.AddMinutes(1));
+        var incompatibleMembership = new OrganizationMembership(
+            graph.Organization.Id,
+            incompatibleUser.Id,
+            OrganizationRole.Administrator,
+            CreatedAt);
+        incompatibleMembership.Deactivate();
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        OrganizationInvitation wrongInvitation = CreateRecipientInvitation(
+            graph,
+            "intended@example.test",
+            OrganizationRole.Member,
+            tokenService,
+            out var wrongHash);
+        OrganizationInvitation unverifiedInvitation = CreateRecipientInvitation(
+            graph,
+            unverifiedUser.Email,
+            OrganizationRole.Member,
+            tokenService,
+            out var unverifiedHash);
+        OrganizationInvitation inactiveInvitation = CreateRecipientInvitation(
+            graph,
+            inactiveUser.Email,
+            OrganizationRole.Member,
+            tokenService,
+            out var inactiveHash);
+        OrganizationInvitation incompatibleInvitation = CreateRecipientInvitation(
+            graph,
+            incompatibleUser.Email,
+            OrganizationRole.Member,
+            tokenService,
+            out var incompatibleHash);
+        await SeedAsync(
+            wrongUser,
+            unverifiedUser,
+            inactiveUser,
+            incompatibleUser,
+            incompatibleMembership,
+            wrongInvitation,
+            unverifiedInvitation,
+            inactiveInvitation,
+            incompatibleInvitation);
+        OrganizationInvitationMutationPersistence persistence = CreatePersistence();
+
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Rejected,
+            await persistence.AcceptAsync(wrongUser.Id, wrongHash));
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Rejected,
+            await persistence.AcceptAsync(unverifiedUser.Id, unverifiedHash));
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Rejected,
+            await persistence.AcceptAsync(inactiveUser.Id, inactiveHash));
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Rejected,
+            await persistence.AcceptAsync(incompatibleUser.Id, incompatibleHash));
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+        Assert.Equal(4, await dbContext.OrganizationInvitations.CountAsync(
+            invitation => invitation.TokenHash != null));
+        Assert.False((await dbContext.OrganizationMemberships.SingleAsync(
+            candidate => candidate.Id == incompatibleMembership.Id)).IsActive);
+    }
+
     private OrganizationInvitationMutationPersistence CreatePersistence()
     {
         var options = new DbContextOptionsBuilder<EnmaDbContext>()
@@ -556,6 +792,25 @@ public sealed class OrganizationInvitationMutationPersistenceTests(
             tokenIssuedAt < CreatedAt ? tokenIssuedAt : CreatedAt,
             tokenIssuedAt,
             expiresAt);
+    }
+
+    private static OrganizationInvitation CreateRecipientInvitation(
+        TestGraph graph,
+        string email,
+        OrganizationRole role,
+        IOrganizationInvitationTokenService tokenService,
+        out OrganizationInvitationTokenHash tokenHash)
+    {
+        tokenService.GenerateToken(out tokenHash);
+        return new OrganizationInvitation(
+            graph.Organization.Id,
+            email,
+            role,
+            graph.Membership.Id,
+            tokenHash,
+            CreatedAt,
+            Now.AddMinutes(-1),
+            Now.AddDays(1));
     }
 
     private async Task SeedAsync(params object[] entities)

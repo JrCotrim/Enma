@@ -381,6 +381,8 @@ public static class DependencyInjection
         services.AddScoped<ChangeOrganizationMemberRoleUseCase>();
         services.AddScoped<OrganizationMemberLifecycleUseCase>();
         services.AddScoped<CreateOrganizationInvitationUseCase>();
+        services.AddScoped<PreviewOrganizationInvitationUseCase>();
+        services.AddScoped<AcceptOrganizationInvitationUseCase>();
         services.AddScoped<ListOrganizationInvitationsUseCase>();
         services.AddScoped<OrganizationInvitationLifecycleUseCase>();
         services.AddScoped<UpdateOrganizationNameUseCase>();

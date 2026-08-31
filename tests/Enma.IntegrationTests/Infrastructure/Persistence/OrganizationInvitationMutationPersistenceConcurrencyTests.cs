@@ -2,6 +2,7 @@ using System.Data;
 using System.Data.Common;
 using Enma.Application.Clients;
 using Enma.Application.Organizations.Invitations;
+using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Application.Organizations.Members.Role;
 using Enma.Application.Tasks;
 using Enma.Domain.Auditing;
@@ -559,6 +560,464 @@ public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
         }
     }
 
+    [Fact]
+    public async Task AcceptAccept_SameToken_AllowsOneEffectiveAcceptance()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(graph);
+        var pause = new PauseAfterOrganizationLockInterceptor();
+        using var timeout = CreateTimeout();
+
+        Task<AcceptOrganizationInvitationPersistenceResult> first =
+            CreatePersistence(pause).AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+        await pause.LockAcquired.WaitAsync(timeout.Token);
+        Task<AcceptOrganizationInvitationPersistenceResult> second =
+            CreatePersistence().AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+
+        pause.Release();
+        AcceptOrganizationInvitationPersistenceResult[] results =
+            await Task.WhenAll(first, second).WaitAsync(timeout.Token);
+
+        Assert.Single(
+            results,
+            result => result ==
+                AcceptOrganizationInvitationPersistenceResult.Succeeded);
+        Assert.Single(
+            results,
+            result => result ==
+                AcceptOrganizationInvitationPersistenceResult.Rejected);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(1, await dbContext.OrganizationMemberships.CountAsync(
+            membership => membership.OrganizationId == graph.Organization.Id &&
+                membership.UserId == recipient.User.Id));
+        Assert.Equal(1, await dbContext.AuditLogs.CountAsync(audit =>
+            audit.EventType == AuditEventType.OrganizationInvitationAccepted));
+        OrganizationInvitation stored = await dbContext.OrganizationInvitations
+            .SingleAsync(invitation => invitation.Id == recipient.Invitation.Id);
+        Assert.Null(stored.TokenHash);
+        Assert.Equal(recipient.User.Id, stored.AcceptedByUserId);
+    }
+
+    [Fact]
+    public async Task AcceptRevoke_AcceptanceFirstMakesRevokeConflict()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(graph);
+        var pause = new PauseAfterOrganizationLockInterceptor();
+        using var timeout = CreateTimeout();
+
+        Task<AcceptOrganizationInvitationPersistenceResult> accept =
+            CreatePersistence(pause).AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+        await pause.LockAcquired.WaitAsync(timeout.Token);
+        Task<RevokeOrganizationInvitationPersistenceResult> revoke =
+            CreatePersistence().RevokeAsync(
+                LifecycleRequest(graph, recipient.Invitation.Id),
+                timeout.Token);
+
+        pause.Release();
+        await Task.WhenAll(accept, revoke).WaitAsync(timeout.Token);
+
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Succeeded,
+            await accept);
+        Assert.Equal(
+            RevokeOrganizationInvitationPersistenceResult.Conflict,
+            await revoke);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(
+            [AuditEventType.OrganizationInvitationAccepted],
+            await FindAuditTypesAsync(dbContext, timeout.Token));
+    }
+
+    [Fact]
+    public async Task AcceptResend_ResendFirstInvalidatesOldToken()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(graph);
+        var pause = new PauseAfterOrganizationLockInterceptor();
+        using var timeout = CreateTimeout();
+
+        Task<ResendOrganizationInvitationPersistenceResult> resend =
+            CreatePersistence(pause).ResendAsync(
+                LifecycleRequest(graph, recipient.Invitation.Id),
+                timeout.Token);
+        await pause.LockAcquired.WaitAsync(timeout.Token);
+        Task<AcceptOrganizationInvitationPersistenceResult> accept =
+            CreatePersistence().AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+
+        pause.Release();
+        await Task.WhenAll(resend, accept).WaitAsync(timeout.Token);
+
+        ResendOrganizationInvitationPersistenceResult resendResult = await resend;
+        Assert.Equal(
+            ResendOrganizationInvitationPersistenceStatus.Succeeded,
+            resendResult.Status);
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Rejected,
+            await accept);
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        Assert.True(tokenService.TryHashToken(
+            resendResult.DeliveryRequest!.RawToken,
+            out OrganizationInvitationTokenHash? rotatedHash));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationInvitation stored = await dbContext.OrganizationInvitations
+            .SingleAsync(invitation => invitation.Id == recipient.Invitation.Id);
+        Assert.Equal(rotatedHash, stored.TokenHash);
+        Assert.NotEqual(recipient.TokenHash, stored.TokenHash);
+        Assert.Equal(0, await dbContext.OrganizationMemberships.CountAsync(
+            membership => membership.OrganizationId == graph.Organization.Id &&
+                membership.UserId == recipient.User.Id));
+        Assert.Equal(
+            [AuditEventType.OrganizationInvitationResent],
+            await FindAuditTypesAsync(dbContext, timeout.Token));
+    }
+
+    [Fact]
+    public async Task Accept_ExpirationBoundaryWhileWaiting_RejectsStaleToken()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        DateTimeOffset expiresAt = Now.AddMinutes(1);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(
+            graph,
+            expiresAt: expiresAt);
+        var clock = new AdjustableTimeProvider(Now);
+        var entered = new SignalBeforeOrganizationLockInterceptor();
+        using var timeout = CreateTimeout();
+        await using EnmaDbContext blockerContext = fixture.CreateDbContext();
+        await using IDbContextTransaction blocker =
+            await blockerContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                timeout.Token);
+        await blockerContext.Organizations
+            .FromSqlInterpolated(
+                $"""
+                SELECT * FROM organizations
+                WHERE id = {graph.Organization.Id}
+                FOR UPDATE
+                """)
+            .SingleAsync(timeout.Token);
+
+        Task<AcceptOrganizationInvitationPersistenceResult> accept =
+            CreatePersistence(entered, clock).AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+        await entered.CommandEntered.WaitAsync(timeout.Token);
+        clock.UtcNow = expiresAt;
+        await blocker.CommitAsync(timeout.Token);
+
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Rejected,
+            await accept.WaitAsync(timeout.Token));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationInvitation stored = await dbContext.OrganizationInvitations
+            .SingleAsync(invitation => invitation.Id == recipient.Invitation.Id);
+        Assert.Null(stored.AcceptedAt);
+        Assert.Null(stored.ExpiredAt);
+        Assert.Equal(recipient.TokenHash, stored.TokenHash);
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
+    public async Task Accept_ExpirationBoundaryWhileWaitingForUserLock_Rejects()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        DateTimeOffset expiresAt = Now.AddMinutes(1);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(
+            graph,
+            expiresAt: expiresAt);
+        var clock = new AdjustableTimeProvider(Now);
+        using var timeout = CreateTimeout();
+        await using EnmaDbContext blockerContext = fixture.CreateDbContext();
+        await using IDbContextTransaction blocker =
+            await blockerContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                timeout.Token);
+        await blockerContext.Users
+            .FromSqlInterpolated(
+                $"""
+                SELECT * FROM users
+                WHERE id = {recipient.User.Id}
+                FOR UPDATE
+                """)
+            .SingleAsync(timeout.Token);
+        Task<AcceptOrganizationInvitationPersistenceResult> accept =
+            CreatePersistence(timeProvider: clock).AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+        bool blockerCompleted = false;
+
+        try
+        {
+            await WaitForBlockedUserLockAsync(timeout.Token);
+            clock.UtcNow = expiresAt;
+            await blocker.CommitAsync(timeout.Token);
+            blockerCompleted = true;
+
+            Assert.Equal(
+                AcceptOrganizationInvitationPersistenceResult.Rejected,
+                await accept.WaitAsync(timeout.Token));
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.Equal(0, await dbContext.OrganizationMemberships.CountAsync(
+                membership =>
+                    membership.OrganizationId == graph.Organization.Id &&
+                    membership.UserId == recipient.User.Id));
+            Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+            OrganizationInvitation stored = await dbContext
+                .OrganizationInvitations
+                .SingleAsync(invitation =>
+                    invitation.Id == recipient.Invitation.Id);
+            Assert.Null(stored.AcceptedAt);
+            Assert.Null(stored.AcceptedByUserId);
+            Assert.Equal(recipient.TokenHash, stored.TokenHash);
+        }
+        finally
+        {
+            if (!blockerCompleted)
+            {
+                await blocker.RollbackAsync(CancellationToken.None);
+            }
+
+            await DrainAsync(accept);
+        }
+    }
+
+    [Fact]
+    public async Task AcceptRoleChange_RoleChangeFirstMakesStaleInvitationLose()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(
+            graph,
+            includeMembership: true);
+        var pause = new PauseAfterOrganizationLockInterceptor();
+        var rolePersistence = new OrganizationMemberRoleMutationPersistence(
+            CreateOptions(pause),
+            new FixedTimeProvider(Now));
+        var request = new OrganizationMemberRoleMutationPersistenceRequest(
+            graph.Actor.Id,
+            graph.Organization.Id,
+            graph.Membership.Id,
+            recipient.Membership!.Id,
+            OrganizationRole.Administrator,
+            OrganizationRole.Member);
+        using var timeout = CreateTimeout();
+
+        Task<OrganizationMemberRoleMutationPersistenceResult> roleChange =
+            rolePersistence.ExecuteAsync(request, timeout.Token);
+        await pause.LockAcquired.WaitAsync(timeout.Token);
+        Task<AcceptOrganizationInvitationPersistenceResult> accept =
+            CreatePersistence().AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+
+        pause.Release();
+        await Task.WhenAll(roleChange, accept).WaitAsync(timeout.Token);
+
+        Assert.Equal(
+            OrganizationMemberRoleMutationPersistenceResult.Succeeded,
+            await roleChange);
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Rejected,
+            await accept);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(
+            OrganizationRole.Administrator,
+            (await dbContext.OrganizationMemberships.SingleAsync(membership =>
+                membership.Id == recipient.Membership.Id)).Role);
+        Assert.Equal(
+            [AuditEventType.OrganizationMembershipRoleChanged],
+            await FindAuditTypesAsync(dbContext, timeout.Token));
+        Assert.Equal(
+            recipient.TokenHash,
+            (await dbContext.OrganizationInvitations.SingleAsync(invitation =>
+                invitation.Id == recipient.Invitation.Id)).TokenHash);
+    }
+
+    [Fact]
+    public async Task AcceptReactivation_ReactivationFirstReusesMembershipWithoutDuplicate()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(
+            graph,
+            includeMembership: true,
+            membershipActive: false);
+        var pause = new PauseAfterOrganizationLockInterceptor();
+        var lifecyclePersistence =
+            new OrganizationMemberLifecycleMutationPersistence(
+                CreateOptions(pause),
+                new FixedTimeProvider(Now));
+        var request = new OrganizationMemberLifecycleMutationPersistenceRequest(
+            graph.Actor.Id,
+            graph.Organization.Id,
+            graph.Membership.Id,
+            recipient.Membership!.Id,
+            OrganizationMemberLifecycleOperation.Reactivate);
+        using var timeout = CreateTimeout();
+
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> reactivate =
+            lifecyclePersistence.ExecuteAsync(request, timeout.Token);
+        await pause.LockAcquired.WaitAsync(timeout.Token);
+        Task<AcceptOrganizationInvitationPersistenceResult> accept =
+            CreatePersistence().AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+
+        pause.Release();
+        await Task.WhenAll(reactivate, accept).WaitAsync(timeout.Token);
+
+        Assert.Equal(
+            OrganizationMemberLifecycleMutationPersistenceResult.Succeeded,
+            await reactivate);
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Succeeded,
+            await accept);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationMembership stored = await dbContext.OrganizationMemberships
+            .SingleAsync(membership =>
+                membership.OrganizationId == graph.Organization.Id &&
+                membership.UserId == recipient.User.Id);
+        Assert.Equal(recipient.Membership.Id, stored.Id);
+        Assert.True(stored.IsActive);
+        Assert.Equal(
+            [
+                AuditEventType.OrganizationMembershipReactivated,
+                AuditEventType.OrganizationInvitationAccepted
+            ],
+            await FindAuditTypesAsync(dbContext, timeout.Token));
+    }
+
+    [Fact]
+    public async Task AcceptOrganizationDeactivate_DeactivationFirstRejectsStaleState()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(graph);
+        var entered = new SignalBeforeOrganizationLockInterceptor();
+        using var timeout = CreateTimeout();
+        await using EnmaDbContext blockerContext = fixture.CreateDbContext();
+        await using IDbContextTransaction blocker =
+            await blockerContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                timeout.Token);
+        Organization organization = await blockerContext.Organizations
+            .FromSqlInterpolated(
+                $"""
+                SELECT * FROM organizations
+                WHERE id = {graph.Organization.Id}
+                FOR UPDATE
+                """)
+            .SingleAsync(timeout.Token);
+        organization.Deactivate();
+        await blockerContext.SaveChangesAsync(timeout.Token);
+
+        Task<AcceptOrganizationInvitationPersistenceResult> accept =
+            CreatePersistence(entered).AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+        await entered.CommandEntered.WaitAsync(timeout.Token);
+        await blocker.CommitAsync(timeout.Token);
+
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Rejected,
+            await accept.WaitAsync(timeout.Token));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.OrganizationMemberships.CountAsync(
+            membership => membership.OrganizationId == graph.Organization.Id &&
+                membership.UserId == recipient.User.Id));
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+        Assert.Equal(
+            recipient.TokenHash,
+            (await dbContext.OrganizationInvitations.SingleAsync(invitation =>
+                invitation.Id == recipient.Invitation.Id)).TokenHash);
+    }
+
+    [Fact]
+    public async Task Accept_LegacyMembershipFirst_RetriesWithoutDeadlock()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(
+            graph,
+            includeMembership: true,
+            membershipActive: false);
+        var operationalGate = new PauseAfterMembershipLockInterceptor();
+        var invitationProbe = new InvitationRetryProbeInterceptor();
+        var taskPersistence = new LegalTaskCreationPersistence(
+            CreateOptions(operationalGate),
+            new FixedTimeProvider(Now));
+        using var timeout = CreateTimeout();
+        Task<LegalTaskCreationPersistenceResult> taskCreation =
+            taskPersistence.ExecuteAsync(
+                new LegalTaskCreationPersistenceRequest(
+                    graph.Actor.Id,
+                    graph.Organization.Id,
+                    graph.Membership.Id,
+                    recipient.Membership!.Id,
+                    null),
+                state =>
+                {
+                    Assert.False(state.Assignee?.IsMembershipActive);
+                    return LegalTaskCreationDecision.AccessDenied;
+                },
+                timeout.Token);
+        await operationalGate.MembershipLocked.WaitAsync(timeout.Token);
+        Task<AcceptOrganizationInvitationPersistenceResult> accept =
+            CreatePersistence(invitationProbe).AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            Assert.False(taskCreation.IsCompleted);
+            Assert.False(accept.IsCompleted);
+            operationalGate.Release();
+            await Task.WhenAll(taskCreation, accept).WaitAsync(timeout.Token);
+
+            Assert.Equal(
+                LegalTaskCreationDecisionStatus.AccessDenied,
+                (await taskCreation).Status);
+            Assert.Equal(
+                AcceptOrganizationInvitationPersistenceResult.Succeeded,
+                await accept);
+            Assert.Equal(1, invitationProbe.LockNotAvailableCount);
+            Assert.Equal(2, invitationProbe.OrganizationLockCount);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            OrganizationMembership stored = await dbContext
+                .OrganizationMemberships
+                .SingleAsync(membership =>
+                    membership.OrganizationId == graph.Organization.Id &&
+                    membership.UserId == recipient.User.Id);
+            Assert.Equal(recipient.Membership.Id, stored.Id);
+            Assert.True(stored.IsActive);
+            Assert.Equal(0, await dbContext.LegalTasks.CountAsync());
+            Assert.Equal(
+                [AuditEventType.OrganizationInvitationAccepted],
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            operationalGate.Release();
+            await DrainAsync(taskCreation);
+            await DrainAsync(accept);
+        }
+    }
+
     private async Task ExecuteRoleChangeLifecycleRaceAsync(bool resend)
     {
         AdministrationGraph graph = await SeedAdministrationGraphAsync();
@@ -629,11 +1088,12 @@ public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
     }
 
     private OrganizationInvitationMutationPersistence CreatePersistence(
-        IInterceptor? interceptor = null)
+        IInterceptor? interceptor = null,
+        TimeProvider? timeProvider = null)
     {
         return new OrganizationInvitationMutationPersistence(
             CreateOptions(interceptor),
-            new FixedTimeProvider(Now),
+            timeProvider ?? new FixedTimeProvider(Now),
             new CryptographicOrganizationInvitationTokenService());
     }
 
@@ -769,6 +1229,56 @@ public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
         return invitation;
     }
 
+    private async Task<RecipientInvitation> SeedRecipientInvitationAsync(
+        TestGraph graph,
+        OrganizationRole role = OrganizationRole.Member,
+        bool includeMembership = false,
+        bool membershipActive = true,
+        DateTimeOffset? expiresAt = null)
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        var user = new User(
+            "Invitation Recipient",
+            $"recipient-{suffix}@example.test",
+            CreatedAt);
+        user.VerifyEmail(CreatedAt.AddMinutes(1));
+        OrganizationMembership? membership = includeMembership
+            ? new OrganizationMembership(
+                graph.Organization.Id,
+                user.Id,
+                role,
+                CreatedAt)
+            : null;
+
+        if (membership is not null && !membershipActive)
+        {
+            membership.Deactivate();
+        }
+
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        tokenService.GenerateToken(out var tokenHash);
+        var invitation = new OrganizationInvitation(
+            graph.Organization.Id,
+            user.Email,
+            role,
+            graph.Membership.Id,
+            tokenHash,
+            CreatedAt,
+            Now.AddMinutes(-2),
+            expiresAt ?? Now.AddDays(7));
+
+        if (membership is null)
+        {
+            await SeedAsync(user, invitation);
+        }
+        else
+        {
+            await SeedAsync(user, membership, invitation);
+        }
+
+        return new RecipientInvitation(user, invitation, tokenHash, membership);
+    }
+
     private async Task SeedAsync(params object[] entities)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -808,6 +1318,34 @@ public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
                   AND query ILIKE '%FROM organization_memberships%'
                   AND query ILIKE '%FOR UPDATE%'
                   AND query NOT ILIKE '%NOWAIT%'
+                """).SingleAsync(cancellationToken);
+
+            if (count > 0)
+            {
+                return;
+            }
+
+            await Task.Yield();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+    }
+
+    private async Task WaitForBlockedUserLockAsync(
+        CancellationToken cancellationToken)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+
+        while (true)
+        {
+            int count = await dbContext.Database.SqlQuery<int>(
+                $"""
+                SELECT COUNT(*)::integer AS "Value"
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND pid <> pg_backend_pid()
+                  AND wait_event_type = 'Lock'
+                  AND query ILIKE '%FROM users%'
+                  AND query ILIKE '%FOR UPDATE%'
                 """).SingleAsync(cancellationToken);
 
             if (count > 0)
@@ -869,9 +1407,22 @@ public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
         User User,
         OrganizationMembership Membership);
 
+    private sealed record RecipientInvitation(
+        User User,
+        OrganizationInvitation Invitation,
+        OrganizationInvitationTokenHash TokenHash,
+        OrganizationMembership? Membership);
+
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class AdjustableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 
     private sealed class PauseAfterOrganizationLockInterceptor

@@ -7,6 +7,17 @@ public sealed class CreateOrganizationInvitationRequest
     public required string Role { get; init; }
 }
 
+public sealed class OrganizationInvitationTokenRequest
+{
+    public required string Token { get; init; }
+}
+
+public sealed record OrganizationInvitationPreviewResponse(
+    string Status,
+    string? OrganizationName = null,
+    string? Role = null,
+    string? InvitedEmail = null);
+
 public sealed record OrganizationInvitationMutationResponse(
     Guid InvitationId,
     string DeliveryStatus);

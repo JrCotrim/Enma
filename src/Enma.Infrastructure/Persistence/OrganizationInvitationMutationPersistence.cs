@@ -19,6 +19,8 @@ public sealed class OrganizationInvitationMutationPersistence
         "ux_organization_invitations_open_organization_id_email";
     private const string TokenHashConstraint =
         "ux_organization_invitations_token_hash";
+    private const string MembershipIdentityConstraint =
+        "ux_organization_memberships_organization_id_user_id";
 
     private readonly DbContextOptions<EnmaDbContext> dbContextOptions;
     private readonly TimeProvider timeProvider;
@@ -36,6 +38,202 @@ public sealed class OrganizationInvitationMutationPersistence
         this.dbContextOptions = dbContextOptions;
         this.timeProvider = timeProvider;
         this.tokenService = tokenService;
+    }
+
+    public async Task<PreviewOrganizationInvitationPersistenceResult> PreviewAsync(
+        OrganizationInvitationTokenHash tokenHash,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tokenHash);
+
+        await using var dbContext = new EnmaDbContext(dbContextOptions);
+        PreviewCandidate? candidate = await (
+            from invitation in dbContext.OrganizationInvitations.AsNoTracking()
+            join organization in dbContext.Organizations.AsNoTracking()
+                on invitation.OrganizationId equals organization.Id
+            where invitation.TokenHash != null &&
+                invitation.TokenHash.Equals(tokenHash)
+            select new PreviewCandidate(
+                organization.Name,
+                organization.IsActive,
+                invitation.InvitedEmail,
+                invitation.Role,
+                invitation.ExpiresAt,
+                invitation.AcceptedAt,
+                invitation.RevokedAt,
+                invitation.ExpiredAt))
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (candidate is null ||
+            !candidate.OrganizationIsActive ||
+            !IsInvitableRole(candidate.Role) ||
+            candidate.AcceptedAt is not null ||
+            candidate.RevokedAt is not null ||
+            candidate.ExpiredAt is not null)
+        {
+            return new PreviewOrganizationInvitationPersistenceResult(
+                PreviewOrganizationInvitationPersistenceStatus.Invalid);
+        }
+
+        if (timeProvider.GetUtcNow().ToUniversalTime() >= candidate.ExpiresAt)
+        {
+            return new PreviewOrganizationInvitationPersistenceResult(
+                PreviewOrganizationInvitationPersistenceStatus.Expired);
+        }
+
+        return new PreviewOrganizationInvitationPersistenceResult(
+            PreviewOrganizationInvitationPersistenceStatus.Usable,
+            candidate.OrganizationName,
+            candidate.InvitedEmail,
+            candidate.Role);
+    }
+
+    public async Task<AcceptOrganizationInvitationPersistenceResult> AcceptAsync(
+        Guid userId,
+        OrganizationInvitationTokenHash tokenHash,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tokenHash);
+
+        if (userId == Guid.Empty)
+        {
+            return AcceptOrganizationInvitationPersistenceResult.Rejected;
+        }
+
+        await using var lookupContext = new EnmaDbContext(dbContextOptions);
+        InvitationLocator? locator = await lookupContext.OrganizationInvitations
+            .AsNoTracking()
+            .Where(invitation => invitation.TokenHash != null &&
+                invitation.TokenHash.Equals(tokenHash))
+            .Select(invitation => new InvitationLocator(
+                invitation.Id,
+                invitation.OrganizationId))
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (locator is null)
+        {
+            return AcceptOrganizationInvitationPersistenceResult.Rejected;
+        }
+
+        while (true)
+        {
+            try
+            {
+                return await ExecuteAcceptAttemptAsync(
+                    userId,
+                    tokenHash,
+                    locator,
+                    cancellationToken);
+            }
+            catch (Exception exception) when (IsLockNotAvailable(exception))
+            {
+                await WaitForAcceptanceMembershipLockAsync(
+                    locator.OrganizationId,
+                    userId,
+                    cancellationToken);
+            }
+            catch (DbUpdateException exception) when (
+                IsUniqueViolation(exception, MembershipIdentityConstraint))
+            {
+                // Re-read the concurrently created Membership in a fresh transaction.
+            }
+        }
+    }
+
+    private async Task<AcceptOrganizationInvitationPersistenceResult>
+        ExecuteAcceptAttemptAsync(
+            Guid userId,
+            OrganizationInvitationTokenHash tokenHash,
+            InvitationLocator locator,
+            CancellationToken cancellationToken)
+    {
+        await using var dbContext = new EnmaDbContext(dbContextOptions);
+        await using IDbContextTransaction transaction =
+            await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                cancellationToken);
+
+        Organization? organization = await LockOrganizationAsync(
+            dbContext,
+            locator.OrganizationId,
+            cancellationToken);
+        OrganizationInvitation? invitation = await LockInvitationAsync(
+            dbContext,
+            locator.OrganizationId,
+            locator.InvitationId,
+            cancellationToken);
+        DateTimeOffset observedNow = timeProvider.GetUtcNow().ToUniversalTime();
+
+        if (organization?.Id != locator.OrganizationId ||
+            !organization.IsActive ||
+            invitation?.Id != locator.InvitationId ||
+            invitation.OrganizationId != locator.OrganizationId ||
+            invitation.TokenHash is null ||
+            !invitation.TokenHash.Equals(tokenHash) ||
+            invitation.GetState(observedNow) != OrganizationInvitationState.Pending ||
+            !IsInvitableRole(invitation.Role))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return AcceptOrganizationInvitationPersistenceResult.Rejected;
+        }
+
+        OrganizationMembership? membership =
+            await LockAcceptanceMembershipAsync(
+                dbContext,
+                locator.OrganizationId,
+                userId,
+                nowait: true,
+                cancellationToken);
+        User? user = await LockActorUserAsync(
+            dbContext,
+            userId,
+            cancellationToken);
+        DateTimeOffset authoritativeNow =
+            timeProvider.GetUtcNow().ToUniversalTime();
+
+        if (invitation.GetState(authoritativeNow) !=
+                OrganizationInvitationState.Pending ||
+            user?.Id != userId ||
+            !user.IsActive ||
+            user.EmailVerifiedAt is null ||
+            !string.Equals(
+                user.Email,
+                invitation.InvitedEmail,
+                StringComparison.Ordinal) ||
+            membership is not null &&
+            (membership.OrganizationId != locator.OrganizationId ||
+                membership.UserId != userId ||
+                membership.Role != invitation.Role))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return AcceptOrganizationInvitationPersistenceResult.Rejected;
+        }
+
+        if (membership is null)
+        {
+            membership = new OrganizationMembership(
+                locator.OrganizationId,
+                userId,
+                invitation.Role,
+                authoritativeNow);
+            dbContext.OrganizationMemberships.Add(membership);
+        }
+        else if (!membership.IsActive)
+        {
+            membership.Activate();
+        }
+
+        invitation.Accept(userId, authoritativeNow);
+        AppendAudit(
+            dbContext,
+            membership,
+            new AuditIntent(
+                AuditEventType.OrganizationInvitationAccepted,
+                invitation.Id));
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return AcceptOrganizationInvitationPersistenceResult.Succeeded;
     }
 
     public async Task<CreateOrganizationInvitationPersistenceResult> CreateAsync(
@@ -556,6 +754,26 @@ public sealed class OrganizationInvitationMutationPersistence
         await transaction.RollbackAsync(cancellationToken);
     }
 
+    private async Task WaitForAcceptanceMembershipLockAsync(
+        Guid organizationId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext = new EnmaDbContext(dbContextOptions);
+        await using IDbContextTransaction transaction =
+            await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                cancellationToken);
+
+        await LockAcceptanceMembershipAsync(
+            dbContext,
+            organizationId,
+            userId,
+            nowait: false,
+            cancellationToken);
+        await transaction.RollbackAsync(cancellationToken);
+    }
+
     private static Task<Organization?> LockOrganizationAsync(
         EnmaDbContext dbContext,
         Guid organizationId,
@@ -711,6 +929,37 @@ public sealed class OrganizationInvitationMutationPersistence
             .SingleOrDefaultAsync(cancellationToken);
     }
 
+    private static Task<OrganizationMembership?> LockAcceptanceMembershipAsync(
+        EnmaDbContext dbContext,
+        Guid organizationId,
+        Guid userId,
+        bool nowait,
+        CancellationToken cancellationToken)
+    {
+        if (nowait)
+        {
+            return dbContext.OrganizationMemberships
+                .FromSqlInterpolated(
+                    $"""
+                    SELECT * FROM organization_memberships
+                    WHERE organization_id = {organizationId}
+                      AND user_id = {userId}
+                    FOR UPDATE NOWAIT
+                    """)
+                .SingleOrDefaultAsync(cancellationToken);
+        }
+
+        return dbContext.OrganizationMemberships
+            .FromSqlInterpolated(
+                $"""
+                SELECT * FROM organization_memberships
+                WHERE organization_id = {organizationId}
+                  AND user_id = {userId}
+                FOR UPDATE
+                """)
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
     private static async Task<IReadOnlyDictionary<Guid, User>> LockUsersAsync(
         EnmaDbContext dbContext,
         Guid actorUserId,
@@ -844,4 +1093,16 @@ public sealed class OrganizationInvitationMutationPersistence
 
         return false;
     }
+
+    private sealed record InvitationLocator(Guid InvitationId, Guid OrganizationId);
+
+    private sealed record PreviewCandidate(
+        string OrganizationName,
+        bool OrganizationIsActive,
+        string InvitedEmail,
+        OrganizationRole Role,
+        DateTimeOffset ExpiresAt,
+        DateTimeOffset? AcceptedAt,
+        DateTimeOffset? RevokedAt,
+        DateTimeOffset? ExpiredAt);
 }

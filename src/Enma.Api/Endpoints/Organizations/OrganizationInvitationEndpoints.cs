@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Claims;
 using Enma.Api.Authentication;
@@ -5,6 +6,7 @@ using Enma.Api.Authorization;
 using Enma.Api.Contracts.Organizations;
 using Enma.Application.Organizations.Invitations;
 using Enma.Domain.Organizations;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace Enma.Api.Endpoints.Organizations;
@@ -12,14 +14,47 @@ namespace Enma.Api.Endpoints.Organizations;
 public static class OrganizationInvitationEndpoints
 {
     public const string SendRateLimitPolicy = "organization-invitation-send";
+    public const string RecipientTokenRateLimitPolicy =
+        "organization-invitation-recipient-token";
 
     private const string RoutePrefix =
         "/api/organizations/{organizationId:guid}/invitations";
+    private const string InvalidInvitationCode =
+        "organization_invitation_invalid";
 
     public static IEndpointRouteBuilder MapOrganizationInvitationEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
+
+        RouteGroupBuilder recipientGroup = endpoints
+            .MapGroup("/api/invitations")
+            .WithTags("Organization Invitations")
+            .RequireNoStoreResponses();
+
+        recipientGroup.MapPost("/preview", PreviewAsync)
+            .WithName("PreviewOrganizationInvitation")
+            .WithSummary("Previews an organization invitation token safely.")
+            .Accepts<OrganizationInvitationTokenRequest>("application/json")
+            .Produces<OrganizationInvitationPreviewResponse>(
+                StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireRateLimiting(RecipientTokenRateLimitPolicy);
+
+        recipientGroup.MapPost("/accept", AcceptAsync)
+            .WithName("AcceptOrganizationInvitation")
+            .WithSummary("Accepts an organization invitation for the current user.")
+            .Accepts<OrganizationInvitationTokenRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireRateLimiting(RecipientTokenRateLimitPolicy)
+            .RequireAuthorization()
+            .RequireEnmaAntiforgery();
 
         RouteGroupBuilder group = endpoints
             .MapGroup(RoutePrefix)
@@ -78,6 +113,44 @@ public static class OrganizationInvitationEndpoints
             .RequireEnmaAntiforgery();
 
         return endpoints;
+    }
+
+    private static async Task<IResult> PreviewAsync(
+        OrganizationInvitationTokenRequest request,
+        PreviewOrganizationInvitationUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        PreviewOrganizationInvitationResult result = await useCase.ExecuteAsync(
+            request.Token,
+            cancellationToken);
+
+        return TypedResults.Ok(new OrganizationInvitationPreviewResponse(
+            MapPreviewStatus(result.Status),
+            result.OrganizationName,
+            result.Role is OrganizationRole role ? MapRole(role) : null,
+            result.InvitedEmail));
+    }
+
+    private static async Task<IResult> AcceptAsync(
+        OrganizationInvitationTokenRequest request,
+        ClaimsPrincipal principal,
+        AcceptOrganizationInvitationUseCase useCase,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        AcceptOrganizationInvitationResult result = await useCase.ExecuteAsync(
+            userId,
+            request.Token,
+            cancellationToken);
+
+        return result == AcceptOrganizationInvitationResult.Succeeded
+            ? TypedResults.NoContent()
+            : CreateInvalidInvitationProblem(httpContext);
     }
 
     private static async Task<IResult> CreateAsync(
@@ -281,6 +354,36 @@ public static class OrganizationInvitationEndpoints
             _ => throw new InvalidOperationException(
                 "An invitation has an unsupported role.")
         };
+    }
+
+    private static string MapPreviewStatus(
+        PreviewOrganizationInvitationStatus status)
+    {
+        return status switch
+        {
+            PreviewOrganizationInvitationStatus.Invalid => "invalid",
+            PreviewOrganizationInvitationStatus.Expired => "expired",
+            PreviewOrganizationInvitationStatus.Usable => "usable",
+            _ => throw new InvalidOperationException(
+                "Invitation preview returned an unknown status.")
+        };
+    }
+
+    private static IResult CreateInvalidInvitationProblem(
+        HttpContext httpContext)
+    {
+        ProblemDetails problemDetails = new()
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = "Invalid organization invitation",
+            Detail = "The organization invitation request is invalid.",
+            Instance = httpContext.Request.Path
+        };
+        problemDetails.Extensions["code"] = InvalidInvitationCode;
+        problemDetails.Extensions["traceId"] =
+            Activity.Current?.Id ?? httpContext.TraceIdentifier;
+
+        return TypedResults.Problem(problemDetails);
     }
 
     private static IResult CreateConflict(string detail)
