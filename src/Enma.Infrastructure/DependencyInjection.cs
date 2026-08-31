@@ -205,11 +205,18 @@ public static class DependencyInjection
         if (isDevelopment)
         {
             services.AddSingleton<DevelopmentEmailVerificationDelivery>();
+            services.AddSingleton<
+                IOrganizationInvitationDelivery,
+                DevelopmentOrganizationInvitationDelivery>();
         }
         else
         {
             services.AddSingleton<EmailVerificationLinkBuilder>();
             services.AddSingleton<MailKitEmailVerificationDelivery>();
+            services.AddSingleton<OrganizationInvitationLinkBuilder>();
+            services.AddSingleton<
+                IOrganizationInvitationDelivery,
+                MailKitOrganizationInvitationDelivery>();
         }
         services.AddScoped<
             IEmailVerificationSendBudget,
@@ -347,6 +354,12 @@ public static class DependencyInjection
             IOrganizationMemberLifecycleMutationPersistence,
             OrganizationMemberLifecycleMutationPersistence>();
         services.AddScoped<
+            IOrganizationInvitationMutationPersistence,
+            OrganizationInvitationMutationPersistence>();
+        services.AddScoped<
+            IOrganizationInvitationReadQueries,
+            OrganizationInvitationReadQueries>();
+        services.AddScoped<
             IOrganizationNameMutationPersistence,
             OrganizationNameMutationPersistence>();
         services.AddScoped<
@@ -367,6 +380,9 @@ public static class DependencyInjection
         services.AddScoped<SearchActiveOrganizationMembersUseCase>();
         services.AddScoped<ChangeOrganizationMemberRoleUseCase>();
         services.AddScoped<OrganizationMemberLifecycleUseCase>();
+        services.AddScoped<CreateOrganizationInvitationUseCase>();
+        services.AddScoped<ListOrganizationInvitationsUseCase>();
+        services.AddScoped<OrganizationInvitationLifecycleUseCase>();
         services.AddScoped<UpdateOrganizationNameUseCase>();
         services.AddScoped<ClientAccessAuthorization>();
         services.AddScoped<ClientActionAuthorization>();

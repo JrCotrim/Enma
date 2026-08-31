@@ -122,6 +122,18 @@ builder.Services.AddRateLimiter(options =>
             }));
 
     options.AddPolicy(
+        OrganizationInvitationEndpoints.SendRateLimitPolicy,
+        httpContext => RateLimitPartition.GetFixedWindowLimiter(
+            GetClientIpPartitionKey(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+
+    options.AddPolicy(
         LoginEndpoints.RateLimitPolicy,
         httpContext => RateLimitPartition.GetFixedWindowLimiter(
             GetClientIpPartitionKey(httpContext),
@@ -179,6 +191,7 @@ app.MapRegisterOrganizationOwnerEndpoint();
 app.MapOrganizationEndpoints();
 app.MapCurrentUserOrganizationEndpoints();
 app.MapOrganizationMemberEndpoints();
+app.MapOrganizationInvitationEndpoints();
 app.MapAuditLogEndpoints();
 app.MapClientEndpoints();
 app.MapLegalProcessEndpoints();

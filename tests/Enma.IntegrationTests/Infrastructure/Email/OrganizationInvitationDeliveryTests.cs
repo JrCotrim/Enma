@@ -1,0 +1,137 @@
+using System.Net;
+using System.Net.Sockets;
+using Enma.Application.Organizations.Invitations;
+using Enma.Domain.Organizations;
+using Enma.Infrastructure.Email;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace Enma.IntegrationTests.Infrastructure.Email;
+
+public sealed class OrganizationInvitationDeliveryTests
+{
+    private const string SyntheticToken =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno-_";
+
+    [Fact]
+    public void LinkBuilder_PutsTokenOnlyInAcceptanceFragment()
+    {
+        EmailVerificationDeliveryOptions options =
+            MailKitEmailVerificationDeliveryTests.CreateOptions(
+                smtpPort: 25,
+                includeCredentials: false);
+        var builder = new OrganizationInvitationLinkBuilder(
+            Options.Create(options));
+
+        Uri uri = builder.Build(SyntheticToken);
+
+        Assert.Equal("/accept-invitation", uri.AbsolutePath);
+        Assert.Equal(string.Empty, uri.Query);
+        Assert.Equal($"#token={SyntheticToken}", uri.Fragment);
+        Assert.DoesNotContain(SyntheticToken, uri.AbsolutePath, StringComparison.Ordinal);
+        Assert.DoesNotContain(SyntheticToken, uri.Query, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DevelopmentDelivery_LogsOnlyDevelopmentAcceptanceUrl()
+    {
+        var logger = new MailKitEmailVerificationDeliveryTests
+            .CapturingLogger<DevelopmentOrganizationInvitationDelivery>();
+        var delivery = new DevelopmentOrganizationInvitationDelivery(
+            Options.Create(new DevelopmentEmailVerificationDeliveryOptions()),
+            logger);
+
+        OrganizationInvitationDeliveryResult result = await delivery.DeliverAsync(
+            CreateRequest());
+
+        Assert.Equal(OrganizationInvitationDeliveryResult.Accepted, result);
+        MailKitEmailVerificationDeliveryTests.LogEntry entry = Assert.Single(
+            logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Equal(2013, entry.EventId.Id);
+        Assert.Equal(
+            $"DEVELOPMENT ONLY - accept the organization invitation with this local URL: http://localhost:5173/accept-invitation#token={SyntheticToken}",
+            entry.Message);
+        Assert.DoesNotContain(
+            CreateRequest().Email,
+            entry.Message,
+            StringComparison.Ordinal);
+        Assert.Null(entry.Exception);
+    }
+
+    [Fact]
+    public async Task MailKitDelivery_ConnectionFailure_ReturnsFailedWithSafeLog()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var logger = new MailKitEmailVerificationDeliveryTests
+            .CapturingLogger<MailKitOrganizationInvitationDelivery>();
+        MailKitOrganizationInvitationDelivery delivery = CreateMailKitDelivery(
+            port,
+            logger);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        Task server = AcceptAndCloseAsync(listener, timeout.Token);
+
+        try
+        {
+            OrganizationInvitationDeliveryResult result = await delivery.DeliverAsync(
+                CreateRequest(),
+                timeout.Token);
+            await server;
+
+            Assert.Equal(OrganizationInvitationDeliveryResult.Failed, result);
+            MailKitEmailVerificationDeliveryTests.LogEntry entry = Assert.Single(
+                logger.Entries);
+            Assert.Equal(LogLevel.Warning, entry.Level);
+            Assert.Equal(2011, entry.EventId.Id);
+            Assert.Null(entry.Exception);
+            Assert.DoesNotContain(
+                SyntheticToken,
+                entry.Message,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                CreateRequest().Email,
+                entry.Message,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    private static async Task AcceptAndCloseAsync(
+        TcpListener listener,
+        CancellationToken cancellationToken)
+    {
+        using TcpClient client = await listener.AcceptTcpClientAsync(
+            cancellationToken);
+    }
+
+    internal static MailKitOrganizationInvitationDelivery CreateMailKitDelivery(
+        int smtpPort,
+        MailKitEmailVerificationDeliveryTests.CapturingLogger<
+            MailKitOrganizationInvitationDelivery> logger)
+    {
+        EmailVerificationDeliveryOptions options =
+            MailKitEmailVerificationDeliveryTests.CreateOptions(
+                smtpPort,
+                includeCredentials: false);
+        IOptions<EmailVerificationDeliveryOptions> wrapped = Options.Create(options);
+        return new MailKitOrganizationInvitationDelivery(
+            wrapped,
+            new OrganizationInvitationLinkBuilder(wrapped),
+            logger);
+    }
+
+    internal static OrganizationInvitationDeliveryRequest CreateRequest()
+    {
+        return new OrganizationInvitationDeliveryRequest(
+            "invited@example.test",
+            "Organização Legal",
+            OrganizationRole.Administrator,
+            new DateTimeOffset(2026, 9, 6, 14, 0, 0, TimeSpan.Zero),
+            SyntheticToken);
+    }
+}
