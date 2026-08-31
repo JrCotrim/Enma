@@ -2946,6 +2946,248 @@ h1 {
   margin-top: 1.5rem;
 }
 
+.invitations-page {
+  min-width: 0;
+  margin-top: 2rem;
+}
+
+.invitations-header h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 500;
+}
+
+.invitations-header p {
+  max-width: 65ch;
+  margin: 0.75rem 0 0;
+  color: #547064;
+  line-height: 1.5;
+}
+
+.invitation-form,
+.invitations-state {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  border: 1px solid #d8d2c4;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.invitation-form {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1fr) minmax(11rem, 0.45fr) auto;
+  align-items: end;
+  gap: 1rem;
+}
+
+.invitation-form-control {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.invitation-form-control label {
+  color: #34483f;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.invitation-form-control input,
+.invitation-form-control select {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #aaa99f;
+  border-radius: 0.5rem;
+  color: #18221d;
+  background: #fff;
+  font: inherit;
+}
+
+.invitation-form .primary-button {
+  min-width: 10rem;
+  margin-top: 0;
+}
+
+.invitation-feedback,
+.invitation-mutation-error {
+  margin: 1rem 0 0;
+}
+
+.invitation-feedback {
+  padding: 0.85rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.invitation-feedback.is-accepted {
+  color: #285541;
+  background: #e0f1e8;
+}
+
+.invitation-feedback.is-failed {
+  color: #6a463e;
+  background: #f1e5e1;
+}
+
+.invitations-state h3,
+.invitations-state p {
+  margin: 0;
+}
+
+.invitations-state h3 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.4rem;
+  font-weight: 500;
+}
+
+.invitations-state h3 + p,
+.invitations-state .secondary-button,
+.invitations-state .home-link {
+  margin-top: 0.75rem;
+}
+
+.invitations-table-wrapper {
+  margin-top: 1.5rem;
+  overflow-x: auto;
+}
+
+.invitations-table {
+  width: 100%;
+  min-width: 64rem;
+  border-collapse: collapse;
+}
+
+.invitations-table th,
+.invitations-table td {
+  padding: 0.9rem 0.75rem;
+  border-bottom: 1px solid #d8d2c4;
+  text-align: left;
+  vertical-align: top;
+}
+
+.invitations-table th {
+  color: #34483f;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.invitation-email {
+  max-width: 18rem;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.invitations-table time,
+.invitations-pagination {
+  font-variant-numeric: tabular-nums;
+}
+
+.invitation-status {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.invitation-status.is-pending {
+  color: #6a531d;
+  background: #f5ebc9;
+}
+
+.invitation-status.is-accepted {
+  color: #285541;
+  background: #e0f1e8;
+}
+
+.invitation-status.is-revoked,
+.invitation-status.is-expired {
+  color: #6a463e;
+  background: #f1e5e1;
+}
+
+.invitation-actions-cell {
+  width: 16rem;
+}
+
+.invitation-row-actions,
+.invitation-confirmation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.invitation-action-unavailable,
+.invitation-confirmation p + p {
+  color: #547064;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.invitation-revoke-button {
+  min-height: 2.5rem;
+  padding: 0;
+  border: 0;
+  color: #8b2929;
+  background: transparent;
+  font: inherit;
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.invitation-revoke-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.invitation-confirmation {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: #f4f1e9;
+}
+
+.invitation-confirmation p {
+  margin: 0;
+}
+
+.invitation-confirmation p + p {
+  margin-top: 0.35rem;
+}
+
+.invitation-confirmation-actions {
+  margin-top: 0.75rem;
+}
+
+.invitation-compact-button,
+.primary-button.invitation-compact-button {
+  min-height: 2.5rem;
+  margin-top: 0;
+  padding: 0.5rem 0.75rem;
+}
+
+.invitations-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.invitation-form-control input:focus-visible,
+.invitation-form-control select:focus-visible,
+.invitation-revoke-button:focus-visible {
+  outline: 3px solid #9ecdb6;
+  outline-offset: 2px;
+}
+
 .audit-log-page {
   min-width: 0;
   margin-top: 2rem;
@@ -3139,6 +3381,14 @@ h1 {
 }
 
 @media (max-width: 54rem) {
+  .invitation-form {
+    grid-template-columns: minmax(0, 1fr) minmax(11rem, 0.55fr);
+  }
+
+  .invitation-form .primary-button {
+    justify-self: start;
+  }
+
   .audit-log-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3180,6 +3430,75 @@ h1 {
 }
 
 @media (max-width: 40rem) {
+  .invitation-form {
+    grid-template-columns: 1fr;
+  }
+
+  .invitation-form .primary-button {
+    width: 100%;
+  }
+
+  .invitations-table-wrapper {
+    overflow: visible;
+  }
+
+  .invitations-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  .invitations-table,
+  .invitations-table tbody,
+  .invitations-table tr,
+  .invitations-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .invitations-table tr {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #d8d2c4;
+  }
+
+  .invitations-table td {
+    display: grid;
+    grid-template-columns: minmax(7rem, 0.4fr) minmax(0, 1fr);
+    gap: 1rem;
+    padding: 0.65rem 0;
+    border: 0;
+  }
+
+  .invitations-table td::before {
+    color: #34483f;
+    content: attr(data-label);
+    font-size: 0.8rem;
+    font-weight: 750;
+    text-transform: uppercase;
+  }
+
+  .invitations-table .invitation-actions-cell {
+    display: block;
+    width: auto;
+  }
+
+  .invitation-actions-cell::before {
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+
+  .invitations-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .invitations-pagination .secondary-button {
+    width: 100%;
+  }
+
   .audit-log-filters {
     grid-template-columns: 1fr;
   }

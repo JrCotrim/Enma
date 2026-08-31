@@ -13,6 +13,7 @@ import { DocumentDetailsPage } from '../features/documents/DocumentDetailsPage'
 import { DocumentsPage } from '../features/documents/DocumentsPage'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
 import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
+import { InvitationsPage } from '../features/invitations/InvitationsPage'
 import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
 import { OrganizationRoute } from '../features/organizations/OrganizationRoute'
 import { OrganizationsPage } from '../features/organizations/OrganizationsPage'
@@ -114,6 +115,10 @@ export function createAppRoutes(
                         {
                           path: 'team',
                           element: <TeamPage />,
+                        },
+                        {
+                          path: 'invitations',
+                          element: <InvitationsPage />,
                         },
                         {
                           path: 'audit-log',
