@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
+import { useInvitationResume } from '../invitations/InvitationResumeState'
 import { useAuth } from './AuthContext'
 import { SessionError, SessionLoading } from './SessionStatus'
 
@@ -10,6 +11,7 @@ const unexpectedErrorMessage =
 
 export function LoginPage() {
   const { state, login } = useAuth()
+  const { hasPendingInvitation } = useInvitationResume()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState<string>()
@@ -33,7 +35,12 @@ export function LoginPage() {
   }
 
   if (state === 'authenticated') {
-    return <Navigate replace to="/organizations" />
+    return (
+      <Navigate
+        replace
+        to={hasPendingInvitation ? '/accept-invitation' : '/organizations'}
+      />
+    )
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {

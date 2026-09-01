@@ -13,7 +13,9 @@ import { DocumentDetailsPage } from '../features/documents/DocumentDetailsPage'
 import { DocumentsPage } from '../features/documents/DocumentsPage'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
 import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
+import { AcceptInvitationPage } from '../features/invitations/AcceptInvitationPage'
 import { InvitationsPage } from '../features/invitations/InvitationsPage'
+import { RegisterPage } from '../features/onboarding/RegisterPage'
 import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
 import { OrganizationRoute } from '../features/organizations/OrganizationRoute'
 import { OrganizationsPage } from '../features/organizations/OrganizationsPage'
@@ -48,6 +50,14 @@ export function createAppRoutes(
             {
               path: 'login',
               element: <LoginPage />,
+            },
+            {
+              path: 'register',
+              element: <RegisterPage />,
+            },
+            {
+              path: 'accept-invitation',
+              element: <AcceptInvitationPage />,
             },
             {
               element: <ProtectedRoute />,
