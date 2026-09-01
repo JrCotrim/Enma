@@ -150,6 +150,90 @@ public sealed class OrganizationInvitationEndpointTests : IAsyncLifetime
         Assert.Equal(invitation.Id, audit.EntityId);
     }
 
+    [Fact]
+    public async Task RecipientJourney_CreatePreviewAcceptDiscoverAndReplayIsAtomic()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        var recipient = new User(
+            "Journey Recipient",
+            "journey-recipient@example.test",
+            Now.AddHours(-2));
+        recipient.VerifyEmail(Now.AddHours(-1));
+        AuthenticatedSession authenticated = CreateSession(recipient);
+        await SeedAsync(
+            recipient,
+            authenticated.Credential,
+            authenticated.Session);
+        CsrfPair adminCsrf = await GetCsrfPairAsync(graph.RawHandle);
+        CsrfPair recipientCsrf = await GetCsrfPairAsync(authenticated.RawHandle);
+
+        using HttpResponseMessage before = await SendGetAsync(
+            "/api/me/organizations",
+            authenticated.RawHandle);
+        using HttpResponseMessage create = await SendCreateAsync(
+            graph,
+            adminCsrf,
+            recipient.Email,
+            "Member");
+        OrganizationInvitationDeliveryRequest sent = Assert.Single(
+            delivery.Requests);
+        using HttpResponseMessage preview = await client.PostAsJsonAsync(
+            PreviewPath,
+            new { token = sent.RawToken });
+        using HttpResponseMessage accept = await SendRecipientAsync(
+            AcceptPath,
+            authenticated.RawHandle,
+            recipientCsrf,
+            sent.RawToken);
+        using HttpResponseMessage after = await SendGetAsync(
+            "/api/me/organizations",
+            authenticated.RawHandle);
+        using HttpResponseMessage replay = await SendRecipientAsync(
+            AcceptPath,
+            authenticated.RawHandle,
+            recipientCsrf,
+            sent.RawToken);
+
+        Assert.Empty(Assert.IsType<GetCurrentUserOrganizationsResponse>(
+            await before.Content.ReadFromJsonAsync<
+                GetCurrentUserOrganizationsResponse>()).Items);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        OrganizationInvitationPreviewResponse previewBody = Assert.IsType<
+            OrganizationInvitationPreviewResponse>(
+                await preview.Content.ReadFromJsonAsync<
+                    OrganizationInvitationPreviewResponse>());
+        Assert.Equal("usable", previewBody.Status);
+        await AssertEmptyResponseAsync(accept, HttpStatusCode.NoContent);
+        CurrentUserOrganizationResponse discovered = Assert.Single(
+            Assert.IsType<GetCurrentUserOrganizationsResponse>(
+                await after.Content.ReadFromJsonAsync<
+                    GetCurrentUserOrganizationsResponse>()).Items);
+        Assert.Equal(graph.Organization.Id, discovered.Id);
+        Assert.Equal("Member", discovered.Role);
+        await AssertInvalidInvitationAsync(replay);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationInvitation invitation = await dbContext
+            .OrganizationInvitations
+            .SingleAsync();
+        OrganizationMembership membership = await dbContext
+            .OrganizationMemberships
+            .SingleAsync(candidate => candidate.UserId == recipient.Id);
+        Assert.Equal(OrganizationInvitationState.Accepted, invitation.GetState(Now));
+        Assert.Null(invitation.TokenHash);
+        Assert.True(membership.IsActive);
+        Assert.Equal(OrganizationRole.Member, membership.Role);
+        Assert.Equal(
+            [
+                AuditEventType.OrganizationInvitationCreated,
+                AuditEventType.OrganizationInvitationAccepted
+            ],
+            await dbContext.AuditLogs
+                .OrderBy(audit => audit.EventType)
+                .Select(audit => audit.EventType)
+                .ToArrayAsync());
+    }
+
     [Theory]
     [InlineData(OrganizationRole.Administrator, "Member", HttpStatusCode.Created)]
     [InlineData(OrganizationRole.Administrator, "Administrator", HttpStatusCode.Forbidden)]

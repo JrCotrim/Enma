@@ -902,6 +902,59 @@ public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
     }
 
     [Fact]
+    public async Task AcceptDeactivation_DeactivationFirstReactivatesCompatibleMembership()
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        RecipientInvitation recipient = await SeedRecipientInvitationAsync(
+            graph,
+            includeMembership: true);
+        var pause = new PauseAfterOrganizationLockInterceptor();
+        var lifecyclePersistence =
+            new OrganizationMemberLifecycleMutationPersistence(
+                CreateOptions(pause),
+                new FixedTimeProvider(Now));
+        var request = new OrganizationMemberLifecycleMutationPersistenceRequest(
+            graph.Actor.Id,
+            graph.Organization.Id,
+            graph.Membership.Id,
+            recipient.Membership!.Id,
+            OrganizationMemberLifecycleOperation.Deactivate);
+        using var timeout = CreateTimeout();
+
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> deactivate =
+            lifecyclePersistence.ExecuteAsync(request, timeout.Token);
+        await pause.LockAcquired.WaitAsync(timeout.Token);
+        Task<AcceptOrganizationInvitationPersistenceResult> accept =
+            CreatePersistence().AcceptAsync(
+                recipient.User.Id,
+                recipient.TokenHash,
+                timeout.Token);
+
+        pause.Release();
+        await Task.WhenAll(deactivate, accept).WaitAsync(timeout.Token);
+
+        Assert.Equal(
+            OrganizationMemberLifecycleMutationPersistenceResult.Succeeded,
+            await deactivate);
+        Assert.Equal(
+            AcceptOrganizationInvitationPersistenceResult.Succeeded,
+            await accept);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationMembership stored = await dbContext.OrganizationMemberships
+            .SingleAsync(membership =>
+                membership.OrganizationId == graph.Organization.Id &&
+                membership.UserId == recipient.User.Id);
+        Assert.Equal(recipient.Membership.Id, stored.Id);
+        Assert.True(stored.IsActive);
+        Assert.Equal(
+            [
+                AuditEventType.OrganizationMembershipDeactivated,
+                AuditEventType.OrganizationInvitationAccepted
+            ],
+            await FindAuditTypesAsync(dbContext, timeout.Token));
+    }
+
+    [Fact]
     public async Task AcceptOrganizationDeactivate_DeactivationFirstRejectsStaleState()
     {
         TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);

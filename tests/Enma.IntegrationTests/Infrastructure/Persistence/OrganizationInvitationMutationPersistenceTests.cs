@@ -598,8 +598,11 @@ public sealed class OrganizationInvitationMutationPersistenceTests(
         Assert.Null(audit.Details);
     }
 
-    [Fact]
-    public async Task AcceptAsync_CompatibleExistingMembership_ReusesAndReactivates()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AcceptAsync_CompatibleExistingMembership_ReusesAndReactivates(
+        bool initiallyActive)
     {
         TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
         var invitee = new User(
@@ -612,7 +615,10 @@ public sealed class OrganizationInvitationMutationPersistenceTests(
             invitee.Id,
             OrganizationRole.Member,
             CreatedAt);
-        membership.Deactivate();
+        if (!initiallyActive)
+        {
+            membership.Deactivate();
+        }
         var tokenService = new CryptographicOrganizationInvitationTokenService();
         tokenService.GenerateToken(out var tokenHash);
         var invitation = new OrganizationInvitation(

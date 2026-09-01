@@ -33,30 +33,14 @@ public sealed class OrganizationInvitationDeliveryTests
     }
 
     [Fact]
-    public async Task DevelopmentDelivery_LogsOnlyDevelopmentAcceptanceUrl()
+    public async Task DevelopmentDelivery_DisablesDeliveryRatherThanLoggingToken()
     {
-        var logger = new MailKitEmailVerificationDeliveryTests
-            .CapturingLogger<DevelopmentOrganizationInvitationDelivery>();
-        var delivery = new DevelopmentOrganizationInvitationDelivery(
-            Options.Create(new DevelopmentEmailVerificationDeliveryOptions()),
-            logger);
+        var delivery = new DevelopmentOrganizationInvitationDelivery();
 
         OrganizationInvitationDeliveryResult result = await delivery.DeliverAsync(
             CreateRequest());
 
-        Assert.Equal(OrganizationInvitationDeliveryResult.Accepted, result);
-        MailKitEmailVerificationDeliveryTests.LogEntry entry = Assert.Single(
-            logger.Entries);
-        Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.Equal(2013, entry.EventId.Id);
-        Assert.Equal(
-            $"DEVELOPMENT ONLY - accept the organization invitation with this local URL: http://localhost:5173/accept-invitation#token={SyntheticToken}",
-            entry.Message);
-        Assert.DoesNotContain(
-            CreateRequest().Email,
-            entry.Message,
-            StringComparison.Ordinal);
-        Assert.Null(entry.Exception);
+        Assert.Equal(OrganizationInvitationDeliveryResult.Failed, result);
     }
 
     [Fact]
