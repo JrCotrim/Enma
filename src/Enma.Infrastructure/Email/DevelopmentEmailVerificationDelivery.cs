@@ -1,4 +1,5 @@
 using Enma.Application.Authentication;
+using MailKit.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -7,26 +8,41 @@ namespace Enma.Infrastructure.Email;
 public sealed class DevelopmentEmailVerificationDelivery
     : IEmailVerificationDelivery
 {
-    private static readonly Action<ILogger, string, Exception?>
-        LogVerificationUrl = LoggerMessage.Define<string>(
-            LogLevel.Warning,
-            new EventId(2003, "DevelopmentEmailVerificationUrl"),
-            "DEVELOPMENT ONLY - verify the email with this local URL: {VerificationUrl}");
+    private const int MailpitSmtpPort = 1025;
 
-    private readonly EmailVerificationLinkBuilder linkBuilder;
-    private readonly ILogger<DevelopmentEmailVerificationDelivery> logger;
+    private readonly MailKitEmailVerificationDelivery delivery;
 
     public DevelopmentEmailVerificationDelivery(
         IOptions<DevelopmentEmailVerificationDeliveryOptions> options,
-        ILogger<DevelopmentEmailVerificationDelivery> logger)
+        ILogger<MailKitEmailVerificationDelivery> logger)
+        : this(options, logger, MailpitSmtpPort)
+    {
+    }
+
+    internal DevelopmentEmailVerificationDelivery(
+        IOptions<DevelopmentEmailVerificationDeliveryOptions> options,
+        ILogger<MailKitEmailVerificationDelivery> logger,
+        int smtpPort)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentOutOfRangeException.ThrowIfLessThan(smtpPort, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(smtpPort, 65_535);
 
-        linkBuilder = new EmailVerificationLinkBuilder(new Uri(
-            options.Value.VerificationPageUrl,
-            UriKind.Absolute));
-        this.logger = logger;
+        IOptions<EmailVerificationDeliveryOptions> deliveryOptions =
+            Options.Create(new EmailVerificationDeliveryOptions
+            {
+                VerificationPageUrl = options.Value.VerificationPageUrl,
+                SenderName = "ENMA Development",
+                SenderAddress = "no-reply@enma.local",
+                SmtpHost = "127.0.0.1",
+                SmtpPort = smtpPort,
+                SmtpSecurity = SecureSocketOptions.None
+            });
+        delivery = new MailKitEmailVerificationDelivery(
+            deliveryOptions,
+            new EmailVerificationLinkBuilder(deliveryOptions),
+            logger);
     }
 
     public Task<EmailVerificationDeliveryResult> DeliverAsync(
@@ -34,12 +50,6 @@ public sealed class DevelopmentEmailVerificationDelivery
         string rawToken,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        Uri verificationUri = linkBuilder.Build(rawToken);
-        LogVerificationUrl(logger, verificationUri.AbsoluteUri, null);
-
-        return Task.FromResult(EmailVerificationDeliveryResult.Delivered);
+        return delivery.DeliverAsync(email, rawToken, cancellationToken);
     }
 }

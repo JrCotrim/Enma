@@ -97,6 +97,44 @@ public sealed class MailpitEmailVerificationDeliveryTests : IAsyncLifetime
         MailKitEmailVerificationDeliveryTests.AssertNoSensitiveTelemetry(logger.Entries);
     }
 
+    [Fact]
+    public async Task DevelopmentDelivery_Mailpit_ReceivesUsableVerificationWithoutSensitiveLog()
+    {
+        var logger = new MailKitEmailVerificationDeliveryTests
+            .CapturingLogger<MailKitEmailVerificationDelivery>();
+        DevelopmentEmailVerificationDelivery delivery =
+            DevelopmentEmailVerificationDeliveryTests.CreateDelivery(
+                container.GetMappedPublicPort(SmtpContainerPort),
+                logger);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        EmailVerificationDeliveryResult result = await delivery.DeliverAsync(
+            Recipient,
+            SyntheticToken,
+            timeout.Token);
+        MimeMessage message = await GetLatestMessageAsync(timeout.Token);
+
+        Assert.Equal(EmailVerificationDeliveryResult.Delivered, result);
+        MailboxAddress from = Assert.IsType<MailboxAddress>(Assert.Single(message.From));
+        Assert.Equal("ENMA Development", from.Name);
+        Assert.Equal("no-reply@enma.local", from.Address);
+        Assert.Contains(
+            $"http://localhost:5173/verify-email#token={SyntheticToken}",
+            message.TextBody);
+        Assert.Contains($"#token={SyntheticToken}", message.HtmlBody);
+        Assert.DoesNotContain(
+            message.Headers,
+            header => header.Value.Contains(SyntheticToken, StringComparison.Ordinal));
+
+        MailKitEmailVerificationDeliveryTests.LogEntry entry = Assert.Single(
+            logger.Entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Equal(2000, entry.EventId.Id);
+        Assert.Null(entry.Exception);
+        Assert.DoesNotContain(SyntheticToken, entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(Recipient, entry.Message, StringComparison.Ordinal);
+    }
+
     private static int CountOccurrences(string value, string searchValue)
     {
         int count = 0;
