@@ -1,0 +1,357 @@
+/*
+ * ENMA — Phase 3H.1
+ * Invitations administration visual migration.
+ * Visual-only; recipient/auth flow and previously approved surfaces remain LOCKED.
+ */
+
+.invitations-page {
+  --invitations-border: rgba(25, 72, 51, 0.12);
+  --invitations-text: #183126;
+  --invitations-muted: #61766c;
+  --invitations-accent: #0f5a40;
+  --invitations-danger: #963c37;
+  display: grid;
+  gap: 1.05rem;
+  align-content: start;
+  grid-auto-rows: max-content;
+  min-width: 0;
+  margin-top: 0;
+  color: var(--invitations-text);
+}
+
+.invitations-page > * { min-height: 0; }
+
+.invitations-header { margin-bottom: 0; }
+.invitations-header h2 { margin: 0; }
+.invitations-header p {
+  margin: 0.62rem 0 0;
+  color: var(--invitations-muted);
+}
+
+.invitation-form {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1.45fr) minmax(12rem, 0.7fr) auto;
+  align-items: end;
+  gap: 0.9rem;
+  margin-top: 0 !important;
+  padding: 1rem 1.05rem !important;
+  align-self: start;
+}
+
+.invitation-form-control {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.invitation-form-control label {
+  color: #40584d;
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.invitation-form-control input,
+.invitation-form-control select { width: 100%; }
+
+.invitation-form .primary-button {
+  min-width: 9.5rem;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.invitation-feedback,
+.invitation-mutation-error {
+  width: fit-content;
+  max-width: min(100%, 58rem);
+  margin: 0;
+  padding: 0.62rem 0.78rem;
+  border: 1px solid transparent;
+  border-radius: 0.72rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.42;
+}
+
+.invitation-feedback.is-accepted {
+  border-color: rgba(52, 121, 84, 0.10);
+}
+
+.invitation-feedback.is-failed,
+.invitation-mutation-error {
+  border-color: rgba(150, 60, 55, 0.13);
+}
+
+.invitations-state {
+  align-self: start;
+  margin-top: 0 !important;
+}
+
+.invitations-state h3,
+.invitations-state p { margin: 0; }
+
+.invitations-state h3 { font-size: 1.2rem; }
+
+.invitations-state h3 + p,
+.invitations-state .secondary-button,
+.invitations-state .home-link { margin-top: 0.65rem; }
+
+.invitations-state .home-link {
+  display: inline-flex;
+  width: fit-content;
+  color: var(--invitations-accent);
+  font-size: 0.78rem;
+  font-weight: 720;
+  text-underline-offset: 0.18em;
+}
+
+.invitations-table-wrapper {
+  margin-top: 0;
+  overflow-x: auto;
+  border-radius: 0.9rem;
+  align-self: start;
+}
+
+.invitations-table { min-width: 58rem; }
+
+.invitations-table :is(th, td) {
+  padding-block: 0.8rem !important;
+}
+
+.invitation-email {
+  max-width: 18rem;
+  color: var(--invitations-text);
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.invitations-table time {
+  color: var(--invitations-muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.invitation-actions-cell {
+  width: 13.5rem;
+  min-width: 13.5rem;
+}
+
+.invitation-row-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.invitation-revoke-button {
+  width: fit-content;
+  min-height: 2.25rem !important;
+  padding: 0.35rem 0.12rem !important;
+  border: 0;
+  background: transparent;
+  color: var(--invitations-danger);
+  font-size: 0.74rem;
+  font-weight: 760;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.invitation-revoke-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.invitation-action-unavailable {
+  color: #77857e;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.invitation-confirmation {
+  display: grid;
+  gap: 0.52rem;
+  min-width: min(100%, 21rem);
+  padding: 0.72rem 0.75rem !important;
+  border: 1px solid rgba(150, 60, 55, 0.15) !important;
+  border-radius: 0.72rem !important;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.88),
+    rgba(252, 247, 245, 0.72)
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 8px 20px rgba(93, 43, 39, 0.04);
+}
+
+.invitation-confirmation p {
+  margin: 0;
+  color: var(--invitations-text);
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.invitation-confirmation p + p {
+  margin-top: 0;
+  color: var(--invitations-muted);
+  font-size: 0.7rem;
+  font-weight: 540;
+}
+
+.invitation-confirmation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.05rem;
+}
+
+.invitation-compact-button,
+.primary-button.invitation-compact-button,
+.danger-button.invitation-compact-button {
+  min-height: 2.25rem;
+  margin-top: 0;
+  padding: 0.4rem 0.68rem;
+  border-radius: 0.66rem;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.invitations-page .danger-button {
+  border: 1px solid #8f4039;
+  color: #fff;
+  background: #8f4039;
+  cursor: pointer;
+}
+
+.invitations-page .danger-button:hover:not(:disabled) {
+  border-color: #78342f;
+  background: #78342f;
+}
+
+.invitations-page .danger-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.invitations-pagination {
+  align-self: start;
+  margin-top: 0 !important;
+  padding-top: 0.1rem;
+}
+
+@media (max-width: 54rem) {
+  .invitation-form {
+    grid-template-columns: minmax(0, 1fr) minmax(11rem, 0.62fr);
+  }
+
+  .invitation-form .primary-button { justify-self: start; }
+
+  .invitation-actions-cell {
+    width: 12rem;
+    min-width: 12rem;
+  }
+}
+
+@media (max-width: 40rem) {
+  .invitations-page { gap: 0.88rem; }
+
+  .invitation-form { grid-template-columns: 1fr; }
+
+  .invitation-form .primary-button { width: 100%; }
+
+  .invitations-table-wrapper { overflow: visible; }
+  .invitations-table { min-width: 0; }
+
+  .invitations-table tr {
+    padding: 0.72rem 0.78rem;
+    border: 1px solid var(--invitations-border) !important;
+    border-radius: 0.78rem;
+    background: rgba(255, 255, 255, 0.56);
+  }
+
+  .invitations-table tr + tr { margin-top: 0.72rem; }
+
+  .invitations-table td {
+    grid-template-columns: 5rem minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.58rem 0 !important;
+  }
+
+  .invitations-table .invitation-email {
+    max-width: none;
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+
+  .invitations-table td::before {
+    color: #52675d;
+    font-size: 0.68rem;
+    letter-spacing: 0.04em;
+  }
+
+  .invitations-table .invitation-actions-cell {
+    width: auto;
+    min-width: 0;
+  }
+
+  .invitation-row-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .invitation-confirmation {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .invitation-confirmation-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .invitation-confirmation-actions .invitation-compact-button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invitations-page :is(
+    .primary-button,
+    .secondary-button,
+    .danger-button,
+    .invitation-revoke-button
+  ) {
+    transition: none;
+  }
+}
+
+/* ENMA-PHASE-3H1B-CONFIRMATION
+ * Desktop-only compact revoke confirmation.
+ */
+@media (min-width: 40.001rem) {
+  .invitations-table:has(.invitation-confirmation) .invitation-actions-cell {
+    width: 19rem;
+    min-width: 19rem;
+  }
+
+  .invitation-confirmation {
+    width: 100%;
+    min-width: 0;
+    gap: 0.32rem;
+    padding: 0.62rem 0.68rem !important;
+  }
+
+  .invitation-confirmation-actions {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    gap: 0.45rem;
+    margin-top: 0.18rem;
+  }
+
+  .invitation-confirmation-actions .invitation-compact-button {
+    white-space: nowrap;
+  }
+}

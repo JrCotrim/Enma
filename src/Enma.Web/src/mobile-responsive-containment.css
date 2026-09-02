@@ -1,0 +1,99 @@
+/* Mobile/tablet containment for the authenticated workspace. */
+@media (max-width: 64rem) {
+  html:has(.organization-workspace),
+  body:has(.organization-workspace),
+  body:has(.organization-workspace) #root,
+  body:has(.organization-workspace) .app-shell,
+  body:has(.organization-workspace) .app-main,
+  body:has(.organization-workspace) .organization-workspace {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  body:has(.organization-workspace) :where(
+    .workspace-toolbar,
+    .organization-switcher,
+    .workspace-actions,
+    .workspace-navigation
+  ) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  body:has(.organization-workspace) .workspace-toolbar,
+  body:has(.organization-workspace) .workspace-navigation {
+    width: 100%;
+  }
+
+  body:has(.organization-workspace) .organization-switcher {
+    flex: 1 1 16rem;
+  }
+
+  body:has(.organization-workspace) .organization-switcher select {
+    width: min(100%, 16rem);
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  body:has(.organization-workspace) .workspace-actions {
+    flex-wrap: wrap;
+  }
+
+  body:has(.organization-workspace) .workspace-context {
+    max-width: calc(100% - 2rem);
+  }
+
+  body:has(.organization-workspace)
+    .organization-workspace
+    > :not(.workspace-toolbar):not(.workspace-navigation):not(.workspace-context),
+  body:has(.organization-workspace) :where(
+    .dashboard-page,
+    .agenda-page,
+    .clients-page,
+    .processes-page,
+    .deadlines-page,
+    .tasks-page,
+    .documents-page,
+    .team-page,
+    .invitations-page,
+    .audit-log-page
+  ),
+  body:has(.organization-workspace) :where(
+    .dashboard-page,
+    .agenda-page,
+    .clients-page,
+    .processes-page,
+    .deadlines-page,
+    .tasks-page,
+    .documents-page,
+    .team-page,
+    .invitations-page,
+    .audit-log-page
+  ) > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 40rem) {
+  body:has(.organization-workspace) .organization-switcher {
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  body:has(.organization-workspace) .organization-switcher select {
+    width: 100%;
+  }
+
+  body:has(.organization-workspace) .workspace-actions {
+    overflow-x: visible;
+  }
+
+  body:has(.organization-workspace) .workspace-context h1 {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}

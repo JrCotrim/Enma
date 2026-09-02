@@ -23,6 +23,8 @@ import './deadlines-phase3g.css'
 import './tasks-phase3g.css'
 import './documents-phase3g.css'
 import './team-phase3g.css'
+import './invitations-phase3h.css'
+import './mobile-responsive-containment.css'
 
 const rootElement = document.getElementById('root')
 
