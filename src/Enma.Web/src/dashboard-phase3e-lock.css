@@ -1,0 +1,21 @@
+/*
+ * ENMA — Phase 3E.3
+ * Final dashboard micro-polish before visual lock.
+ *
+ * Scope: dashboard only.
+ * No shell, API, route, permission or data changes.
+ */
+
+/* The whole KPI card is already actionable, so the repeated helper text adds noise. */
+.dashboard-kpi-card-phase3e .dashboard-kpi-copy small {
+  display: none;
+}
+
+/* Preserve the approved KPI proportions after removing the helper line. */
+.dashboard-kpi-card-phase3e {
+  align-content: center;
+}
+
+.dashboard-kpi-copy {
+  align-content: center;
+}

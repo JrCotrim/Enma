@@ -137,9 +137,7 @@ export function OrganizationWorkspace() {
                 `workspace-navigation-link${isActive ? ' is-active' : ''}`
               }
               to="audit-log"
-            >
-              Audit Log
-            </NavLink>
+            >Auditoria</NavLink>
           </>
         ) : null}
       </nav>

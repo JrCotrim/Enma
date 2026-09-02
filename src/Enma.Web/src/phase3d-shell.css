@@ -1,0 +1,534 @@
+/*
+ * ENMA — Phase 3D.1C
+ * Authenticated workspace shell final refinement before visual lock.
+ *
+ * Scope remains intentionally limited to shell/navigation/global controls.
+ * Feature pages are not redesigned here.
+ */
+
+:root {
+  --enma-shell-sidebar-width: 16rem;
+  --enma-shell-canvas: #eef1ec;
+  --enma-shell-sidebar: #0d4b36;
+  --enma-shell-sidebar-deep: #08392a;
+  --enma-shell-sidebar-text: #f7fbf8;
+  --enma-shell-sidebar-muted: rgba(247, 251, 248, 0.70);
+  --enma-shell-sidebar-border: rgba(255, 255, 255, 0.12);
+  --enma-shell-sidebar-glass: rgba(255, 255, 255, 0.085);
+  --enma-shell-sidebar-glass-hover: rgba(255, 255, 255, 0.125);
+  --enma-shell-sidebar-glass-active: rgba(255, 255, 255, 0.17);
+  --enma-shell-content-border: rgba(30, 67, 51, 0.12);
+  --enma-shell-content-surface: rgba(255, 255, 255, 0.74);
+  --enma-shell-shadow: 0 18px 55px rgba(26, 52, 42, 0.08);
+  --enma-shell-focus: #0f6f4f;
+}
+
+body:has(.organization-workspace) {
+  min-width: 0;
+  background:
+    radial-gradient(circle at 76% -10%, rgba(255, 255, 255, 0.82), transparent 34rem),
+    linear-gradient(180deg, #f2f5f1 0%, var(--enma-shell-canvas) 100%);
+}
+
+body:has(.organization-workspace) .app-header {
+  display: none;
+}
+
+body:has(.organization-workspace) .app-main {
+  width: 100%;
+  max-width: none;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+body:has(.organization-workspace) .organization-workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--enma-shell-sidebar-width) minmax(0, 1fr);
+  grid-template-rows: 4.6rem minmax(0, 1fr);
+  width: 100%;
+  max-width: none;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(
+      145deg,
+      var(--enma-shell-sidebar) 0%,
+      var(--enma-shell-sidebar-deep) 100%
+    )
+    left / var(--enma-shell-sidebar-width) 100% no-repeat,
+    transparent;
+  box-shadow: none;
+}
+
+/* Compact top utility strip. */
+body:has(.organization-workspace) .workspace-toolbar {
+  grid-column: 2;
+  grid-row: 1;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0 clamp(1.5rem, 2.6vw, 2.75rem);
+  border-bottom: 1px solid rgba(30, 67, 51, 0.065);
+  background: rgba(246, 248, 245, 0.46);
+  backdrop-filter: blur(20px) saturate(125%);
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
+}
+
+body:has(.organization-workspace) .workspace-switcher {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  margin: 0;
+}
+
+body:has(.organization-workspace) .workspace-switcher label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+body:has(.organization-workspace) .workspace-switcher select {
+  width: 12.25rem;
+  min-height: 2.45rem;
+  margin: 0;
+  padding-block: 0.45rem;
+  border: 1px solid var(--enma-shell-content-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 6px 18px rgba(37, 70, 56, 0.045);
+  backdrop-filter: blur(18px) saturate(125%);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+}
+
+body:has(.organization-workspace) .workspace-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  margin: 0;
+}
+
+
+/* Keep administrative capabilities, but make them secondary icon actions. */
+body:has(.organization-workspace) .workspace-actions > button:nth-last-child(2),
+body:has(.organization-workspace) .workspace-actions > button:last-child {
+  position: relative;
+  width: 2.45rem;
+  min-width: 2.45rem;
+  padding-inline: 0;
+  overflow: hidden;
+  color: transparent;
+  font-size: 0;
+}
+
+body:has(.organization-workspace) .workspace-actions > button:nth-last-child(2)::before,
+body:has(.organization-workspace) .workspace-actions > button:last-child::before {
+  content: "";
+  position: absolute;
+  inset: 0.68rem;
+  background: #245844;
+  -webkit-mask: var(--enma-action-icon) center / contain no-repeat;
+  mask: var(--enma-action-icon) center / contain no-repeat;
+}
+
+body:has(.organization-workspace) .workspace-actions > button:nth-last-child(2) {
+  --enma-action-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 7h-5V2'/%3E%3Cpath d='M20 7a9 9 0 1 0 1 8'/%3E%3C/svg%3E");
+}
+
+body:has(.organization-workspace) .workspace-actions > button:last-child {
+  --enma-action-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 17l5-5-5-5M15 12H3M21 3v18h-7'/%3E%3C/svg%3E");
+}
+
+body:has(.organization-workspace) .workspace-actions > .secondary-button,
+body:has(.organization-workspace) .workspace-actions > button {
+  min-width: 2.45rem;
+  min-height: 2.45rem;
+  margin: 0;
+  padding: 0.45rem 0.72rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
+/* Navigation spine. */
+body:has(.organization-workspace) .workspace-navigation {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.16rem;
+  min-width: 0;
+  min-height: 100vh;
+  margin: 0;
+  padding: 7.35rem 0.85rem 10.6rem;
+  border: 0;
+  background: transparent;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+/* Fix first-pass brand overflow by separating brand and descriptor. */
+body:has(.organization-workspace) .workspace-navigation::before {
+  content: "ENMA";
+  position: absolute;
+  top: 1.55rem;
+  left: 1.15rem;
+  color: var(--enma-shell-sidebar-text);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.82rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  pointer-events: none;
+}
+
+body:has(.organization-workspace) .workspace-navigation::after {
+  content: "PLATAFORMA JURÍDICA";
+  position: absolute;
+  top: 3.82rem;
+  left: 1.18rem;
+  color: rgba(247, 251, 248, 0.68);
+  font-size: 0.54rem;
+  font-weight: 760;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+body:has(.organization-workspace) .workspace-navigation-link {
+  display: flex;
+  align-items: center;
+  gap: 0.72rem;
+  min-height: 2.65rem;
+  padding: 0.61rem 0.78rem;
+  border: 1px solid transparent;
+  border-radius: 0.72rem;
+  color: var(--enma-shell-sidebar-muted);
+  background: transparent;
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-decoration: none;
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+body:has(.organization-workspace) .workspace-navigation-link:first-child {
+  margin-top: 0.45rem;
+}
+
+body:has(.organization-workspace) .workspace-navigation-link:hover {
+  color: var(--enma-shell-sidebar-text);
+  border-color: rgba(255, 255, 255, 0.065);
+  background: var(--enma-shell-sidebar-glass-hover);
+}
+
+body:has(.organization-workspace) .workspace-navigation-link.is-active {
+  color: #ffffff;
+  border-color: var(--enma-shell-sidebar-border);
+  background: var(--enma-shell-sidebar-glass-active);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 22px rgba(0, 0, 0, 0.075);
+  backdrop-filter: blur(18px) saturate(135%);
+  -webkit-backdrop-filter: blur(18px) saturate(135%);
+}
+
+body:has(.organization-workspace) .workspace-navigation-link:focus-visible {
+  outline: 3px solid rgba(255, 255, 255, 0.88);
+  outline-offset: 2px;
+}
+
+
+/* Route-aware line icons: visual-only, permissions and links remain owned by React. */
+body:has(.organization-workspace) .workspace-navigation-link::before {
+  content: "";
+  flex: 0 0 1.08rem;
+  width: 1.08rem;
+  height: 1.08rem;
+  background: currentColor;
+  opacity: 0.92;
+  -webkit-mask: var(--enma-nav-icon) center / contain no-repeat;
+  mask: var(--enma-nav-icon) center / contain no-repeat;
+}
+
+body:has(.organization-workspace) .workspace-navigation-link:first-child {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='7' rx='1'/%3E%3Crect x='14' y='3' width='7' height='7' rx='1'/%3E%3Crect x='3' y='14' width='7' height='7' rx='1'/%3E%3Crect x='14' y='14' width='7' height='7' rx='1'/%3E%3C/svg%3E");
+}
+body:has(.organization-workspace) .workspace-navigation-link[href$="/agenda"] {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M16 3v4M8 3v4M3 10h18'/%3E%3C/svg%3E");
+}
+body:has(.organization-workspace) .workspace-navigation-link[href$="/clients"] {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E");
+}
+body:has(.organization-workspace) .workspace-navigation-link[href$="/processes"] {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='7' width='18' height='13' rx='2'/%3E%3Cpath d='M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M10 12v2h4v-2'/%3E%3C/svg%3E");
+}
+body:has(.organization-workspace) .workspace-navigation-link[href$="/deadlines"] {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E");
+}
+body:has(.organization-workspace) .workspace-navigation-link[href$="/tasks"] {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='4' width='16' height='17' rx='2'/%3E%3Cpath d='M9 4V2h6v2M8 11l2 2 4-4M8 17h8'/%3E%3C/svg%3E");
+}
+body:has(.organization-workspace) .workspace-navigation-link[href$="/documents"] {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 2h8l4 4v16H6z'/%3E%3Cpath d='M14 2v5h5M9 13h6M9 17h6'/%3E%3C/svg%3E");
+}
+body:has(.organization-workspace) .workspace-navigation-link[href$="/team"] {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='9' cy='8' r='3'/%3E%3Ccircle cx='17' cy='9' r='2.5'/%3E%3Cpath d='M3 20v-2a5 5 0 0 1 10 0v2M14 20v-1.5a4 4 0 0 1 7-2.6'/%3E%3C/svg%3E");
+}
+body:has(.organization-workspace) .workspace-navigation-link[href$="/invitations"] {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='m3 7 9 6 9-6'/%3E%3C/svg%3E");
+}
+body:has(.organization-workspace) .workspace-navigation-link[href$="/audit-log"] {
+  --enma-nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E");
+}
+
+/* Organization/account context anchored to sidebar footer. */
+body:has(.organization-workspace) .workspace-context {
+  position: absolute;
+  z-index: 30;
+  left: 0.85rem;
+  bottom: 0.85rem;
+  width: calc(var(--enma-shell-sidebar-width) - 1.7rem);
+  margin: 0;
+  padding: 0.78rem 2rem 0.78rem 3rem;
+  border: 1px solid var(--enma-shell-sidebar-border);
+  border-radius: 0.82rem;
+  color: var(--enma-shell-sidebar-text);
+  background: var(--enma-shell-sidebar-glass);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 28px rgba(0, 0, 0, 0.10);
+  backdrop-filter: blur(20px) saturate(130%);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+}
+
+
+
+body:has(.organization-workspace) .workspace-context::before {
+  content: "";
+  position: absolute;
+  left: 0.72rem;
+  top: 50%;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.11);
+  transform: translateY(-50%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+body:has(.organization-workspace) .workspace-context::after {
+  content: "⌄";
+  position: absolute;
+  right: 0.72rem;
+  top: 50%;
+  color: rgba(247, 251, 248, 0.72);
+  font-size: 0.95rem;
+  transform: translateY(-56%);
+}
+
+body:has(.organization-workspace) .workspace-context .eyebrow {
+  display: none;
+}
+
+body:has(.organization-workspace) .workspace-context h1 {
+  margin: 0;
+  color: var(--enma-shell-sidebar-text);
+  font-family: inherit;
+  font-size: 0.83rem;
+  font-weight: 760;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:has(.organization-workspace) .workspace-context p {
+  margin: 0.20rem 0 0;
+  color: var(--enma-shell-sidebar-muted);
+  font-size: 0.69rem;
+  line-height: 1.3;
+}
+
+/* Routed feature content; internal page styling remains untouched. */
+body:has(.organization-workspace)
+  .organization-workspace
+  > :not(.workspace-toolbar):not(.workspace-navigation):not(.workspace-context) {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding:
+    clamp(1.7rem, 2.8vw, 2.7rem)
+    clamp(2rem, 3vw, 3.35rem)
+    clamp(2.7rem, 4vw, 4rem);
+}
+
+/* Restrained Liquid Glass for global controls. */
+body:has(.organization-workspace) .notification-trigger {
+  min-width: 2.45rem;
+  min-height: 2.45rem;
+  margin: 0;
+  padding: 0.45rem;
+  border-color: var(--enma-shell-content-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 6px 18px rgba(37, 70, 56, 0.045);
+  backdrop-filter: blur(18px) saturate(125%);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+}
+
+body:has(.organization-workspace) .notification-panel {
+  border-color: var(--enma-shell-content-border);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.91);
+  box-shadow: var(--enma-shell-shadow);
+  backdrop-filter: blur(22px) saturate(130%);
+  -webkit-backdrop-filter: blur(22px) saturate(130%);
+}
+
+body:has(.organization-workspace) .workspace-switcher select:focus-visible,
+body:has(.organization-workspace) .workspace-actions button:focus-visible,
+body:has(.organization-workspace) .notification-trigger:focus-visible {
+  outline: 3px solid var(--enma-shell-focus);
+  outline-offset: 2px;
+}
+
+/* Tablet/mobile fallback; proper drawer is intentionally deferred. */
+@media (max-width: 64rem) {
+  body:has(.organization-workspace) .organization-workspace {
+    display: block;
+    min-height: 100vh;
+    background: var(--enma-shell-canvas);
+  }
+
+  body:has(.organization-workspace) .workspace-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    min-height: auto;
+    padding: 0.9rem 1rem;
+  }
+
+  body:has(.organization-workspace) .workspace-switcher {
+    flex: 1 1 16rem;
+    min-width: 0;
+  }
+
+  body:has(.organization-workspace) .workspace-switcher select {
+    width: min(100%, 16rem);
+  }
+
+  body:has(.organization-workspace) .workspace-navigation {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    gap: 0.35rem;
+    min-height: auto;
+    margin: 0;
+    padding: 0.7rem 1rem;
+    background: linear-gradient(
+      135deg,
+      var(--enma-shell-sidebar),
+      var(--enma-shell-sidebar-deep)
+    );
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  body:has(.organization-workspace) .workspace-navigation::before,
+  body:has(.organization-workspace) .workspace-navigation::after {
+    display: none;
+  }
+
+  body:has(.organization-workspace) .workspace-navigation-link {
+    flex: 0 0 auto;
+    min-height: 2.5rem;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  body:has(.organization-workspace) .workspace-context {
+    position: static;
+    width: auto;
+    margin: 0.9rem 1rem 0;
+    padding: 0.78rem 2rem 0.78rem 3rem;
+    color: #1d3128;
+    background: rgba(255, 255, 255, 0.68);
+    border-color: var(--enma-shell-content-border);
+    box-shadow: none;
+  }
+
+  body:has(.organization-workspace) .workspace-context h1 {
+    color: #1d3128;
+  }
+
+  body:has(.organization-workspace) .workspace-context p {
+    color: #52685e;
+  }
+
+  body:has(.organization-workspace)
+    .organization-workspace
+    > :not(.workspace-toolbar):not(.workspace-navigation):not(.workspace-context) {
+    width: 100%;
+    padding: 1.25rem 1rem 2.5rem;
+  }
+}
+
+@media (max-width: 40rem) {
+  body:has(.organization-workspace) .workspace-toolbar {
+    align-items: stretch;
+  }
+
+  body:has(.organization-workspace) .workspace-switcher,
+  body:has(.organization-workspace) .workspace-actions {
+    width: 100%;
+  }
+
+  body:has(.organization-workspace) .workspace-switcher {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  body:has(.organization-workspace) .workspace-switcher select {
+    width: 100%;
+  }
+
+  body:has(.organization-workspace) .workspace-actions {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:has(.organization-workspace) .workspace-navigation-link {
+    transition: none;
+  }
+}

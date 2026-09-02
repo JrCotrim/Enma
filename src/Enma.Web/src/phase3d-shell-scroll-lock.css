@@ -1,0 +1,56 @@
+/*
+ * ENMA — Phase 3D.1F
+ * Desktop scroll ownership fix for the LOCKED authenticated app shell.
+ *
+ * Bug:
+ * Long routed pages were increasing the document height. Because the sidebar
+ * participates in the same workspace grid, the whole shell appeared to grow
+ * and the sidebar brand/footer moved with document scroll.
+ *
+ * Contract:
+ * - Desktop sidebar + utility toolbar stay viewport-bound.
+ * - Only the routed feature surface owns vertical page scrolling.
+ * - Existing <=64rem responsive fallback is intentionally untouched.
+ */
+
+@media (min-width: 64.001rem) {
+  html:has(.organization-workspace),
+  body:has(.organization-workspace) {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body:has(.organization-workspace) .app-shell,
+  body:has(.organization-workspace) .app-main,
+  body:has(.organization-workspace) .organization-workspace {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body:has(.organization-workspace) .organization-workspace {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  body:has(.organization-workspace) .workspace-navigation {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    max-height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  body:has(.organization-workspace)
+    .organization-workspace
+    > :not(.workspace-toolbar):not(.workspace-navigation):not(.workspace-context) {
+    min-height: 0;
+    max-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}

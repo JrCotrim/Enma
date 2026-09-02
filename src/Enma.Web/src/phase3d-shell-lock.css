@@ -1,0 +1,31 @@
+/*
+ * ENMA — Phase 3D.1E
+ * Final lock delta for the authenticated app shell.
+ *
+ * Only fixes the remaining visual label in the utility strip.
+ * The label remains available to assistive technology.
+ */
+
+body:has(.organization-workspace) .workspace-toolbar label {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+body:has(.organization-workspace) .workspace-toolbar {
+  gap: 0.45rem;
+}
+
+body:has(.organization-workspace) .workspace-switcher {
+  align-items: center;
+}
+
+body:has(.organization-workspace) .workspace-switcher select {
+  margin: 0;
+}

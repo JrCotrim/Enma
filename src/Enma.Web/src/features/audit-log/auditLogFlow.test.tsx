@@ -106,7 +106,7 @@ describe('Audit G flow', () => {
       renderRoute()
 
       expect(await screen.findByRole('heading', { name: 'Audit Log' })).toBeInTheDocument()
-      expect(screen.getByRole('link', { name: 'Audit Log' })).toHaveAttribute(
+      expect(screen.getByRole('link', { name: 'Auditoria' })).toHaveAttribute(
         'href',
         `/organizations/${organizationId}/audit-log`,
       )
@@ -123,7 +123,7 @@ describe('Audit G flow', () => {
     renderRoute()
 
     expect(await screen.findByRole('heading', { name: 'Acesso negado' })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Audit Log' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Auditoria' })).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 

@@ -1,0 +1,112 @@
+/*
+ * ENMA — Phase 3E.2
+ * Dashboard density/empty-state polish.
+ *
+ * Scope:
+ * - Dashboard only.
+ * - No shell changes.
+ * - No API/data/route/permission changes.
+ */
+
+/* The approved dashboard direction is calmer without a secondary eyebrow. */
+.dashboard-page-phase3e .dashboard-eyebrow {
+  display: none;
+}
+
+.dashboard-header-phase3e {
+  margin-bottom: 1.2rem;
+}
+
+/* KPIs stay prominent, but slightly more compact. */
+.dashboard-kpi-card-phase3e {
+  min-height: 6.45rem;
+  padding-block: 0.9rem;
+}
+
+.dashboard-kpi-copy strong {
+  font-size: 1.85rem;
+}
+
+/*
+ * The three operational cards are useful even when empty, but should never
+ * create a large blank wall. Let cards with real rows stay substantial and
+ * collapse genuinely empty cards.
+ */
+.dashboard-focus-card {
+  min-height: 16.75rem;
+}
+
+.dashboard-focus-card:has(> .dashboard-focus-empty) {
+  min-height: 7.9rem;
+}
+
+.dashboard-focus-card:has(> .dashboard-focus-list) {
+  min-height: 16.75rem;
+}
+
+/*
+ * Individual cards already communicate their empty state. The extra full-width
+ * empty banner was duplicating the same information and increasing noise.
+ */
+.dashboard-upcoming-empty-phase3e {
+  display: none;
+}
+
+.dashboard-focus-heading {
+  margin-bottom: 0.62rem;
+}
+
+.dashboard-focus-heading p {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.dashboard-focus-empty {
+  display: flex;
+  align-items: center;
+  min-height: 3.4rem;
+  padding: 0.82rem 0.95rem;
+  color: #74867d;
+  background: linear-gradient(
+    180deg,
+    rgba(250, 252, 250, 0.36),
+    rgba(246, 249, 246, 0.22)
+  );
+}
+
+/* Bring secondary priorities closer when the operational cards are empty. */
+.dashboard-focus-grid:has(.dashboard-focus-card:nth-child(1) > .dashboard-focus-empty)
+  :is(.dashboard-focus-card:nth-child(2), .dashboard-focus-card:nth-child(3)) {
+  --dashboard-empty-reference: 1;
+}
+
+.dashboard-attention-section-phase3e {
+  margin-top: 0.9rem;
+}
+
+.dashboard-attention-card {
+  padding-block: 0.78rem;
+}
+
+@media (max-width: 75rem) {
+  .dashboard-focus-card,
+  .dashboard-focus-card:has(> .dashboard-focus-list) {
+    min-height: 15.5rem;
+  }
+
+  .dashboard-focus-card:has(> .dashboard-focus-empty) {
+    min-height: 7.6rem;
+  }
+}
+
+@media (max-width: 48rem) {
+  .dashboard-focus-card,
+  .dashboard-focus-card:has(> .dashboard-focus-list),
+  .dashboard-focus-card:has(> .dashboard-focus-empty) {
+    min-height: auto;
+  }
+
+  .dashboard-focus-heading {
+    align-items: start;
+  }
+}

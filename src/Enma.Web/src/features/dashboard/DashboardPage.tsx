@@ -28,20 +28,100 @@ type DashboardState =
     }
   | { readonly status: 'forbidden' | 'error'; readonly scope: string }
 
+type DashboardIconName =
+  | 'clients'
+  | 'processes'
+  | 'deadlines'
+  | 'tasks'
+  | 'agenda'
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function DashboardIcon({
+  name,
+}: {
+  readonly name: DashboardIconName
+}) {
+  const common = {
+    width: 22,
+    height: 22,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  }
+
+  if (name === 'clients') {
+    return (
+      <svg {...common}>
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+      </svg>
+    )
+  }
+
+  if (name === 'processes') {
+    return (
+      <svg {...common}>
+        <rect x="3" y="7" width="18" height="13" rx="2" />
+        <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18" />
+      </svg>
+    )
+  }
+
+  if (name === 'deadlines') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </svg>
+    )
+  }
+
+  if (name === 'tasks') {
+    return (
+      <svg {...common}>
+        <rect x="5" y="3" width="14" height="18" rx="2" />
+        <path d="M9 3.8h6M8.5 12l2 2 5-5" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg {...common}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4M8 3v4M3 10h18" />
+    </svg>
+  )
 }
 
 interface AttentionCardProps {
   readonly title: string
   readonly destination: string
   readonly bucket: DashboardAttentionBucket
+  readonly icon: Extract<DashboardIconName, 'deadlines' | 'tasks'>
 }
 
-function AttentionCard({ title, destination, bucket }: AttentionCardProps) {
+function AttentionCard({
+  title,
+  destination,
+  bucket,
+  icon,
+}: AttentionCardProps) {
   return (
     <Link className="dashboard-attention-card" to={destination}>
-      <h4>{title}</h4>
+      <div className="dashboard-attention-card-title">
+        <span className="dashboard-mini-icon">
+          <DashboardIcon name={icon} />
+        </span>
+        <h4>{title}</h4>
+      </div>
       <dl>
         <div className={bucket.overdue > 0 ? 'has-overdue' : undefined}>
           <dt>Vencidos</dt>
@@ -136,11 +216,15 @@ function OrganizationDashboardPage({
     state.scope === scope ? state : { status: 'loading', scope }
 
   return (
-    <section className="dashboard-page" aria-busy={currentState.status === 'loading'}>
-      <header className="dashboard-header">
+    <section
+      className="dashboard-page dashboard-page-phase3e"
+      aria-busy={currentState.status === 'loading'}
+    >
+      <header className="dashboard-header dashboard-header-phase3e">
         <div>
+          <span className="dashboard-eyebrow">Painel operacional</span>
           <h2>Visão geral</h2>
-          <p>Resumo operacional de toda a organização.</p>
+          <p>Painel de controle do escritório.</p>
         </div>
       </header>
 
@@ -183,7 +267,11 @@ function OrganizationDashboardPage({
   )
 }
 
-function DashboardContent({ dashboard }: { readonly dashboard: DashboardResponse }) {
+function DashboardContent({
+  dashboard,
+}: {
+  readonly dashboard: DashboardResponse
+}) {
   const { summary, attention, upcoming } = dashboard
   const hasUpcoming =
     upcoming.deadlines.length > 0 ||
@@ -191,128 +279,250 @@ function DashboardContent({ dashboard }: { readonly dashboard: DashboardResponse
     upcoming.calendarEvents.length > 0
 
   const kpis = [
-    { label: 'Clientes ativos', value: summary.activeClients, destination: 'clients' },
+    {
+      label: 'Clientes ativos',
+      value: summary.activeClients,
+      destination: 'clients',
+      icon: 'clients' as const,
+    },
     {
       label: 'Processos cadastrados',
       value: summary.totalLegalProcesses,
       destination: 'processes',
+      icon: 'processes' as const,
     },
     {
       label: 'Prazos pendentes',
       value: summary.pendingDeadlines,
       destination: 'deadlines',
+      icon: 'deadlines' as const,
     },
-    { label: 'Tarefas pendentes', value: summary.pendingTasks, destination: 'tasks' },
+    {
+      label: 'Tarefas pendentes',
+      value: summary.pendingTasks,
+      destination: 'tasks',
+      icon: 'tasks' as const,
+    },
   ] as const
 
   return (
     <>
-      <section className="dashboard-kpis" aria-label="Resumo da organização">
+      <section
+        className="dashboard-kpis dashboard-kpis-phase3e"
+        aria-label="Resumo da organização"
+      >
         {kpis.map((kpi) => (
           <Link
-            className="dashboard-kpi-card"
+            className="dashboard-kpi-card dashboard-kpi-card-phase3e"
             to={kpi.destination}
             key={kpi.label}
             aria-label={`${kpi.label}: ${kpi.value}. Abrir ${kpi.label.toLowerCase()}.`}
           >
-            <span>{kpi.label}</span>
-            <strong>{kpi.value}</strong>
+            <span className="dashboard-kpi-icon">
+              <DashboardIcon name={kpi.icon} />
+            </span>
+            <span className="dashboard-kpi-copy">
+              <span>{kpi.label}</span>
+              <strong>{kpi.value}</strong>
+              <small>Ver detalhes</small>
+            </span>
           </Link>
         ))}
       </section>
 
-      <section className="dashboard-section" aria-labelledby="dashboard-attention-title">
-        <h3 id="dashboard-attention-title">Pontos de atenção</h3>
-        <div className="dashboard-attention-grid">
-          <AttentionCard title="Prazos" destination="deadlines" bucket={attention.deadlines} />
-          <AttentionCard title="Tarefas" destination="tasks" bucket={attention.tasks} />
-        </div>
-      </section>
-
-      <section className="dashboard-section" aria-labelledby="dashboard-upcoming-title">
-        <div className="dashboard-section-header">
-          <div>
-            <h3 id="dashboard-upcoming-title">Próximos compromissos</h3>
-            <p>Até {formatDashboardDateOnly(upcoming.throughDate)}</p>
-          </div>
-          <Link className="dashboard-section-link" to="agenda">
-            Ver Agenda
-          </Link>
+      <section
+        className="dashboard-section dashboard-focus-section"
+        aria-labelledby="dashboard-upcoming-title"
+      >
+        <div className="dashboard-focus-heading">
+          <h3 id="dashboard-upcoming-title">Próximos compromissos</h3>
+          <p>Até {formatDashboardDateOnly(upcoming.throughDate)}</p>
         </div>
 
         {!hasUpcoming ? (
-          <p className="dashboard-upcoming-empty">
+          <p className="dashboard-upcoming-empty dashboard-upcoming-empty-phase3e">
             Nenhum compromisso pendente para hoje e os próximos 7 dias.
           </p>
-        ) : (
-          <div className="dashboard-upcoming-groups">
+        ) : null}
+
+        <div className="dashboard-focus-grid">
+          <section
+            className="dashboard-focus-card"
+            aria-labelledby="dashboard-agenda-card-title"
+          >
+            <header className="dashboard-focus-card-header">
+              <div>
+                <span className="dashboard-mini-icon">
+                  <DashboardIcon name="agenda" />
+                </span>
+                <h4 id="dashboard-agenda-card-title">Agenda</h4>
+              </div>
+              <Link className="dashboard-section-link" to="agenda">
+                Ver Agenda
+              </Link>
+            </header>
+
+            {upcoming.calendarEvents.length > 0 ? (
+              <ul className="dashboard-focus-list dashboard-agenda-list">
+                {upcoming.calendarEvents.slice(0, 4).map((event) => (
+                  <li key={event.id}>
+                    <Link to="agenda">
+                      <strong>{event.title}</strong>
+                      <time dateTime={event.startsAt}>
+                        {formatDashboardEventInterval(
+                          event.startsAt,
+                          event.endsAt,
+                        )}
+                      </time>
+                      {event.processTitle ? (
+                        <OptionalMetadata>
+                          {event.processTitle}
+                        </OptionalMetadata>
+                      ) : null}
+                      {event.clientName ? (
+                        <OptionalMetadata>
+                          {event.clientName}
+                        </OptionalMetadata>
+                      ) : null}
+                      {event.assigneeDisplayName ? (
+                        <OptionalMetadata>
+                          Responsável: {event.assigneeDisplayName}
+                        </OptionalMetadata>
+                      ) : null}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="dashboard-focus-empty">
+                Nenhum evento no período.
+              </p>
+            )}
+          </section>
+
+          <section
+            className="dashboard-focus-card"
+            aria-labelledby="upcoming-deadlines-title"
+          >
+            <header className="dashboard-focus-card-header">
+              <div>
+                <span className="dashboard-mini-icon">
+                  <DashboardIcon name="deadlines" />
+                </span>
+                <h4 id="upcoming-deadlines-title">Próximos prazos</h4>
+              </div>
+              <Link className="dashboard-section-link" to="deadlines">
+                Ver todos
+              </Link>
+            </header>
+
             {upcoming.deadlines.length > 0 ? (
-              <section className="dashboard-upcoming-group" aria-labelledby="upcoming-deadlines-title">
-                <h4 id="upcoming-deadlines-title">Prazos</h4>
-                <ul>
-                  {upcoming.deadlines.map((deadline) => (
-                    <li key={deadline.id}>
-                      <Link to={`deadlines/${deadline.id}`}>
+              <ul className="dashboard-focus-list">
+                {upcoming.deadlines.slice(0, 4).map((deadline) => (
+                  <li key={deadline.id}>
+                    <Link to={`deadlines/${deadline.id}`}>
+                      <div className="dashboard-focus-list-primary">
                         <strong>{deadline.title}</strong>
                         <time dateTime={deadline.dueDate}>
                           {formatDashboardDateOnly(deadline.dueDate)}
                         </time>
-                        <OptionalMetadata>{deadline.clientName}</OptionalMetadata>
-                        <OptionalMetadata>{deadline.processTitle}</OptionalMetadata>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
+                      </div>
+                      <OptionalMetadata>
+                        {deadline.clientName}
+                      </OptionalMetadata>
+                      <OptionalMetadata>
+                        {deadline.processTitle}
+                      </OptionalMetadata>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="dashboard-focus-empty">
+                Nenhum prazo no período.
+              </p>
+            )}
+          </section>
+
+          <section
+            className="dashboard-focus-card"
+            aria-labelledby="upcoming-tasks-title"
+          >
+            <header className="dashboard-focus-card-header">
+              <div>
+                <span className="dashboard-mini-icon">
+                  <DashboardIcon name="tasks" />
+                </span>
+                <h4 id="upcoming-tasks-title">Tarefas</h4>
+              </div>
+              <Link className="dashboard-section-link" to="tasks">
+                Ver todas
+              </Link>
+            </header>
 
             {upcoming.tasks.length > 0 ? (
-              <section className="dashboard-upcoming-group" aria-labelledby="upcoming-tasks-title">
-                <h4 id="upcoming-tasks-title">Tarefas</h4>
-                <ul>
-                  {upcoming.tasks.map((task) => (
-                    <li key={task.id}>
-                      <Link to={`tasks/${task.id}`}>
+              <ul className="dashboard-focus-list">
+                {upcoming.tasks.slice(0, 4).map((task) => (
+                  <li key={task.id}>
+                    <Link to={`tasks/${task.id}`}>
+                      <div className="dashboard-focus-list-primary">
                         <strong>{task.title}</strong>
                         <time dateTime={task.dueDate}>
                           {formatDashboardDateOnly(task.dueDate)}
                         </time>
-                        {task.processTitle ? <OptionalMetadata>{task.processTitle}</OptionalMetadata> : null}
-                        {task.clientName ? <OptionalMetadata>{task.clientName}</OptionalMetadata> : null}
-                        {task.assigneeDisplayName ? (
-                          <OptionalMetadata>Responsável: {task.assigneeDisplayName}</OptionalMetadata>
-                        ) : null}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
+                      </div>
+                      {task.processTitle ? (
+                        <OptionalMetadata>
+                          {task.processTitle}
+                        </OptionalMetadata>
+                      ) : null}
+                      {task.clientName ? (
+                        <OptionalMetadata>
+                          {task.clientName}
+                        </OptionalMetadata>
+                      ) : null}
+                      {task.assigneeDisplayName ? (
+                        <OptionalMetadata>
+                          Responsável: {task.assigneeDisplayName}
+                        </OptionalMetadata>
+                      ) : null}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="dashboard-focus-empty">
+                Nenhuma tarefa no período.
+              </p>
+            )}
+          </section>
+        </div>
+      </section>
 
-            {upcoming.calendarEvents.length > 0 ? (
-              <section className="dashboard-upcoming-group" aria-labelledby="upcoming-events-title">
-                <h4 id="upcoming-events-title">Eventos</h4>
-                <ul>
-                  {upcoming.calendarEvents.map((event) => (
-                    <li key={event.id}>
-                      <Link to="agenda">
-                        <strong>{event.title}</strong>
-                        <time dateTime={event.startsAt}>
-                          {formatDashboardEventInterval(event.startsAt, event.endsAt)}
-                        </time>
-                        {event.processTitle ? <OptionalMetadata>{event.processTitle}</OptionalMetadata> : null}
-                        {event.clientName ? <OptionalMetadata>{event.clientName}</OptionalMetadata> : null}
-                        {event.assigneeDisplayName ? (
-                          <OptionalMetadata>Responsável: {event.assigneeDisplayName}</OptionalMetadata>
-                        ) : null}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
+      <section
+        className="dashboard-section dashboard-attention-section-phase3e"
+        aria-labelledby="dashboard-attention-title"
+      >
+        <div className="dashboard-attention-heading">
+          <div>
+            <h3 id="dashboard-attention-title">Pontos de atenção</h3>
+            <p>Prioridades operacionais que merecem acompanhamento.</p>
           </div>
-        )}
+        </div>
+        <div className="dashboard-attention-grid dashboard-attention-grid-phase3e">
+          <AttentionCard
+            title="Prazos"
+            destination="deadlines"
+            bucket={attention.deadlines}
+            icon="deadlines"
+          />
+          <AttentionCard
+            title="Tarefas"
+            destination="tasks"
+            bucket={attention.tasks}
+            icon="tasks"
+          />
+        </div>
       </section>
     </>
   )

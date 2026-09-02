@@ -1,0 +1,31 @@
+/*
+ * ENMA — Phase 3G.1B
+ * Clients vertical-rhythm correction.
+ *
+ * Fixes only the grid stretching introduced by the feature visual layer.
+ * No shell, dashboard, primitives, React, API, routes or permissions changed.
+ */
+
+.clients-page,
+.client-details-page {
+  align-content: start;
+  grid-auto-rows: max-content;
+}
+
+.clients-page > *,
+.client-details-page > * {
+  min-height: 0;
+}
+
+/* Keep list pagination attached to the data surface instead of being stretched
+   toward the bottom of the workspace. */
+.clients-pagination {
+  align-self: start;
+}
+
+/* Details surface should size from its content. */
+.client-properties,
+.client-create-form,
+.client-confirmation {
+  align-self: start;
+}

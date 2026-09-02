@@ -1,0 +1,142 @@
+/*
+ * ENMA — Phase 3D.1D
+ * Final shell refinement before visual lock.
+ *
+ * This file intentionally contains only delta overrides over phase3d-shell.css.
+ * It does not redesign dashboard/page content.
+ */
+
+/* Top utility area: remove administrative feel and visual duplication. */
+body:has(.organization-workspace) .workspace-toolbar {
+  min-height: 4.8rem;
+  padding: 0 2rem;
+  border-bottom: 0;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+body:has(.organization-workspace) .workspace-switcher {
+  margin: 0;
+}
+
+body:has(.organization-workspace) .workspace-switcher label {
+  display: none;
+}
+
+body:has(.organization-workspace) .workspace-switcher select {
+  width: 12.75rem;
+  min-height: 2.45rem;
+  padding: 0.42rem 2.15rem 0.42rem 0.78rem;
+  border-color: rgba(24, 75, 53, 0.11);
+  border-radius: 0.78rem;
+  color: #28483a;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 5px 18px rgba(33, 66, 51, 0.035);
+  backdrop-filter: blur(18px) saturate(120%);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+}
+
+/* Treat the global actions as one quiet utility cluster. */
+body:has(.organization-workspace) .workspace-actions {
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border: 1px solid rgba(24, 75, 53, 0.10);
+  border-radius: 0.86rem;
+  background: rgba(255, 255, 255, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.58),
+    0 5px 18px rgba(33, 66, 51, 0.03);
+  backdrop-filter: blur(18px) saturate(120%);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+}
+
+body:has(.organization-workspace) .workspace-actions > button,
+body:has(.organization-workspace) .workspace-actions > .secondary-button,
+body:has(.organization-workspace) .notification-trigger {
+  min-width: 2.35rem;
+  min-height: 2.35rem;
+  margin: 0;
+  padding: 0.42rem;
+  border: 0;
+  border-radius: 0.66rem;
+  background: transparent;
+  box-shadow: none;
+}
+
+body:has(.organization-workspace) .workspace-actions > button:hover,
+body:has(.organization-workspace) .workspace-actions > .secondary-button:hover,
+body:has(.organization-workspace) .notification-trigger:hover {
+  background: rgba(14, 83, 57, 0.07);
+}
+
+/* Sidebar is already approved structurally; only polish its footer context. */
+body:has(.organization-workspace) .workspace-context {
+  position: absolute;
+  min-height: 4.1rem;
+  padding: 0.72rem 2.05rem 0.72rem 3.35rem;
+}
+
+body:has(.organization-workspace) .workspace-context::before {
+  content: "";
+  position: absolute;
+  left: 0.72rem;
+  top: 50%;
+  width: 2rem;
+  height: 2rem;
+  transform: translateY(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.08);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23E8F2EC' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 21h18'/%3E%3Cpath d='M6 21V8l6-4 6 4v13'/%3E%3Cpath d='M9 10h.01M12 10h.01M15 10h.01M9 13h.01M12 13h.01M15 13h.01M9 16h.01M12 16h.01M15 16h.01'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 1.05rem;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+/* If a prior iteration rendered a separate placeholder avatar, suppress it. */
+body:has(.organization-workspace) .workspace-context-avatar,
+body:has(.organization-workspace) .workspace-avatar,
+body:has(.organization-workspace) .workspace-context__avatar {
+  display: none !important;
+}
+
+body:has(.organization-workspace) .workspace-context h1 {
+  font-size: 0.82rem;
+}
+
+body:has(.organization-workspace) .workspace-context p {
+  margin-top: 0.16rem;
+  font-size: 0.66rem;
+}
+
+/* Keep desktop content aligned with the quieter utility strip. */
+body:has(.organization-workspace)
+  .organization-workspace
+  > :not(.workspace-toolbar):not(.workspace-navigation):not(.workspace-context) {
+  padding-top: 1.55rem;
+}
+
+@media (max-width: 64rem) {
+  body:has(.organization-workspace) .workspace-toolbar {
+    min-height: auto;
+    padding: 0.85rem 1rem;
+  }
+
+  body:has(.organization-workspace) .workspace-switcher select {
+    width: min(100%, 15rem);
+  }
+
+  body:has(.organization-workspace) .workspace-actions {
+    background: rgba(255, 255, 255, 0.60);
+  }
+
+  body:has(.organization-workspace) .workspace-context {
+    position: static;
+    min-height: 4rem;
+    padding-left: 3.35rem;
+  }
+}
