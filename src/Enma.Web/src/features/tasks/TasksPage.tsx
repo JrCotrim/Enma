@@ -373,11 +373,11 @@ export function TasksPage() {
 
   return (
     <section className="tasks-page" aria-labelledby="tasks-title">
-      <div className="tasks-header">
-        <div>
-          <p className="eyebrow">Gestão de tarefas</p>
-          <h2 id="tasks-title">Tarefas</h2>
-          <p className="tasks-description">
+      <div className="tasks-header workspace-page-header">
+        <div className="workspace-page-heading">
+          <p className="eyebrow workspace-page-eyebrow">GESTÃO DE TAREFAS</p>
+          <h2 className="workspace-page-title" id="tasks-title">Tarefas</h2>
+          <p className="tasks-description workspace-page-subtitle">
             Acompanhe as tarefas desta organização.
           </p>
         </div>

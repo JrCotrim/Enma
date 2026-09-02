@@ -242,11 +242,11 @@ export function ClientsPage() {
 
   return (
     <section className="clients-page" aria-labelledby="clients-title">
-      <div className="clients-header">
-        <div>
-          <p className="eyebrow">Gestão de clientes</p>
-          <h2 id="clients-title">Clientes</h2>
-          <p className="clients-description">
+      <div className="clients-header workspace-page-header">
+        <div className="workspace-page-heading">
+          <p className="eyebrow workspace-page-eyebrow">GESTÃO DE CLIENTES</p>
+          <h2 className="workspace-page-title" id="clients-title">Clientes</h2>
+          <p className="clients-description workspace-page-subtitle">
             Consulte os clientes vinculados a esta organização.
           </p>
         </div>

@@ -606,11 +606,11 @@ export function DeadlinesPage() {
 
   return (
     <section className="deadlines-page" aria-labelledby="deadlines-title">
-      <div className="deadlines-header">
-        <div>
-          <p className="eyebrow">Gestão de prazos</p>
-          <h2 id="deadlines-title">Prazos</h2>
-          <p className="deadlines-description">
+      <div className="deadlines-header workspace-page-header">
+        <div className="workspace-page-heading">
+          <p className="eyebrow workspace-page-eyebrow">GESTÃO DE PRAZOS</p>
+          <h2 className="workspace-page-title" id="deadlines-title">Prazos</h2>
+          <p className="deadlines-description workspace-page-subtitle">
             Consulte os prazos vinculados a esta organização.
           </p>
         </div>

@@ -249,12 +249,14 @@ function OrganizationAuditLogPage() {
 
   return (
     <section className="audit-log-page" aria-labelledby="audit-log-title">
-      <header className="audit-log-header">
-        <p className="eyebrow">Administração</p>
-        <h2 id="audit-log-title">Audit Log</h2>
-        <p className="audit-log-description">
-          Consulte os eventos administrativos registrados nesta organização.
-        </p>
+      <header className="audit-log-header workspace-page-header">
+        <div className="workspace-page-heading">
+          <p className="eyebrow workspace-page-eyebrow">ADMINISTRAÇÃO</p>
+          <h2 className="workspace-page-title" id="audit-log-title">Audit Log</h2>
+          <p className="audit-log-description workspace-page-subtitle">
+            Consulte os eventos administrativos registrados nesta organização.
+          </p>
+        </div>
       </header>
 
       {!isAuthorized ? (

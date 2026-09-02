@@ -220,11 +220,13 @@ function OrganizationDashboardPage({
       className="dashboard-page dashboard-page-phase3e"
       aria-busy={currentState.status === 'loading'}
     >
-      <header className="dashboard-header dashboard-header-phase3e">
-        <div>
-          <span className="dashboard-eyebrow">Painel operacional</span>
-          <h2>Visão geral</h2>
-          <p>Painel de controle do escritório.</p>
+      <header className="dashboard-header dashboard-header-phase3e workspace-page-header">
+        <div className="workspace-page-heading">
+          <span className="dashboard-eyebrow workspace-page-eyebrow">
+            PAINEL DA ORGANIZAÇÃO
+          </span>
+          <h2 className="workspace-page-title">Visão geral</h2>
+          <p className="workspace-page-subtitle">Painel de controle do escritório.</p>
         </div>
       </header>
 

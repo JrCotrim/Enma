@@ -445,11 +445,14 @@ function OrganizationInvitationsPage() {
 
   return (
     <section className="invitations-page" aria-labelledby="invitations-title">
-      <header className="invitations-header">
-        <h2 id="invitations-title">Convites</h2>
-        <p>
-          Convide pessoas e acompanhe os convites enviados para esta organização.
-        </p>
+      <header className="invitations-header workspace-page-header">
+        <div className="workspace-page-heading">
+          <p className="eyebrow workspace-page-eyebrow">GESTÃO DE CONVITES</p>
+          <h2 className="workspace-page-title" id="invitations-title">Convites</h2>
+          <p className="invitations-description workspace-page-subtitle">
+            Convide pessoas e acompanhe os convites enviados para esta organização.
+          </p>
+        </div>
       </header>
 
       {!hasAdministrativeRole ? (

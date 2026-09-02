@@ -585,11 +585,11 @@ export function ProcessesPage() {
 
   return (
     <section className="processes-page" aria-labelledby="processes-title">
-      <div className="processes-header">
-        <div>
-          <p className="eyebrow">Gestão de processos</p>
-          <h2 id="processes-title">Processos</h2>
-          <p className="processes-description">
+      <div className="processes-header workspace-page-header">
+        <div className="workspace-page-heading">
+          <p className="eyebrow workspace-page-eyebrow">GESTÃO DE PROCESSOS</p>
+          <h2 className="workspace-page-title" id="processes-title">Processos</h2>
+          <p className="processes-description workspace-page-subtitle">
             Consulte os processos vinculados a esta organização.
           </p>
         </div>

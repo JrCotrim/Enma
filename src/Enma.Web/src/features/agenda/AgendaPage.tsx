@@ -539,11 +539,11 @@ function OrganizationAgendaPage({
 
   return (
     <section className="agenda-page" aria-labelledby="agenda-title">
-      <div className="agenda-header">
-        <div>
-          <p className="eyebrow">Compromissos da organização</p>
-          <h2 id="agenda-title">Agenda</h2>
-          <p className="agenda-description">
+      <div className="agenda-header workspace-page-header">
+        <div className="workspace-page-heading">
+          <p className="eyebrow workspace-page-eyebrow">COMPROMISSOS DA ORGANIZAÇÃO</p>
+          <h2 className="workspace-page-title" id="agenda-title">Agenda</h2>
+          <p className="agenda-description workspace-page-subtitle">
             Prazos, tarefas e eventos em uma única visão mensal.
           </p>
         </div>

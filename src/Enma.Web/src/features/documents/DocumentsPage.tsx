@@ -459,11 +459,11 @@ function OrganizationDocumentsPage() {
 
   return (
     <section className="documents-page" aria-labelledby="documents-title">
-      <div className="documents-header">
-        <div>
-          <p className="eyebrow">Acervo jurídico</p>
-          <h2 id="documents-title">Documentos</h2>
-          <p className="documents-description">
+      <div className="documents-header workspace-page-header">
+        <div className="workspace-page-heading">
+          <p className="eyebrow workspace-page-eyebrow">ACERVO JURÍDICO</p>
+          <h2 className="workspace-page-title" id="documents-title">Documentos</h2>
+          <p className="documents-description workspace-page-subtitle">
             Consulte e baixe os documentos privados desta organização.
           </p>
         </div>

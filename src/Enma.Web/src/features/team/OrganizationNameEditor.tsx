@@ -164,7 +164,7 @@ export function OrganizationNameEditor() {
       {canEdit && !isEditing ? (
         <button
           ref={editTriggerRef}
-          className="text-button"
+          className="text-button workspace-page-helper-action"
           type="button"
           onClick={openEditor}
         >

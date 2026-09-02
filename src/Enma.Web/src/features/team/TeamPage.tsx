@@ -449,12 +449,13 @@ function OrganizationTeamPage() {
 
   return (
     <section className="team-page" aria-labelledby="team-title">
-      <div className="team-header">
-        <div>
-          <h2 id="team-title" ref={pageTitleRef} tabIndex={-1}>
+      <div className="team-header workspace-page-header">
+        <div className="workspace-page-heading">
+          <p className="eyebrow workspace-page-eyebrow">GESTÃO DA EQUIPE</p>
+          <h2 className="workspace-page-title" id="team-title" ref={pageTitleRef} tabIndex={-1}>
             Equipe
           </h2>
-          <p className="team-description">
+          <p className="team-description workspace-page-subtitle">
             Consulte quem integra a organização e os respectivos acessos.
           </p>
           <OrganizationNameEditor />
