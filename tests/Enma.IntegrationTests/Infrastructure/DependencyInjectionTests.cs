@@ -17,6 +17,7 @@ using Enma.Application.Deadlines.List;
 using Enma.Application.Deadlines.Reopen;
 using Enma.Application.Deadlines.Update;
 using Enma.Application.Organizations;
+using Enma.Application.Organizations.Invitations;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
@@ -1062,6 +1063,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             .GetRequiredService<IEmailVerificationDelivery>());
         Assert.IsType<DevelopmentEmailVerificationDelivery>(serviceProvider
             .GetRequiredService<DevelopmentEmailVerificationDelivery>());
+        Assert.IsType<DevelopmentOrganizationInvitationDelivery>(serviceProvider
+            .GetRequiredService<IOrganizationInvitationDelivery>());
         Assert.Null(serviceProvider.GetService<MailKitEmailVerificationDelivery>());
         Assert.Null(serviceProvider.GetService<EmailVerificationLinkBuilder>());
         Assert.Equal(
@@ -1087,9 +1090,16 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
 
         OptionsValidationException exception = Assert.Throws<OptionsValidationException>(
             () => serviceProvider.GetRequiredService<IEmailVerificationDelivery>());
+        OptionsValidationException invitationException =
+            Assert.Throws<OptionsValidationException>(
+                () => serviceProvider.GetRequiredService<
+                    IOrganizationInvitationDelivery>());
 
         Assert.Contains(
             exception.Failures,
+            failure => failure.Contains("SmtpHost", StringComparison.Ordinal));
+        Assert.Contains(
+            invitationException.Failures,
             failure => failure.Contains("SmtpHost", StringComparison.Ordinal));
         Assert.Contains(
             services,

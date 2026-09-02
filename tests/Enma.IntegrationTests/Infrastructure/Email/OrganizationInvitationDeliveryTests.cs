@@ -33,14 +33,71 @@ public sealed class OrganizationInvitationDeliveryTests
     }
 
     [Fact]
-    public async Task DevelopmentDelivery_DisablesDeliveryRatherThanLoggingToken()
+    public async Task DevelopmentDelivery_ConnectionFailure_ReturnsFailedWithSafeLog()
     {
-        var delivery = new DevelopmentOrganizationInvitationDelivery();
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var logger = new MailKitEmailVerificationDeliveryTests
+            .CapturingLogger<MailKitOrganizationInvitationDelivery>();
+        DevelopmentOrganizationInvitationDelivery delivery =
+            CreateDevelopmentDelivery(port, logger);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        Task server = AcceptAndCloseAsync(listener, timeout.Token);
 
-        OrganizationInvitationDeliveryResult result = await delivery.DeliverAsync(
-            CreateRequest());
+        try
+        {
+            OrganizationInvitationDeliveryResult result = await delivery.DeliverAsync(
+                CreateRequest(),
+                timeout.Token);
+            await server;
 
-        Assert.Equal(OrganizationInvitationDeliveryResult.Failed, result);
+            Assert.Equal(OrganizationInvitationDeliveryResult.Failed, result);
+            AssertSafeFailureLog(logger);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task DevelopmentDelivery_MalformedToken_ThrowsWithoutLoggingToken()
+    {
+        const string malformedToken = "malformed-token";
+        var logger = new MailKitEmailVerificationDeliveryTests
+            .CapturingLogger<MailKitOrganizationInvitationDelivery>();
+        DevelopmentOrganizationInvitationDelivery delivery =
+            CreateDevelopmentDelivery(25, logger);
+        OrganizationInvitationDeliveryRequest request = CreateRequest() with
+        {
+            RawToken = malformedToken
+        };
+
+        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(
+            () => delivery.DeliverAsync(request));
+
+        Assert.DoesNotContain(
+            malformedToken,
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Empty(logger.Entries);
+    }
+
+    [Fact]
+    public async Task DevelopmentDelivery_CancelledToken_DoesNotLogInvitationUrl()
+    {
+        var logger = new MailKitEmailVerificationDeliveryTests
+            .CapturingLogger<MailKitOrganizationInvitationDelivery>();
+        DevelopmentOrganizationInvitationDelivery delivery =
+            CreateDevelopmentDelivery(25, logger);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => delivery.DeliverAsync(CreateRequest(), cancellation.Token));
+
+        Assert.Empty(logger.Entries);
     }
 
     [Fact]
@@ -65,19 +122,7 @@ public sealed class OrganizationInvitationDeliveryTests
             await server;
 
             Assert.Equal(OrganizationInvitationDeliveryResult.Failed, result);
-            MailKitEmailVerificationDeliveryTests.LogEntry entry = Assert.Single(
-                logger.Entries);
-            Assert.Equal(LogLevel.Warning, entry.Level);
-            Assert.Equal(2011, entry.EventId.Id);
-            Assert.Null(entry.Exception);
-            Assert.DoesNotContain(
-                SyntheticToken,
-                entry.Message,
-                StringComparison.Ordinal);
-            Assert.DoesNotContain(
-                CreateRequest().Email,
-                entry.Message,
-                StringComparison.Ordinal);
+            AssertSafeFailureLog(logger);
         }
         finally
         {
@@ -107,6 +152,37 @@ public sealed class OrganizationInvitationDeliveryTests
             wrapped,
             new OrganizationInvitationLinkBuilder(wrapped),
             logger);
+    }
+
+    internal static DevelopmentOrganizationInvitationDelivery
+        CreateDevelopmentDelivery(
+            int smtpPort,
+            MailKitEmailVerificationDeliveryTests.CapturingLogger<
+                MailKitOrganizationInvitationDelivery> logger)
+    {
+        return new DevelopmentOrganizationInvitationDelivery(
+            Options.Create(new DevelopmentEmailVerificationDeliveryOptions()),
+            logger,
+            smtpPort);
+    }
+
+    private static void AssertSafeFailureLog(
+        MailKitEmailVerificationDeliveryTests.CapturingLogger<
+            MailKitOrganizationInvitationDelivery> logger)
+    {
+        MailKitEmailVerificationDeliveryTests.LogEntry entry = Assert.Single(
+            logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Equal(2011, entry.EventId.Id);
+        Assert.Null(entry.Exception);
+        Assert.DoesNotContain(
+            SyntheticToken,
+            entry.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            CreateRequest().Email,
+            entry.Message,
+            StringComparison.Ordinal);
     }
 
     internal static OrganizationInvitationDeliveryRequest CreateRequest()

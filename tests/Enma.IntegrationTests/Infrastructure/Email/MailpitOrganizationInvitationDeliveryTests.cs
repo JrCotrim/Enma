@@ -83,6 +83,45 @@ public sealed class MailpitOrganizationInvitationDeliveryTests : IAsyncLifetime
         Assert.DoesNotContain(request.Email, entry.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task DevelopmentDelivery_Mailpit_ReceivesUsableInvitationWithoutSensitiveLog()
+    {
+        var logger = new MailKitEmailVerificationDeliveryTests
+            .CapturingLogger<MailKitOrganizationInvitationDelivery>();
+        DevelopmentOrganizationInvitationDelivery delivery =
+            OrganizationInvitationDeliveryTests.CreateDevelopmentDelivery(
+                container.GetMappedPublicPort(SmtpContainerPort),
+                logger);
+        OrganizationInvitationDeliveryRequest request =
+            OrganizationInvitationDeliveryTests.CreateRequest();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        OrganizationInvitationDeliveryResult result = await delivery.DeliverAsync(
+            request,
+            timeout.Token);
+        MimeMessage message = await GetLatestMessageAsync(timeout.Token);
+
+        Assert.Equal(OrganizationInvitationDeliveryResult.Accepted, result);
+        Assert.Contains(
+            $"http://localhost:5173/accept-invitation#token={SyntheticToken}",
+            message.TextBody);
+        Assert.Contains($"#token={SyntheticToken}", message.HtmlBody);
+        Assert.NotEmpty(logger.Entries);
+        Assert.All(
+            logger.Entries,
+            entry =>
+            {
+                Assert.DoesNotContain(
+                    SyntheticToken,
+                    entry.Message,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    request.Email,
+                    entry.Message,
+                    StringComparison.Ordinal);
+            });
+    }
+
     private async Task<MimeMessage> GetLatestMessageAsync(
         CancellationToken cancellationToken)
     {

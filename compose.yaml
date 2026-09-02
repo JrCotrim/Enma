@@ -68,6 +68,14 @@ services:
 
         mc admin policy attach           enma           enma-documents-app           --user "$$MINIO_APP_ACCESS_KEY"
 
+  mailpit:
+    image: axllent/mailpit:v1.30.7
+    container_name: enma-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
 volumes:
   enma_postgres_data:
   enma_minio_data:
