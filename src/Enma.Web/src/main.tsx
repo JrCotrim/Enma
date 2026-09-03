@@ -26,6 +26,7 @@ import './team-phase3g.css'
 import './invitations-phase3h.css'
 import '@fontsource-variable/inter/wght.css'
 import './enma-visual-system-v2.css'
+import './enma-app-shell-v3.css'
 import './mobile-responsive-containment.css'
 
 const rootElement = document.getElementById('root')

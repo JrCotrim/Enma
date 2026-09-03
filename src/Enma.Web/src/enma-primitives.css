@@ -30,7 +30,7 @@
   --enma-ui-focus: #096747;
 
   /* Typography */
-  --enma-ui-font-display: Georgia, "Times New Roman", serif;
+  --enma-ui-font-display: -apple-system, BlinkMacSystemFont, "Inter Variable", Inter, "Segoe UI", sans-serif;
 
   /* Geometry */
   --enma-ui-control-height: 3rem;

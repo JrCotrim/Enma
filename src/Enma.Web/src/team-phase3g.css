@@ -5,10 +5,10 @@
  */
 
 .team-page {
-  --team-border: rgba(25, 72, 51, 0.12);
-  --team-text: #183126;
-  --team-muted: #61766c;
-  --team-accent: #0f5a40;
+  --team-border: var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  --team-text: var(--enma-v3-text, #eee7f1);
+  --team-muted: var(--enma-v3-muted, #b1a5b6);
+  --team-accent: #a45bd6;
   --team-danger: #963c37;
   display: grid;
   gap: 1.05rem;
@@ -24,7 +24,7 @@
 .team-header h2 {
   margin: 0;
   color: var(--team-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 3vw, 2.7rem);
   font-weight: 500;
   line-height: 1.05;
@@ -50,16 +50,16 @@
   gap: 0.5rem;
   width: min(100%, 52rem);
   padding: 0.9rem;
-  border: 1px solid rgba(25, 72, 51, 0.10);
+  border: 1px solid rgba(228, 211, 237, 0.10);
   border-radius: 0.82rem;
-  background: linear-gradient(145deg, rgba(255,255,255,.82), rgba(249,252,249,.62));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.72), 0 8px 24px rgba(24,60,43,.035);
+  background: linear-gradient(145deg, #251f2b, #201a24);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .16);
 }
 
 .organization-name-form > label,
 .team-search > label,
 .team-filter-control > label {
-  color: #40584d;
+  color: var(--team-muted);
   font-size: 0.74rem;
   font-weight: 760;
 }
@@ -106,10 +106,8 @@
   padding: 1rem;
   border: 1px solid var(--team-border);
   border-radius: 0.95rem;
-  background: linear-gradient(145deg, rgba(255,255,255,.82), rgba(249,252,249,.62));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.76), 0 10px 30px rgba(24,60,43,.045);
-  backdrop-filter: blur(16px) saturate(116%);
-  -webkit-backdrop-filter: blur(16px) saturate(116%);
+  background: linear-gradient(145deg, #251f2b, #201a24);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .18);
   align-self: start;
 }
 
@@ -151,13 +149,13 @@
   align-self: start;
   border: 1px solid var(--team-border) !important;
   border-radius: 0.9rem !important;
-  background: linear-gradient(145deg, rgba(255,255,255,.82), rgba(249,252,249,.62)) !important;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.76), 0 10px 28px rgba(24,60,43,.045);
+  background: linear-gradient(145deg, #251f2b, #201a24) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
 }
 
 .team-state h3 {
   color: var(--team-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-weight: 500;
 }
 
@@ -175,9 +173,9 @@
   width: fit-content;
   margin: 0;
   padding: 0.5rem 0.65rem;
-  border: 1px solid rgba(25,72,51,.08);
+  border: 1px solid rgba(228, 211, 237, .08);
   border-radius: 0.64rem;
-  background: rgba(255,255,255,.5);
+  background: #211b26;
   font-size: 0.75rem;
 }
 
@@ -219,18 +217,6 @@
   white-space: nowrap;
 }
 
-.team-status.is-active {
-  border: 1px solid rgba(52,121,84,.10);
-  color: #286348;
-  background: rgba(71,151,108,.10);
-}
-
-.team-status.is-inactive {
-  border: 1px solid rgba(111,118,113,.12);
-  color: #68756f;
-  background: rgba(94,109,101,.08);
-}
-
 .team-actions-cell { min-width: 13.5rem; }
 
 .team-row-actions {
@@ -241,7 +227,7 @@
 }
 
 .team-action-unavailable {
-  color: #77857e;
+  color: var(--team-muted);
   font-size: 0.7rem;
   line-height: 1.35;
 }
@@ -251,15 +237,15 @@
   gap: 0.55rem;
   min-width: min(100%,21rem);
   padding: 0.7rem 0.75rem;
-  border: 1px solid rgba(25,72,51,.11);
+  border: 1px solid rgba(228, 211, 237, .11);
   border-radius: 0.72rem;
-  background: linear-gradient(145deg, rgba(255,255,255,.86), rgba(249,252,249,.68));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.74), 0 8px 20px rgba(24,60,43,.035);
+  background: linear-gradient(145deg, #251f2b, #201a24);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .16);
 }
 
 .team-row-confirmation[role="alertdialog"] {
   border-color: rgba(150,60,55,.14);
-  background: linear-gradient(145deg, rgba(255,255,255,.88), rgba(252,247,245,.72));
+  background: linear-gradient(145deg, rgba(255,255,255,.062), rgba(255, 255, 255, 0.026));
 }
 
 .team-row-confirmation p {

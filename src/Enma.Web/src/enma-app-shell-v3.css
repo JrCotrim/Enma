@@ -1,0 +1,1579 @@
+/* ENMA — Phase 4B Final Dark Workspace
+ * Dark-first authenticated workspace.
+ * Perfil + Notifications account center.
+ * Main workspace visually overlaps the sidebar.
+ * Owns the authenticated dark palette while preserving feature layout rules.
+ */
+
+:root {
+  --enma-v3-sidebar: #2b1735;
+  --enma-v3-sidebar-deep: #170d1f;
+  --enma-v3-sidebar-highlight: #3a1d49;
+  --enma-v3-main: #17131b;
+  --enma-v3-main-soft: #1d1822;
+  --enma-v3-surface: rgba(255, 255, 255, 0.055);
+  --enma-v3-surface-strong: rgba(255, 255, 255, 0.082);
+  --enma-v3-surface-hover: rgba(164, 91, 214, 0.11);
+  --enma-v3-border: rgba(164, 91, 214, 0.16);
+  --enma-v3-border-strong: rgba(164, 91, 214, 0.28);
+  --enma-v3-text: #eee7f1;
+  --enma-v3-text-strong: #fffaff;
+  --enma-v3-muted: #b1a5b6;
+  --enma-v3-subtle: #8f8295;
+  --enma-v3-danger: #f2a0b2;
+  --enma-v3-shadow: 0 24px 68px rgba(0, 0, 0, 0.34);
+}
+
+body:has(.organization-workspace) {
+  color-scheme: dark;
+  color: var(--enma-v3-text);
+  background:
+    radial-gradient(circle at 80% -10%, rgba(164, 91, 214, 0.14), transparent 30rem),
+    linear-gradient(180deg, #130f16, #0e0b10);
+}
+
+body:has(.organization-workspace) {
+  --enma-v2-canvas: var(--enma-v3-main);
+  --enma-v2-canvas-warm: var(--enma-v3-main-soft);
+  --enma-v2-text: var(--enma-v3-text);
+  --enma-v2-text-strong: var(--enma-v3-text-strong);
+  --enma-v2-text-muted: var(--enma-v3-muted);
+  --enma-v2-label: #c7bacd;
+  --enma-v2-glass-subtle: rgba(255, 255, 255, 0.035);
+  --enma-v2-glass-surface: rgba(255, 255, 255, 0.052);
+  --enma-v2-glass-strong: rgba(255, 255, 255, 0.075);
+  --enma-v2-glass-elevated: rgba(33, 26, 38, 0.92);
+  --enma-v2-glass-border: var(--enma-v3-border);
+  --enma-v2-glass-border-strong: var(--enma-v3-border-strong);
+  --enma-v2-glass-highlight: rgba(255, 255, 255, 0.08);
+  --enma-ui-surface-muted: #211b26;
+  --enma-v2-shadow-1: 0 8px 24px rgba(0, 0, 0, 0.16);
+  --enma-v2-shadow-2: 0 16px 40px rgba(0, 0, 0, 0.20);
+  --enma-v2-shadow-3: var(--enma-v3-shadow);
+}
+
+/* =========================================================
+   Dashboard-over-sidebar geometry
+   ========================================================= */
+
+@media (min-width: 64.001rem) {
+  body:has(.organization-workspace) .organization-workspace {
+    position: relative;
+    isolation: isolate;
+    grid-template-rows: 5.6rem minmax(0, 1fr);
+    background: var(--enma-v3-sidebar);
+  }
+
+  body:has(.organization-workspace) .organization-workspace::before {
+    content: "";
+    grid-column: 2;
+    grid-row: 1 / -1;
+    align-self: stretch;
+    min-width: 0;
+    margin-left: -1rem;
+    border-radius: 1.7rem 0 0 0;
+    background:
+      radial-gradient(circle at 74% 2%, rgba(164, 91, 214, 0.09), transparent 26rem),
+      linear-gradient(180deg, #1b1720 0%, var(--enma-v3-main) 48%, #141117 100%);
+    box-shadow: -18px 0 48px rgba(0, 0, 0, 0.16);
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  body:has(.organization-workspace) .workspace-navigation,
+  body:has(.organization-workspace) .workspace-toolbar,
+  body:has(.organization-workspace)
+    .organization-workspace
+    > :not(.workspace-navigation):not(.workspace-toolbar) {
+    position: relative;
+  }
+
+  body:has(.organization-workspace) .workspace-navigation {
+    z-index: 30;
+  }
+
+  body:has(.organization-workspace) .workspace-toolbar {
+    z-index: 120;
+  }
+
+  body:has(.organization-workspace)
+    .organization-workspace
+    > :not(.workspace-navigation):not(.workspace-toolbar) {
+    z-index: 1;
+  }
+}
+
+body:has(.organization-workspace) .workspace-toolbar {
+  min-height: 5.6rem;
+  justify-content: flex-end;
+  padding: 0.9rem clamp(2rem, 3vw, 3.35rem);
+  border-bottom: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+body:has(.organization-workspace) .workspace-title-sr {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* =========================================================
+   Sidebar
+   ========================================================= */
+
+body:has(.organization-workspace) .workspace-navigation {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(190, 105, 239, 0.24), transparent 15rem),
+    radial-gradient(circle at 82% 68%, rgba(164, 91, 214, 0.11), transparent 18rem),
+    linear-gradient(
+      180deg,
+      var(--enma-v3-sidebar-highlight) 0%,
+      var(--enma-v3-sidebar) 31%,
+      var(--enma-v3-sidebar-deep) 100%
+    );
+  box-shadow: inset -1px 0 0 rgba(220, 183, 239, 0.07);
+}
+
+body:has(.organization-workspace) .workspace-navigation-link {
+  color: rgba(245, 237, 248, 0.72);
+}
+
+body:has(.organization-workspace) .workspace-navigation-link:hover {
+  color: #fff;
+  border-color: rgba(212, 171, 237, 0.10);
+  background: rgba(164, 91, 214, 0.075);
+}
+
+body:has(.organization-workspace) .workspace-navigation-link.is-active {
+  color: #fff;
+  border-color: rgba(220, 169, 246, 0.30);
+  background:
+    linear-gradient(135deg, rgba(180, 92, 224, 0.30), rgba(255, 255, 255, 0.075));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 8px 24px rgba(0, 0, 0, 0.17);
+}
+
+/* =========================================================
+   Profile / Notifications account center
+   ========================================================= */
+
+body:has(.organization-workspace) .workspace-control-center {
+  position: relative;
+  z-index: 220;
+  width: min(20rem, calc(100vw - 2rem));
+  margin-left: auto;
+}
+
+body:has(.organization-workspace) .workspace-control-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  width: 100%;
+  padding: 0.22rem;
+  border: 1px solid var(--enma-v3-border);
+  border-radius: 0.9rem;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.032));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 12px 32px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(24px) saturate(135%);
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+}
+
+body:has(.organization-workspace) .workspace-control-tab {
+  display: flex;
+  min-width: 0;
+  min-height: 2.7rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.48rem;
+  margin: 0;
+  padding: 0.58rem 0.72rem;
+  border: 1px solid transparent;
+  border-radius: 0.67rem;
+  color: var(--enma-v3-muted);
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.79rem;
+  font-weight: 620;
+  cursor: pointer;
+  transition:
+    color 150ms var(--enma-v2-ease),
+    background 150ms var(--enma-v2-ease),
+    border-color 150ms var(--enma-v2-ease),
+    transform 150ms var(--enma-v2-ease);
+}
+
+body:has(.organization-workspace) .workspace-control-tab:hover {
+  color: var(--enma-v3-text);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+body:has(.organization-workspace) .workspace-control-tab.is-active {
+  color: var(--enma-v3-text-strong);
+  border-color: rgba(215, 178, 236, 0.10);
+  background: rgba(7, 5, 9, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 5px 16px rgba(0, 0, 0, 0.18);
+}
+
+body:has(.organization-workspace) .workspace-control-tab:active {
+  transform: scale(0.975);
+}
+
+body:has(.organization-workspace) .workspace-control-tab:focus-visible {
+  outline: 3px solid rgba(164, 91, 214, 0.34);
+  outline-offset: 2px;
+}
+
+body:has(.organization-workspace) .workspace-control-icon {
+  display: grid;
+  width: 1.05rem;
+  height: 1.05rem;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+body:has(.organization-workspace) .workspace-control-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body:has(.organization-workspace) .workspace-control-badge {
+  display: inline-grid;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  place-items: center;
+  padding-inline: 0.28rem;
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(145deg, #b96ce3, #934bc7);
+  box-shadow: 0 4px 12px rgba(164, 91, 214, 0.24);
+  font-size: 0.62rem;
+  font-weight: 760;
+}
+
+body:has(.organization-workspace) .workspace-control-panel {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  left: auto;
+  z-index: 260;
+  width: min(27rem, calc(100vw - 2rem));
+  max-height: min(34rem, calc(100vh - 8rem));
+  overflow: auto;
+  border: 1px solid var(--enma-v3-border-strong);
+  border-radius: 1rem;
+  color: var(--enma-v3-text);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(164, 91, 214, 0.10), transparent 16rem),
+    linear-gradient(155deg, rgba(35, 27, 40, 0.992), rgba(20, 16, 23, 0.996));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    var(--enma-v3-shadow);
+  backdrop-filter: blur(30px) saturate(135%);
+  -webkit-backdrop-filter: blur(30px) saturate(135%);
+}
+
+body:has(.organization-workspace) .workspace-profile-panel {
+  padding: 0.75rem;
+}
+
+body:has(.organization-workspace) .workspace-profile-header {
+  display: grid;
+  gap: 0.16rem;
+  padding: 0.62rem 0.68rem 0.78rem;
+  border-bottom: 1px solid var(--enma-v3-border);
+}
+
+body:has(.organization-workspace) .workspace-profile-kicker,
+body:has(.organization-workspace) .workspace-profile-section-title,
+body:has(.organization-workspace) .notification-panel-kicker {
+  color: #a880bd;
+  font-size: 0.64rem;
+  font-weight: 760;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+
+body:has(.organization-workspace) .workspace-profile-header strong {
+  margin-top: 0.2rem;
+  color: var(--enma-v3-text-strong);
+  font-size: 0.96rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+body:has(.organization-workspace) .workspace-profile-header > span:last-child {
+  color: var(--enma-v3-muted);
+  font-size: 0.74rem;
+}
+
+body:has(.organization-workspace) .workspace-profile-organizations {
+  display: grid;
+  gap: 0.48rem;
+  padding: 0.78rem 0 0.54rem;
+}
+
+body:has(.organization-workspace) .workspace-profile-section-title {
+  padding-inline: 0.22rem;
+}
+
+body:has(.organization-workspace) .workspace-profile-organization-list {
+  display: grid;
+  gap: 0.18rem;
+}
+
+body:has(.organization-workspace) .workspace-profile-organization {
+  display: grid;
+  grid-template-columns: 1.7rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.62rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.68rem 0.62rem;
+  border: 1px solid transparent;
+  border-radius: 0.72rem;
+  color: var(--enma-v3-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+body:has(.organization-workspace) .workspace-profile-organization:hover {
+  border-color: rgba(196, 143, 226, 0.11);
+  background: rgba(164, 91, 214, 0.075);
+}
+
+body:has(.organization-workspace) .workspace-profile-organization.is-current {
+  border-color: rgba(196, 143, 226, 0.16);
+  background: linear-gradient(135deg, rgba(164, 91, 214, 0.15), rgba(255, 255, 255, 0.025));
+}
+
+body:has(.organization-workspace) .workspace-profile-organization-marker {
+  display: grid;
+  width: 1.62rem;
+  height: 1.62rem;
+  place-items: center;
+  border: 1px solid var(--enma-v3-border);
+  border-radius: 0.55rem;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 0.72rem;
+}
+
+body:has(.organization-workspace)
+  .workspace-profile-organization.is-current
+  .workspace-profile-organization-marker {
+  border-color: rgba(204, 151, 234, 0.22);
+  background: linear-gradient(145deg, #b967df, #8e47bb);
+}
+
+body:has(.organization-workspace) .workspace-profile-organization-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+body:has(.organization-workspace) .workspace-profile-organization-copy strong {
+  color: var(--enma-v3-text-strong);
+  font-size: 0.8rem;
+  font-weight: 680;
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+body:has(.organization-workspace) .workspace-profile-organization-copy span {
+  color: var(--enma-v3-muted);
+  font-size: 0.68rem;
+}
+
+body:has(.organization-workspace) .workspace-profile-current-label {
+  color: #c89ce1;
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+body:has(.organization-workspace) .workspace-profile-session {
+  padding-top: 0.52rem;
+  border-top: 1px solid var(--enma-v3-border);
+}
+
+body:has(.organization-workspace) .workspace-profile-session .logout-control {
+  display: grid;
+  justify-items: stretch;
+  gap: 0.42rem;
+}
+
+body:has(.organization-workspace) .workspace-profile-session .logout-control > button {
+  width: 100%;
+  min-height: 2.55rem;
+  justify-content: flex-start;
+  border: 1px solid transparent;
+  border-radius: 0.68rem;
+  color: var(--enma-v3-danger);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+body:has(.organization-workspace)
+  .workspace-profile-session
+  .logout-control
+  > button:hover:not(:disabled) {
+  color: #ffc2cf;
+  border-color: rgba(240, 154, 173, 0.12);
+  background: rgba(206, 83, 110, 0.075);
+}
+
+/* =========================================================
+   Embedded notifications
+   ========================================================= */
+
+body:has(.organization-workspace) .notification-center-embedded {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  left: auto;
+  z-index: 262;
+  width: min(27rem, calc(100vw - 2rem));
+}
+
+body:has(.organization-workspace) .notification-panel-embedded {
+  position: static;
+  width: 100%;
+  max-height: min(34rem, calc(100vh - 8rem));
+  overflow-y: auto;
+  border: 1px solid var(--enma-v3-border-strong);
+  border-radius: 1rem;
+  color: var(--enma-v3-text);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(164, 91, 214, 0.11), transparent 18rem),
+    linear-gradient(155deg, rgba(35, 27, 40, 0.992), rgba(20, 16, 23, 0.996));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    var(--enma-v3-shadow);
+  backdrop-filter: blur(30px) saturate(135%);
+  -webkit-backdrop-filter: blur(30px) saturate(135%);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(164, 91, 214, 0.32) transparent;
+}
+
+body:has(.organization-workspace) .notification-panel-header {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.88rem 0.95rem 0.78rem;
+  border-bottom: 1px solid var(--enma-v3-border);
+  background: rgba(24, 19, 28, 0.88);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+body:has(.organization-workspace) .notification-panel-header > div:first-child {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+  margin-right: auto;
+}
+
+body:has(.organization-workspace) .notification-panel-header h2 {
+  margin: 0;
+  color: var(--enma-v3-text-strong);
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+body:has(.organization-workspace) .notification-mark-all {
+  width: auto;
+  min-height: 2rem;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 0.58rem;
+  color: #c596df;
+  background: transparent;
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+body:has(.organization-workspace) .notification-mark-all:hover:not(:disabled) {
+  color: #e3c4f2;
+  border-color: rgba(203, 151, 232, 0.12);
+  background: rgba(164, 91, 214, 0.075);
+}
+
+body:has(.organization-workspace) .notification-list {
+  margin: 0;
+  padding: 0.24rem 0;
+  list-style: none;
+}
+
+body:has(.organization-workspace) .notification-list li + li {
+  border-top: 1px solid rgba(223, 204, 233, 0.07);
+}
+
+body:has(.organization-workspace) .notification-item {
+  display: grid;
+  width: 100%;
+  gap: 0.34rem;
+  padding: 0.8rem 0.92rem 0.84rem 1rem;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: var(--enma-v3-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+body:has(.organization-workspace) .notification-item:hover {
+  background: rgba(164, 91, 214, 0.07);
+}
+
+body:has(.organization-workspace) .notification-item.is-unread {
+  border-left-color: #a45bd6;
+  background: linear-gradient(90deg, rgba(164, 91, 214, 0.12), transparent 60%);
+}
+
+body:has(.organization-workspace) .notification-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
+body:has(.organization-workspace) .notification-kind {
+  color: #bd8bd8;
+  font-size: 0.66rem;
+  font-weight: 760;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+body:has(.organization-workspace) .notification-unread-label {
+  flex: 0 0 auto;
+  color: #d3a9e9;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+body:has(.organization-workspace) .notification-item strong {
+  color: var(--enma-v3-text-strong);
+  font-size: 0.82rem;
+  font-weight: 680;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+body:has(.organization-workspace) .notification-item time {
+  color: var(--enma-v3-muted);
+  font-size: 0.7rem;
+}
+
+body:has(.organization-workspace) .notification-state,
+body:has(.organization-workspace) .notification-error {
+  margin: 0;
+  padding: 1rem;
+  color: var(--enma-v3-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+body:has(.organization-workspace) .notification-error {
+  color: #f0a1b3;
+  background: rgba(206, 83, 110, 0.055);
+}
+
+/* =========================================================
+   Dark workspace surfaces
+   ========================================================= */
+
+body:has(.organization-workspace) :where(
+  .dashboard-page,
+  .agenda-page,
+  .clients-page,
+  .processes-page,
+  .deadlines-page,
+  .tasks-page,
+  .documents-page,
+  .team-page,
+  .invitations-page,
+  .audit-log-page
+) {
+  color: var(--enma-v3-text);
+}
+
+body:has(.organization-workspace) :where(
+  .workspace-page-title,
+  .dashboard-section h3,
+  .dashboard-focus-card h4,
+  .dashboard-attention-card h4,
+  .agenda-header h2,
+  .clients-header h2,
+  .processes-header h2,
+  .deadlines-header h2,
+  .tasks-header h2,
+  .documents-header h2,
+  .team-header h2,
+  .invitations-header h2,
+  .audit-log-header h2
+) {
+  color: var(--enma-v3-text-strong);
+}
+
+body:has(.organization-workspace) :where(
+  .workspace-page-subtitle,
+  .agenda-description,
+  .clients-description,
+  .processes-description,
+  .deadlines-description,
+  .tasks-description,
+  .documents-description,
+  .team-description,
+  .invitations-description,
+  .audit-log-description
+) {
+  color: var(--enma-v3-muted);
+}
+
+body:has(.organization-workspace) :where(
+  .task-filters,
+  .documents-filters,
+  .invitation-form,
+  .invitations-state,
+  .audit-log-filters,
+  .audit-log-state,
+  .calendar-event-panel,
+  .agenda-detail-panel,
+  .calendar-event-assignment,
+  .calendar-event-confirmation
+) {
+  border-color: var(--enma-v3-border) !important;
+  background: linear-gradient(145deg, #251f2b, #201a24) !important;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.18) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+body:has(.organization-workspace) :where(
+  .dashboard-kpi-icon,
+  .dashboard-mini-icon
+) {
+  color: #c38ce1;
+  border-color: rgba(164, 91, 214, 0.16);
+  background: rgba(164, 91, 214, 0.095);
+}
+
+body:has(.organization-workspace) .dashboard-kpi-copy strong {
+  color: var(--enma-v3-text-strong);
+}
+
+body:has(.organization-workspace) .dashboard-section-link,
+body:has(.organization-workspace) .workspace-page-helper-action {
+  color: #c18ade;
+}
+
+body:has(.organization-workspace) :where(
+  .agenda-day,
+  .agenda-loading,
+  .agenda-empty,
+  .agenda-state,
+  .agenda-properties div,
+  .agenda-mobile-day
+) {
+  color: var(--enma-v3-text);
+  border-color: var(--enma-v3-border);
+  background: #211b26 !important;
+}
+
+body:has(.organization-workspace) .agenda-day.is-adjacent {
+  background: #1b171f !important;
+}
+
+body:has(.organization-workspace) :is(.agenda-toolbar, .agenda-weekdays) {
+  color: var(--enma-v3-muted);
+  border-color: var(--enma-v3-border);
+  background: #28212e !important;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@media (min-width: 40.001rem) {
+  body:has(.organization-workspace) :where(
+    .clients-page,
+    .processes-page,
+    .deadlines-page,
+    .tasks-page,
+    .documents-page,
+    .team-page,
+    .invitations-page,
+    .audit-log-page
+  ) table {
+    border-color: var(--enma-v3-border);
+    color: var(--enma-v3-text);
+    background: #201a24;
+  }
+
+  body:has(.organization-workspace) :where(
+    .clients-page,
+    .processes-page,
+    .deadlines-page,
+    .tasks-page,
+    .documents-page,
+    .team-page,
+    .invitations-page,
+    .audit-log-page
+  ) table thead {
+    background: #28212e;
+  }
+
+  body:has(.organization-workspace) :where(
+    .clients-page,
+    .processes-page,
+    .deadlines-page,
+    .tasks-page,
+    .documents-page,
+    .team-page,
+    .invitations-page,
+    .audit-log-page
+  ) table th {
+    color: #b8a9be;
+  }
+
+  body:has(.organization-workspace) :where(
+    .clients-page,
+    .processes-page,
+    .deadlines-page,
+    .tasks-page,
+    .documents-page,
+    .team-page,
+    .invitations-page,
+    .audit-log-page
+  ) table tbody tr:hover {
+    background: rgba(164, 91, 214, 0.05);
+  }
+}
+
+body:has(.organization-workspace) :where(
+  .clients-page,
+  .processes-page,
+  .deadlines-page,
+  .tasks-page,
+  .documents-page,
+  .team-page,
+  .invitations-page,
+  .audit-log-page,
+  .agenda-page
+) :where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  select,
+  textarea
+) {
+  color: var(--enma-v3-text);
+  border-color: var(--enma-v3-border-strong);
+  background: #211b26;
+  box-shadow: none;
+}
+
+body:has(.organization-workspace) :where(
+  .clients-page,
+  .processes-page,
+  .deadlines-page,
+  .tasks-page,
+  .documents-page,
+  .team-page,
+  .invitations-page,
+  .audit-log-page,
+  .agenda-page
+) .secondary-button {
+  color: #d0a8e5;
+  border-color: var(--enma-v3-border-strong);
+  background: #251f2b;
+  box-shadow: none;
+}
+
+
+/* =========================================================
+   Feature surfaces and controls
+   ========================================================= */
+
+body:has(.organization-workspace) .dashboard-kpi-copy > span {
+  color: #c3b5ca;
+}
+
+body:has(.organization-workspace) :where(
+  .dashboard-focus-heading p,
+  .dashboard-attention-heading p,
+  .dashboard-upcoming-metadata,
+  .dashboard-focus-list time
+) {
+  color: #93869a;
+}
+
+body:has(.organization-workspace) :where(
+  .dashboard-focus-card-header,
+  .dashboard-attention-card-title
+) h4,
+body:has(.organization-workspace) .dashboard-focus-list strong {
+  color: var(--enma-v3-text-strong);
+}
+
+body:has(.organization-workspace) .dashboard-focus-card-header {
+  border-bottom-color: var(--enma-v3-border);
+}
+
+body:has(.organization-workspace) .dashboard-focus-list li + li {
+  border-top-color: var(--enma-v3-border);
+}
+
+body:has(.organization-workspace) .dashboard-focus-empty {
+  color: #9d91a4;
+  background: #27212c;
+}
+
+body:has(.organization-workspace) .dashboard-attention-card dl {
+  border-color: var(--enma-v3-border);
+  background: rgba(8, 6, 10, 0.18);
+}
+
+body:has(.organization-workspace) .dashboard-attention-card dl > div {
+  color: var(--enma-v3-text);
+  background: rgba(255, 255, 255, 0.042);
+}
+
+body:has(.organization-workspace) .dashboard-attention-card dl > div + div {
+  border-left-color: var(--enma-v3-border);
+}
+
+body:has(.organization-workspace) .dashboard-attention-card dt {
+  color: #9f93a6;
+}
+
+body:has(.organization-workspace) .dashboard-attention-card dd {
+  color: #d8cfe0;
+}
+
+body:has(.organization-workspace) .dashboard-attention-card .has-overdue {
+  background: rgba(195, 72, 87, 0.10);
+}
+
+body:has(.organization-workspace) .dashboard-attention-card .has-overdue dd {
+  color: #f08f9b;
+}
+
+/* Feature-specific variables inherit the authenticated palette. */
+body:has(.organization-workspace) :where(
+  .tasks-page,
+  .task-details-page
+) {
+  --tasks-border: var(--enma-v3-border);
+  --tasks-text: var(--enma-v3-text);
+  --tasks-muted: var(--enma-v3-muted);
+  --tasks-accent: #c68ee4;
+}
+
+body:has(.organization-workspace) :where(
+  .task-create-panel,
+  .task-relation-fieldset,
+  .task-lookup,
+  .task-filters,
+  .tasks-state,
+  .task-edit-form,
+  .task-assignment-panel,
+  .task-properties,
+  .document-upload-panel,
+  .document-filters,
+  .document-properties,
+  .client-create-form,
+  .client-properties,
+  .process-create-panel,
+  .client-lookup-form,
+  .process-create-form,
+  .process-edit-form,
+  .process-properties,
+  .deadline-create-panel,
+  .process-lookup-form,
+  .deadline-create-form,
+  .deadline-edit-form,
+  .deadline-properties,
+  .team-controls,
+  .invitation-form,
+  .audit-log-filters
+) {
+  border-color: var(--enma-v3-border) !important;
+  color: var(--enma-v3-text);
+  background: linear-gradient(145deg, #251f2b, #201a24) !important;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+body:has(.organization-workspace) :where(
+  .task-create-panel > h3,
+  .task-edit-form > h2,
+  .task-relation-fieldset legend,
+  .task-state-filter legend,
+  .task-filter-control > span:first-child,
+  .task-filter-control > label
+) {
+  color: #c6b9cc;
+}
+
+body:has(.organization-workspace) .task-filter-control > span:not(:first-child),
+body:has(.organization-workspace) .task-lookup-status {
+  border-color: var(--enma-v3-border);
+  color: #a99cae;
+  background: #211b26;
+}
+
+body:has(.organization-workspace) .task-state-filter .secondary-button {
+  color: #cfc4d4;
+  border-color: var(--enma-v3-border);
+  background: #251f2b;
+}
+
+body:has(.organization-workspace)
+  .task-state-filter
+  .secondary-button[aria-pressed="true"] {
+  color: #f2ddff;
+  border-color: rgba(190, 123, 227, 0.34);
+  background:
+    linear-gradient(
+      145deg,
+      rgba(164, 91, 214, 0.24),
+      rgba(164, 91, 214, 0.10)
+    );
+  box-shadow: inset 0 0 0 1px rgba(210, 164, 236, 0.05);
+}
+
+body:has(.organization-workspace) .task-active-filter,
+body:has(.organization-workspace) .task-selected-relation,
+body:has(.organization-workspace) .task-selected-member {
+  border-color: rgba(190, 123, 227, 0.18);
+  color: #d9cbe0;
+  background: rgba(164, 91, 214, 0.095);
+}
+
+body:has(.organization-workspace) :where(
+  .task-active-filter > span,
+  .task-selected-relation strong
+) {
+  color: #dec4ed;
+}
+
+body:has(.organization-workspace) .task-selected-relation span {
+  color: var(--enma-v3-muted);
+}
+
+body:has(.organization-workspace) .task-lookup-result {
+  border-color: var(--enma-v3-border);
+  color: #d6b3e9;
+  background: #211b26;
+}
+
+body:has(.organization-workspace) .task-lookup-result:hover:not(:disabled),
+body:has(.organization-workspace) .task-lookup-result[aria-pressed="true"] {
+  border-color: rgba(190, 123, 227, 0.28);
+  background: rgba(164, 91, 214, 0.12);
+}
+
+body:has(.organization-workspace) :where(
+  .clients-page,
+  .processes-page,
+  .deadlines-page,
+  .tasks-page,
+  .documents-page,
+  .team-page,
+  .invitations-page,
+  .audit-log-page,
+  .agenda-page
+) :where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+  select,
+  textarea
+)::placeholder {
+  color: #84798a;
+  opacity: 1;
+}
+
+body:has(.organization-workspace) :where(
+  .clients-page,
+  .processes-page,
+  .deadlines-page,
+  .tasks-page,
+  .documents-page,
+  .team-page,
+  .invitations-page,
+  .audit-log-page,
+  .agenda-page
+) select option {
+  color: #f1eaf4;
+  background: #211a26;
+}
+
+body:has(.organization-workspace) :where(
+  .clients-page,
+  .processes-page,
+  .deadlines-page,
+  .tasks-page,
+  .documents-page,
+  .team-page,
+  .invitations-page,
+  .audit-log-page
+) table tbody a {
+  color: #c387e1;
+  text-decoration-color: rgba(195, 135, 225, 0.38);
+}
+
+body:has(.organization-workspace) :where(
+  .clients-page,
+  .processes-page,
+  .deadlines-page,
+  .tasks-page,
+  .documents-page,
+  .team-page,
+  .invitations-page,
+  .audit-log-page
+) table tbody a:hover {
+  color: #e2b9f4;
+}
+
+/* Native controls must not inherit the old light color scheme. */
+body:has(.organization-workspace) :where(input, select, textarea, button) {
+  color-scheme: dark;
+}
+
+
+/* =========================================================
+   Cross-feature dark color normalization
+   ========================================================= */
+
+/* Feature-local variables share the authenticated dark palette. */
+body:has(.organization-workspace) :where(.clients-page, .client-details-page) {
+  --clients-surface: rgba(255, 255, 255, 0.052);
+  --clients-surface-strong: rgba(255, 255, 255, 0.075);
+  --clients-border: var(--enma-v3-border);
+  --clients-text: var(--enma-v3-text);
+  --clients-muted: var(--enma-v3-muted);
+  --clients-accent: #c68ee4;
+}
+
+body:has(.organization-workspace) :where(.processes-page, .process-details-page) {
+  --processes-surface: rgba(255, 255, 255, 0.052);
+  --processes-surface-strong: rgba(255, 255, 255, 0.075);
+  --processes-border: var(--enma-v3-border);
+  --processes-text: var(--enma-v3-text);
+  --processes-muted: var(--enma-v3-muted);
+  --processes-accent: #c68ee4;
+}
+
+body:has(.organization-workspace) :where(.deadlines-page, .deadline-details-page) {
+  --deadlines-surface: rgba(255, 255, 255, 0.052);
+  --deadlines-surface-strong: rgba(255, 255, 255, 0.075);
+  --deadlines-border: var(--enma-v3-border);
+  --deadlines-text: var(--enma-v3-text);
+  --deadlines-muted: var(--enma-v3-muted);
+  --deadlines-accent: #c68ee4;
+}
+
+body:has(.organization-workspace) :where(.tasks-page, .task-details-page) {
+  --tasks-surface: rgba(255, 255, 255, 0.052);
+  --tasks-surface-strong: rgba(255, 255, 255, 0.075);
+  --tasks-border: var(--enma-v3-border);
+  --tasks-text: var(--enma-v3-text);
+  --tasks-muted: var(--enma-v3-muted);
+  --tasks-accent: #c68ee4;
+}
+
+body:has(.organization-workspace) :where(.documents-page, .document-details-page) {
+  --documents-surface: rgba(255, 255, 255, 0.052);
+  --documents-surface-strong: rgba(255, 255, 255, 0.075);
+  --documents-border: var(--enma-v3-border);
+  --documents-text: var(--enma-v3-text);
+  --documents-muted: var(--enma-v3-muted);
+  --documents-accent: #c68ee4;
+}
+
+body:has(.organization-workspace) .team-page {
+  --team-border: var(--enma-v3-border);
+  --team-text: var(--enma-v3-text);
+  --team-muted: var(--enma-v3-muted);
+  --team-accent: #c68ee4;
+}
+
+/* Detail page headings and return/edit links were still consuming legacy
+   forest-green variables in the screenshots. */
+body:has(.organization-workspace) :where(
+  .client-details-header h2,
+  .process-details-header h2,
+  .deadline-details-header h1,
+  .task-details-header h1,
+  .document-details-header h2,
+  .document-upload-panel > h3
+) {
+  color: var(--enma-v3-text-strong) !important;
+  font-family: var(--enma-v2-font-ui) !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1.05 !important;
+}
+
+body:has(.organization-workspace) :where(
+  .client-details-header,
+  .process-details-header,
+  .deadline-details-header,
+  .task-details-header,
+  .document-details-header,
+  .clients-header,
+  .processes-header,
+  .deadlines-header,
+  .tasks-header,
+  .documents-header,
+  .team-header,
+  .invitations-header,
+  .audit-log-header,
+  .agenda-header
+) .eyebrow {
+  color: #a96bce !important;
+}
+
+body:has(.organization-workspace) :where(
+  .client-details-page > .home-link,
+  .process-details-page > .home-link,
+  .deadline-details-page > .home-link,
+  .task-details-page > .home-link,
+  .document-details-page > .home-link,
+  .client-details-page .text-button,
+  .process-details-page .text-button,
+  .deadline-details-page .text-button,
+  .task-details-page .text-button,
+  .document-details-page .text-button
+) {
+  color: #b87bd9 !important;
+}
+
+body:has(.organization-workspace) :where(
+  .client-details-page,
+  .process-details-page,
+  .deadline-details-page,
+  .task-details-page,
+  .document-details-page
+) .secondary-button {
+  color: #c999e3;
+  border-color: rgba(201, 153, 227, 0.22);
+  background: rgba(164, 91, 214, 0.055);
+  box-shadow: none;
+}
+
+body:has(.organization-workspace) :where(
+  .client-details-page,
+  .process-details-page,
+  .deadline-details-page,
+  .task-details-page,
+  .document-details-page
+) .secondary-button:hover:not(:disabled) {
+  color: #eccdf9;
+  border-color: rgba(210, 166, 235, 0.34);
+  background: rgba(164, 91, 214, 0.12);
+}
+
+/* Downloads are a normal primary action, not a success semantic. */
+body:has(.organization-workspace)
+  .document-detail-actions
+  .primary-button {
+  color: #fff;
+  border-color: rgba(193, 119, 232, 0.55);
+  background: linear-gradient(145deg, #b45fdf, #8f46bd);
+  box-shadow: 0 10px 24px rgba(122, 57, 158, 0.18);
+}
+
+body:has(.organization-workspace) :where(
+  .deadline-detail-actions,
+  .task-detail-actions
+) .primary-button {
+  color: #fff !important;
+  border-color: rgba(205, 139, 238, 0.54) !important;
+  background: linear-gradient(145deg, #b55fe0, #8f46bd) !important;
+  box-shadow: 0 10px 24px rgba(124, 58, 161, 0.20) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .deadline-detail-actions,
+  .task-detail-actions
+) .primary-button:hover:not(:disabled) {
+  border-color: rgba(225, 179, 247, 0.64) !important;
+  background: linear-gradient(145deg, #c36ae9, #9d50c9) !important;
+  box-shadow: 0 12px 28px rgba(124, 58, 161, 0.25) !important;
+}
+
+/* Shared detail property sheets: remove the remaining white slabs. */
+body:has(.organization-workspace) :where(
+  .client-properties,
+  .process-properties,
+  .deadline-properties,
+  .task-properties,
+  .document-properties
+) {
+  border-color: var(--enma-v3-border) !important;
+  background: linear-gradient(145deg, #251f2b, #201a24) !important;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.18) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .client-properties,
+  .process-properties,
+  .deadline-properties,
+  .task-properties,
+  .document-properties
+) > div {
+  color: var(--enma-v3-text);
+  background: transparent !important;
+  border-color: var(--enma-v3-border) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .client-properties,
+  .process-properties,
+  .deadline-properties,
+  .task-properties,
+  .document-properties
+) dt,
+body:has(.organization-workspace) .audit-details-list dt {
+  color: #9f91a6 !important;
+}
+
+body:has(.organization-workspace) :where(
+  .client-properties,
+  .process-properties,
+  .deadline-properties,
+  .task-properties,
+  .document-properties
+) dd {
+  color: #eee7f1 !important;
+}
+
+/* Task details: assignment surface is structural, not a success surface. */
+body:has(.organization-workspace) :where(
+  .task-assignment-panel,
+  .task-edit-form,
+  .task-relation-fieldset,
+  .task-lookup
+) {
+  border-color: var(--enma-v3-border) !important;
+  color: var(--enma-v3-text);
+  background: linear-gradient(145deg, #251f2b, #201a24) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .task-assignment-panel,
+  .task-edit-form,
+  .task-relation-fieldset,
+  .task-lookup
+) :where(label, legend, p, span) {
+  color: var(--enma-v3-muted);
+}
+
+body:has(.organization-workspace) :where(
+  .task-assignment-panel,
+  .task-edit-form,
+  .task-relation-fieldset,
+  .task-lookup
+) strong {
+  color: var(--enma-v3-text-strong);
+}
+
+/* Team organization-name editor. */
+body:has(.organization-workspace) .organization-name-form {
+  border-color: var(--enma-v3-border) !important;
+  background: linear-gradient(145deg, #251f2b, #201a24) !important;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .organization-name-form > label,
+  .team-search > label,
+  .team-filter-control > label,
+  .audit-filter-control > label
+) {
+  color: #aea0b5 !important;
+}
+
+body:has(.organization-workspace) :where(
+  .organization-name-form input,
+  .team-search-row input,
+  .team-filter-control select
+) {
+  color: var(--enma-v3-text) !important;
+  border-color: var(--enma-v3-border-strong) !important;
+  background: #211b26 !important;
+  box-shadow: none !important;
+}
+
+body:has(.organization-workspace) :where(
+  .organization-name-form input,
+  .team-search-row input
+)::placeholder {
+  color: #817587;
+  opacity: 1;
+}
+
+body:has(.organization-workspace) .team-page table tbody a,
+body:has(.organization-workspace) .team-page .text-button {
+  color: #c387e1 !important;
+}
+
+/* Team success chips remain green because they communicate state. */
+body:has(.organization-workspace) :where(
+  .team-inline-success,
+  .team-page > .success-message
+) {
+  color: #83d7ae;
+  border-color: rgba(83, 190, 137, 0.16);
+  background: rgba(45, 145, 95, 0.10);
+}
+
+body:has(.organization-workspace) .success-message {
+  border: 1px solid rgba(83, 190, 137, 0.16);
+  color: #83d7ae;
+  background: rgba(45, 145, 95, 0.10);
+}
+
+/* Agenda panels and form surfaces. */
+body:has(.organization-workspace) :where(
+  .calendar-event-panel,
+  .agenda-detail-panel,
+  .calendar-event-assignment,
+  .calendar-event-confirmation
+) {
+  color: var(--enma-v3-text);
+  border-color: var(--enma-v3-border) !important;
+  background: linear-gradient(145deg, #251f2b, #201a24) !important;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.18) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .calendar-event-panel > h3,
+  .agenda-detail-header h3,
+  .calendar-event-assignment h4,
+  .calendar-event-confirmation h4
+) {
+  color: var(--enma-v3-text-strong);
+}
+
+body:has(.organization-workspace) :where(
+  .calendar-event-form > label,
+  .calendar-event-time-fields label,
+  .calendar-event-assignment > label
+) {
+  color: #b5a8bb !important;
+}
+
+body:has(.organization-workspace) :where(
+  .calendar-event-form input,
+  .calendar-event-form textarea,
+  .calendar-event-assignment select
+) {
+  color: var(--enma-v3-text) !important;
+  border-color: var(--enma-v3-border-strong) !important;
+  background: #211b26 !important;
+  box-shadow:
+    0 7px 20px rgba(0, 0, 0, 0.08) !important;
+}
+
+body:has(.organization-workspace) .calendar-event-association {
+  color: #ddd3e2;
+  border-color: var(--enma-v3-border) !important;
+  background: #211b26 !important;
+}
+
+body:has(.organization-workspace) .calendar-event-association legend {
+  color: #b5a8bb;
+}
+
+body:has(.organization-workspace) .calendar-event-association label {
+  color: #ddd3e2;
+}
+
+body:has(.organization-workspace) .calendar-event-selection span {
+  color: var(--enma-v3-muted) !important;
+}
+
+body:has(.organization-workspace) .agenda-properties {
+  border-color: var(--enma-v3-border) !important;
+  background: var(--enma-v3-border) !important;
+}
+
+body:has(.organization-workspace) .agenda-properties div {
+  color: var(--enma-v3-text);
+  background: #211b26 !important;
+}
+
+body:has(.organization-workspace) .agenda-properties dt {
+  color: #9f91a6 !important;
+}
+
+body:has(.organization-workspace) .agenda-properties dd {
+  color: var(--enma-v3-text) !important;
+}
+
+/* Detail/list states that still carry the old white operational surface. */
+body:has(.organization-workspace) :where(
+  .clients-state,
+  .processes-state,
+  .deadlines-state,
+  .tasks-state,
+  .documents-state,
+  .team-state,
+  .client-details-page[role="alert"],
+  .client-details-page[role="status"],
+  .process-details-page[role="alert"],
+  .process-details-page[role="status"],
+  .deadline-details-page[role="alert"],
+  .deadline-details-page[role="status"],
+  .task-details-page[role="alert"],
+  .task-details-page[role="status"],
+  .document-details-page[role="alert"],
+  .document-details-page[role="status"]
+) {
+  color: var(--enma-v3-text);
+  border-color: var(--enma-v3-border) !important;
+  background: linear-gradient(145deg, #251f2b, #201a24) !important;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .clients-state,
+  .processes-state,
+  .deadlines-state,
+  .tasks-state,
+  .documents-state,
+  .team-state,
+  .client-details-page[role="alert"],
+  .process-details-page[role="alert"],
+  .deadline-details-page[role="alert"],
+  .task-details-page[role="alert"],
+  .document-details-page[role="alert"]
+) :where(h2, h3) {
+  color: var(--enma-v3-text-strong) !important;
+}
+
+/* Keep destructive and success semantics independent from the brand palette. */
+body:has(.organization-workspace) :where(
+  .client-confirmation,
+  .team-row-confirmation[role="alertdialog"]
+) {
+  color: #f1d9de;
+  border-color: rgba(222, 112, 132, 0.18) !important;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(133, 48, 65, 0.22),
+      #201a24
+    ) !important;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .client-confirmation,
+  .team-row-confirmation[role="alertdialog"]
+) :where(h3, p) {
+  color: #f0c3cd !important;
+}
+
+/* =========================================================
+   Mobile / tablet
+   ========================================================= */
+
+@media (max-width: 64rem) {
+  body:has(.organization-workspace) .organization-workspace {
+    background:
+      radial-gradient(circle at 80% -10%, rgba(164, 91, 214, 0.10), transparent 22rem),
+      var(--enma-v3-main);
+  }
+
+  body:has(.organization-workspace) .organization-workspace::before {
+    content: none;
+  }
+
+  body:has(.organization-workspace) .workspace-toolbar {
+    min-height: auto;
+    justify-content: flex-end;
+    padding: 0.8rem 1rem 0;
+  }
+
+  body:has(.organization-workspace) .workspace-control-center {
+    width: min(100%, 20rem);
+    margin-left: auto;
+  }
+
+  body:has(.organization-workspace) .workspace-control-panel,
+  body:has(.organization-workspace) .notification-center-embedded {
+    width: min(27rem, calc(100vw - 2rem));
+  }
+}
+
+@media (max-width: 40rem) {
+  body:has(.organization-workspace) :where(
+    .clients-page,
+    .processes-page,
+    .deadlines-page,
+    .tasks-page,
+    .documents-page,
+    .team-page,
+    .invitations-page,
+    .audit-log-page
+  ) table td::before {
+    color: #a99cae !important;
+  }
+
+  body:has(.organization-workspace) .workspace-control-center {
+    width: 100%;
+  }
+
+  body:has(.organization-workspace) .workspace-control-tabs {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  body:has(.organization-workspace) .workspace-control-panel,
+  body:has(.organization-workspace) .notification-center-embedded {
+    position: fixed;
+    top: 4.5rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
+    max-height: calc(100vh - 5.5rem);
+  }
+
+  body:has(.organization-workspace) .notification-panel-embedded {
+    max-height: calc(100vh - 5.5rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:has(.organization-workspace) *,
+  body:has(.organization-workspace) *::before,
+  body:has(.organization-workspace) *::after {
+    scroll-behavior: auto !important;
+  }
+}

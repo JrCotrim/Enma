@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../authentication/AuthContext'
 import {
@@ -30,6 +31,10 @@ type FeedState =
 
 interface NotificationCenterProps {
   readonly organizationId: string
+  readonly embedded?: boolean
+  readonly visible?: boolean
+  onUnreadCountChange?(count: number): void
+  onNewNotification?(): void
 }
 
 function isAbortError(error: unknown): boolean {
@@ -94,27 +99,46 @@ function rollbackReadOne(
     : feed
 }
 
-export function NotificationCenter({ organizationId }: NotificationCenterProps) {
+export function NotificationCenter({
+  organizationId,
+  embedded = false,
+  visible = true,
+  onUnreadCountChange,
+  onNewNotification,
+}: NotificationCenterProps) {
   const { handleUnauthorized } = useAuth()
   const navigate = useNavigate()
+  const prefersReducedMotion = useReducedMotion()
   const panelId = useId()
   const panelTitleId = `${panelId}-title`
   const [feedState, setFeedState] = useState<FeedState>({ status: 'loading' })
   const [refreshError, setRefreshError] = useState<string>()
   const [mutationError, setMutationError] = useState<string>()
   const [isOpen, setIsOpen] = useState(false)
+  const [bellAnimationKey, setBellAnimationKey] = useState(0)
   const [isMarkingAll, setIsMarkingAll] = useState(false)
   const [pendingReadCount, setPendingReadCount] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(false)
   const hasLoadedRef = useRef(false)
+  const previousUnreadCountRef = useRef<number | undefined>(undefined)
   const fetchVersionRef = useRef(0)
   const fetchControllerRef = useRef<AbortController | undefined>(undefined)
   const inFlightFetchRef = useRef<Promise<void> | undefined>(undefined)
   const mutationControllersRef = useRef(new Set<AbortController>())
   const markingNotificationIdsRef = useRef(new Set<string>())
   const markingAllRef = useRef(false)
+  const onUnreadCountChangeRef = useRef(onUnreadCountChange)
+  const onNewNotificationRef = useRef(onNewNotification)
+
+  useEffect(() => {
+    onUnreadCountChangeRef.current = onUnreadCountChange
+  }, [onUnreadCountChange])
+
+  useEffect(() => {
+    onNewNotificationRef.current = onNewNotification
+  }, [onNewNotification])
 
   const invalidateCurrentFetch = useCallback(() => {
     const invalidatedController = fetchControllerRef.current
@@ -153,6 +177,15 @@ export function NotificationCenter({ organizationId }: NotificationCenterProps) 
             !controller.signal.aborted &&
             requestVersion === fetchVersionRef.current
           ) {
+            const previousUnreadCount = previousUnreadCountRef.current
+            if (
+              previousUnreadCount !== undefined &&
+              feed.unreadCount > previousUnreadCount
+            ) {
+              setBellAnimationKey((key) => key + 1)
+              onNewNotificationRef.current?.()
+            }
+            previousUnreadCountRef.current = feed.unreadCount
             hasLoadedRef.current = true
             setFeedState({ status: 'success', feed })
           }
@@ -223,6 +256,7 @@ export function NotificationCenter({ organizationId }: NotificationCenterProps) 
         stopPolling()
       }
     }
+
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('focus', refreshIfVisible)
     startPolling()
@@ -243,8 +277,15 @@ export function NotificationCenter({ organizationId }: NotificationCenterProps) 
     }
   }, [refresh])
 
+  const feed = feedState.status === 'success' ? feedState.feed : undefined
+  const unreadCount = feed?.unreadCount ?? 0
+
   useEffect(() => {
-    if (!isOpen) return
+    onUnreadCountChangeRef.current?.(unreadCount)
+  }, [unreadCount])
+
+  useEffect(() => {
+    if (embedded || !isOpen) return
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -253,6 +294,7 @@ export function NotificationCenter({ organizationId }: NotificationCenterProps) 
         triggerRef.current?.focus()
       }
     }
+
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target
       if (
@@ -266,18 +308,12 @@ export function NotificationCenter({ organizationId }: NotificationCenterProps) 
 
     document.addEventListener('keydown', handleKeyDown)
     document.addEventListener('pointerdown', handlePointerDown)
-    window.requestAnimationFrame(() => {
-      panelRef.current?.querySelector<HTMLElement>('button')?.focus()
-    })
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('pointerdown', handlePointerDown)
     }
-  }, [isOpen])
-
-  const feed = feedState.status === 'success' ? feedState.feed : undefined
-  const unreadCount = feed?.unreadCount ?? 0
+  }, [embedded, isOpen])
 
   const navigateToNotification = (item: NotificationItem) => {
     const destination = getNotificationDestination(
@@ -285,7 +321,10 @@ export function NotificationCenter({ organizationId }: NotificationCenterProps) 
       item.sourceType,
       item.sourceId,
     )
-    setIsOpen(false)
+
+    if (!embedded) {
+      setIsOpen(false)
+    }
 
     if (item.readAt === null && !markingNotificationIdsRef.current.has(item.id)) {
       markingNotificationIdsRef.current.add(item.id)
@@ -387,6 +426,144 @@ export function NotificationCenter({ organizationId }: NotificationCenterProps) 
       })
   }
 
+  const panelContent = (
+    <>
+      <div className="notification-panel-header">
+        <div>
+          <span className="notification-panel-kicker">Central</span>
+          <h2 id={panelTitleId}>Notificações</h2>
+        </div>
+
+        {feed && feed.unreadCount > 0 ? (
+          <button
+            className="notification-mark-all"
+            type="button"
+            disabled={isMarkingAll || pendingReadCount > 0}
+            onClick={markAllAsRead}
+          >
+            {isMarkingAll
+              ? 'Marcando...'
+              : pendingReadCount > 0
+                ? 'Atualizando...'
+                : 'Marcar todas como lidas'}
+          </button>
+        ) : null}
+
+        {!embedded ? (
+          <button
+            className="notification-close"
+            type="button"
+            aria-label="Fechar notificações"
+            onClick={() => {
+              setIsOpen(false)
+              triggerRef.current?.focus()
+            }}
+          >
+            ×
+          </button>
+        ) : null}
+      </div>
+
+      {mutationError ? (
+        <p className="notification-error" role="alert">
+          {mutationError}
+        </p>
+      ) : null}
+
+      {refreshError ? (
+        <div className="notification-error notification-inline-error" role="alert">
+          <p>{refreshError}</p>
+          <button type="button" onClick={() => void refresh()}>
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
+
+      {feedState.status === 'loading' ? (
+        <p className="notification-state" role="status" aria-live="polite">
+          Carregando notificações...
+        </p>
+      ) : null}
+
+      {feedState.status === 'error' ? (
+        <div className="notification-state notification-error-state" role="alert">
+          <p>{notificationLoadError}</p>
+          <button type="button" onClick={() => void refresh(true)}>
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
+
+      {feed && feed.items.length === 0 ? (
+        <p className="notification-state">Nenhuma notificação por enquanto.</p>
+      ) : null}
+
+      {feed && feed.items.length > 0 ? (
+        <ul className="notification-list">
+          {feed.items.map((item, index) => (
+            <motion.li
+              key={item.id}
+              initial={
+                embedded && !prefersReducedMotion
+                  ? { opacity: 0, x: 18, filter: 'blur(8px)' }
+                  : false
+              }
+              animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
+              transition={{
+                duration: prefersReducedMotion ? 0.01 : 0.26,
+                delay:
+                  embedded && !prefersReducedMotion
+                    ? Math.min(index, 8) * 0.055
+                    : 0,
+                ease: [0.2, 0.75, 0.25, 1],
+              }}
+            >
+              <button
+                className={`notification-item${
+                  item.readAt === null ? ' is-unread' : ''
+                }`}
+                type="button"
+                onClick={() => navigateToNotification(item)}
+              >
+                <span className="notification-item-heading">
+                  <span className="notification-kind">
+                    {getNotificationKindLabel(item.kind)}
+                  </span>
+                  {item.readAt === null ? (
+                    <span className="notification-unread-label">Não lida</span>
+                  ) : null}
+                </span>
+                <strong>{item.sourceTitle}</strong>
+                <time dateTime={item.occurrenceDate ?? item.occurrenceAt ?? undefined}>
+                  {formatNotificationOccurrence(item)}
+                </time>
+              </button>
+            </motion.li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  )
+
+  if (embedded) {
+    if (!visible) {
+      return null
+    }
+
+    return (
+      <div
+        ref={panelRef}
+        id={panelId}
+        className="notification-center notification-center-embedded"
+        aria-labelledby={panelTitleId}
+      >
+        <div className="notification-panel notification-panel-embedded">
+          {panelContent}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="notification-center">
       <button
@@ -402,7 +579,14 @@ export function NotificationCenter({ organizationId }: NotificationCenterProps) 
         aria-controls={panelId}
         onClick={() => setIsOpen((open) => !open)}
       >
-        <BellIcon />
+        <span
+          key={bellAnimationKey}
+          className={`notification-bell-icon${
+            bellAnimationKey > 0 ? ' is-ringing' : ''
+          }`}
+        >
+          <BellIcon />
+        </span>
         {unreadCount > 0 ? (
           <span className="notification-badge" aria-hidden="true">
             {unreadCount > 99 ? '99+' : unreadCount}
@@ -418,92 +602,7 @@ export function NotificationCenter({ organizationId }: NotificationCenterProps) 
           role="dialog"
           aria-labelledby={panelTitleId}
         >
-          <div className="notification-panel-header">
-            <h2 id={panelTitleId}>Notificações</h2>
-            <button
-              className="notification-close"
-              type="button"
-              aria-label="Fechar notificações"
-              onClick={() => {
-                setIsOpen(false)
-                triggerRef.current?.focus()
-              }}
-            >
-              ×
-            </button>
-          </div>
-
-          {feed && feed.unreadCount > 0 ? (
-            <button
-              className="notification-mark-all"
-              type="button"
-              disabled={isMarkingAll || pendingReadCount > 0}
-              onClick={markAllAsRead}
-            >
-              {isMarkingAll
-                ? 'Marcando...'
-                : pendingReadCount > 0
-                  ? 'Atualizando notificações...'
-                  : 'Marcar todas como lidas'}
-            </button>
-          ) : null}
-
-          {mutationError ? (
-            <p className="notification-error" role="alert">
-              {mutationError}
-            </p>
-          ) : null}
-          {refreshError ? (
-            <div className="notification-error notification-inline-error" role="alert">
-              <p>{refreshError}</p>
-              <button type="button" onClick={() => void refresh()}>
-                Tentar novamente
-              </button>
-            </div>
-          ) : null}
-
-          {feedState.status === 'loading' ? (
-            <p className="notification-state" role="status">
-              Carregando notificações...
-            </p>
-          ) : null}
-          {feedState.status === 'error' ? (
-            <div className="notification-state notification-error-state" role="alert">
-              <p>{notificationLoadError}</p>
-              <button type="button" onClick={() => void refresh(true)}>
-                Tentar novamente
-              </button>
-            </div>
-          ) : null}
-          {feed && feed.items.length === 0 ? (
-            <p className="notification-state">Nenhuma notificação por enquanto.</p>
-          ) : null}
-          {feed && feed.items.length > 0 ? (
-            <ul className="notification-list">
-              {feed.items.map((item) => (
-                <li key={item.id}>
-                  <button
-                    className={`notification-item${item.readAt === null ? ' is-unread' : ''}`}
-                    type="button"
-                    onClick={() => navigateToNotification(item)}
-                  >
-                    <span className="notification-item-heading">
-                      <span className="notification-kind">
-                        {getNotificationKindLabel(item.kind)}
-                      </span>
-                      {item.readAt === null ? (
-                        <span className="notification-unread-label">Não lida</span>
-                      ) : null}
-                    </span>
-                    <strong>{item.sourceTitle}</strong>
-                    <time dateTime={item.occurrenceDate ?? item.occurrenceAt ?? undefined}>
-                      {formatNotificationOccurrence(item)}
-                    </time>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          {panelContent}
         </div>
       ) : null}
     </div>

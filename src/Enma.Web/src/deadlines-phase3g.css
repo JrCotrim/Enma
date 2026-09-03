@@ -10,12 +10,12 @@
 
 .deadlines-page,
 .deadline-details-page {
-  --deadlines-surface: rgba(255, 255, 255, 0.72);
-  --deadlines-surface-strong: rgba(255, 255, 255, 0.86);
-  --deadlines-border: rgba(25, 72, 51, 0.12);
-  --deadlines-text: #183126;
-  --deadlines-muted: #61766c;
-  --deadlines-accent: #0f5a40;
+  --deadlines-surface: rgba(255, 255, 255, 0.052);
+  --deadlines-surface-strong: rgba(255, 255, 255, 0.075);
+  --deadlines-border: var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  --deadlines-text: var(--enma-v3-text, #eee7f1);
+  --deadlines-muted: var(--enma-v3-muted, #b1a5b6);
+  --deadlines-accent: #a45bd6;
   --deadlines-danger: #963c37;
 
   color: var(--deadlines-text);
@@ -49,7 +49,7 @@
 .deadlines-header .eyebrow,
 .deadline-details-header .eyebrow {
   margin-bottom: 0.48rem;
-  color: #60776c;
+  color: #a96bce;
   font-size: 0.68rem;
   font-weight: 780;
   letter-spacing: 0.12em;
@@ -70,12 +70,12 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.86),
-      rgba(249, 252, 249, 0.66)
+      rgba(255, 255, 255, 0.062),
+      rgba(255, 255, 255, 0.03)
     ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    0 12px 34px rgba(24, 60, 43, 0.055) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 34px rgba(0, 0, 0, 0.055) !important;
   backdrop-filter: blur(18px) saturate(118%);
   -webkit-backdrop-filter: blur(18px) saturate(118%);
   align-self: start;
@@ -85,7 +85,7 @@
 .deadline-edit-form > h2 {
   margin: 0 0 0.95rem;
   color: var(--deadlines-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.25rem;
   font-weight: 500;
 }
@@ -114,9 +114,9 @@
 .process-lookup-results {
   margin-top: 0.8rem;
   padding: 0.7rem;
-  border: 1px solid rgba(25, 72, 51, 0.09);
+  border: 1px solid rgba(228, 211, 237, 0.09);
   border-radius: 0.78rem;
-  background: rgba(248, 251, 248, 0.56);
+  background: rgba(255, 255, 255, 0.032);
 }
 
 .process-lookup-results ul {
@@ -137,7 +137,7 @@
   border: 1px solid var(--deadlines-border);
   border-radius: 0.7rem;
   color: var(--deadlines-accent);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.045);
   font: inherit;
   font-size: 0.78rem;
   font-weight: 720;
@@ -153,17 +153,17 @@
 
 .process-result-button:hover:not(:disabled),
 .process-result-button[aria-pressed="true"] {
-  border-color: rgba(15, 90, 64, 0.28);
-  background: rgba(15, 90, 64, 0.07);
+  border-color: rgba(164, 91, 214, 0.28);
+  background: rgba(164, 91, 214, 0.07);
 }
 
 .process-lookup-status {
   margin: 0.7rem 0 0;
   padding: 0.78rem 0.82rem;
-  border: 1px solid rgba(25, 72, 51, 0.08);
+  border: 1px solid rgba(228, 211, 237, 0.08);
   border-radius: 0.72rem;
   color: var(--deadlines-muted);
-  background: rgba(250, 252, 250, 0.56);
+  background: rgba(255, 255, 255, 0.032);
   font-size: 0.78rem;
 }
 
@@ -182,7 +182,7 @@
   gap: 0.8rem;
   margin-top: 0.82rem;
   padding: 0.62rem 0.72rem;
-  border: 1px solid rgba(15, 90, 64, 0.10);
+  border: 1px solid rgba(164, 91, 214, 0.10);
   border-radius: 0.72rem;
   background: rgba(71, 151, 108, 0.08);
 }
@@ -190,7 +190,7 @@
 .selected-process p {
   min-width: 0;
   margin: 0;
-  color: #2d6048;
+  color: #d9cbe0;
   font-size: 0.78rem;
   overflow-wrap: anywhere;
 }
@@ -258,19 +258,19 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.82),
-      rgba(249, 252, 249, 0.62)
+      rgba(255, 255, 255, 0.058),
+      rgba(255, 255, 255, 0.028)
     ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.76),
-    0 10px 28px rgba(24, 60, 43, 0.045);
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 28px rgba(0, 0, 0, 0.045);
 }
 
 .deadlines-state h1,
 .deadlines-state h2,
 .deadlines-state h3 {
   color: var(--deadlines-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-weight: 500;
 }
 
@@ -302,7 +302,7 @@
 }
 
 .deadline-detail-link:hover {
-  color: #0b4d36;
+  color: #e1b6f2;
 }
 
 .deadlines-pagination {
@@ -329,7 +329,7 @@
 
 .deadline-details-page > .home-link {
   width: fit-content;
-  color: #557066;
+  color: #b87bd9;
   font-size: 0.76rem;
   font-weight: 700;
   text-decoration: none;
@@ -350,13 +350,13 @@
   justify-content: space-between;
   gap: 1.25rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(25, 72, 51, 0.08);
+  border-bottom: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .deadline-details-header h1 {
   margin: 0;
   color: var(--deadlines-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 3vw, 2.7rem);
   font-weight: 500;
   line-height: 1.05;
@@ -389,12 +389,12 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.84),
-      rgba(249, 252, 249, 0.64)
+      rgba(255, 255, 255, 0.058),
+      rgba(255, 255, 255, 0.028)
     );
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    0 12px 34px rgba(24, 60, 43, 0.05);
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 34px rgba(0, 0, 0, 0.05);
   backdrop-filter: blur(18px) saturate(116%);
   -webkit-backdrop-filter: blur(18px) saturate(116%);
   align-self: start;
@@ -403,11 +403,11 @@
 .deadline-properties > div {
   min-width: 0;
   padding: 1.05rem 1.15rem;
-  border-bottom: 1px solid rgba(25, 72, 51, 0.08);
+  border-bottom: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .deadline-properties > div:not(:nth-child(3n + 1)) {
-  border-left: 1px solid rgba(25, 72, 51, 0.08);
+  border-left: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .deadline-properties > div:nth-last-child(-n + 3) {
@@ -416,7 +416,7 @@
 
 .deadline-properties dt {
   margin-bottom: 0.38rem;
-  color: #60766b;
+  color: var(--deadlines-muted);
   font-size: 0.65rem;
   font-weight: 780;
   letter-spacing: 0.07em;
@@ -455,7 +455,7 @@
   }
 
   .deadline-properties > div {
-    border-bottom: 1px solid rgba(25, 72, 51, 0.08) !important;
+    border-bottom: 1px solid rgba(228, 211, 237, 0.08) !important;
   }
 
   .deadline-properties > div {
@@ -463,7 +463,7 @@
   }
 
   .deadline-properties > div:nth-child(even) {
-    border-left: 1px solid rgba(25, 72, 51, 0.08) !important;
+    border-left: 1px solid rgba(228, 211, 237, 0.08) !important;
   }
 
   .deadline-properties > div:nth-last-child(-n + 2) {
@@ -548,7 +548,7 @@
   .deadline-properties > div:last-child:nth-child(7) {
     grid-column: auto;
     border-left: 0 !important;
-    border-bottom: 1px solid rgba(25, 72, 51, 0.08) !important;
+    border-bottom: 1px solid rgba(228, 211, 237, 0.08) !important;
   }
 
   .deadline-properties > div:last-child {

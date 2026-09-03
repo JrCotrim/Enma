@@ -241,10 +241,19 @@ describe('organization discovery and routing', () => {
       renderRoute(`/organizations/${organization.id}`)
 
       expect(
-        await screen.findByRole('heading', { name: organization.name }),
+        await screen.findByRole('heading', {
+          name: `Espaço de trabalho: ${organization.name}`,
+        }),
       ).toBeInTheDocument()
-      expect(screen.getByText(`Seu papel: ${roleLabel}`)).toBeInTheDocument()
-      expect(screen.getByLabelText('Organização atual')).toHaveValue(organization.id)
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+
+      expect(
+        screen.getByRole('button', {
+          name: `${organization.name}, organização atual`,
+        }),
+      ).toBeInTheDocument()
+      expect(screen.getAllByText(roleLabel).length).toBeGreaterThan(0)
     },
   )
 
@@ -258,17 +267,30 @@ describe('organization discovery and routing', () => {
     )
     const router = renderRoute(`/organizations/${organizationA.id}`)
 
-    await screen.findByRole('heading', { name: organizationA.name })
-    fireEvent.change(screen.getByLabelText('Organização atual'), {
-      target: { value: organizationB.id },
+    await screen.findByRole('heading', {
+      name: `Espaço de trabalho: ${organizationA.name}`,
     })
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: `Trocar para ${organizationB.name}` }),
+    )
+
     expect(
-      await screen.findByRole('heading', { name: organizationB.name }),
+      await screen.findByRole('heading', {
+        name: `Espaço de trabalho: ${organizationB.name}`,
+      }),
     ).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Visão geral' })).toBeInTheDocument()
-    expect(screen.getByText('Seu papel: Proprietário')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe(`/organizations/${organizationB.id}`)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    expect(
+      screen.getByRole('button', {
+        name: `${organizationB.name}, organização atual`,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('Proprietário').length).toBeGreaterThan(0)
   })
 
   it('OrganizationRoute_UnknownOrganization_ShowsGenericUnavailableState', async () => {
@@ -319,16 +341,18 @@ describe('organization discovery and routing', () => {
     vi.stubGlobal('fetch', fetchMock)
     const router = renderRoute(`/organizations/${organizationA.id}`)
 
-    await screen.findByRole('heading', { name: organizationA.name })
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Atualizar organizações' }),
-    )
+    await screen.findByRole('heading', {
+      name: `Espaço de trabalho: ${organizationA.name}`,
+    })
+
+    fireEvent(window, new Event('focus'))
 
     expect(
       await screen.findByRole('heading', { name: 'Organização indisponível' }),
     ).toBeInTheDocument()
     expect(screen.queryByText(organizationA.name)).not.toBeInTheDocument()
     expect(router.state.location.pathname).toBe(`/organizations/${organizationA.id}`)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('OrganizationRefresh_CurrentRoleChanges_UpdatesUxWithoutRelogin', async () => {
@@ -349,12 +373,16 @@ describe('organization discovery and routing', () => {
 
     renderRoute(`/organizations/${organizationA.id}`)
 
-    expect(await screen.findByText('Seu papel: Membro')).toBeInTheDocument()
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Atualizar organizações' }),
-    )
+    await screen.findByRole('heading', {
+      name: `Espaço de trabalho: ${organizationA.name}`,
+    })
 
-    expect(screen.getByText('Seu papel: Membro')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    expect(screen.getAllByText('Membro').length).toBeGreaterThan(0)
+
+    fireEvent(window, new Event('focus'))
+
+    expect(screen.getAllByText('Membro').length).toBeGreaterThan(0)
     expect(
       screen.queryByRole('heading', { name: 'Carregando organizações...' }),
     ).not.toBeInTheDocument()
@@ -364,9 +392,10 @@ describe('organization discovery and routing', () => {
       await pendingRefresh
     })
 
-    expect(
-      await screen.findByText('Seu papel: Administrador'),
-    ).toBeInTheDocument()
+    await screen.findByRole('button', {
+      name: `${organizationA.name}, organização atual`,
+    })
+    expect(screen.getAllByText('Administrador').length).toBeGreaterThan(0)
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
@@ -380,7 +409,10 @@ describe('organization discovery and routing', () => {
     vi.stubGlobal('fetch', fetchMock)
     const router = renderRoute(`/organizations/${organizationA.id}`)
 
-    await screen.findByRole('heading', { name: organizationA.name })
+    await screen.findByRole('heading', {
+      name: `Espaço de trabalho: ${organizationA.name}`,
+    })
+    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
     fireEvent.click(screen.getByRole('button', { name: 'Sair' }))
 
     expect(

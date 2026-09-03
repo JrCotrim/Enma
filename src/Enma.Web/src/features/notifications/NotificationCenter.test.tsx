@@ -675,4 +675,28 @@ describe('NotificationCenter', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(bell).toHaveFocus()
   })
+
+  it('Bell_NewUnreadAfterInitialLoad_Rings', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, feed()))
+      .mockResolvedValueOnce(
+        response(200, feed([notification()], 1)),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = renderCenter()
+
+    await screen.findByRole('button', { name: /notifica/i })
+
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await screen.findByRole('button', { name: /1.*lida/i })
+
+    expect(
+      container.querySelector('.notification-bell-icon'),
+    ).toHaveClass('is-ringing')
+  })
 })

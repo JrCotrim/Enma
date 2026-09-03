@@ -53,6 +53,18 @@ export function OrganizationProvider() {
     setRefreshVersion((version) => version + 1)
   }, [])
 
+  useEffect(() => {
+    const refreshOnWindowFocus = () => {
+      refreshOrganizations()
+    }
+
+    window.addEventListener('focus', refreshOnWindowFocus)
+
+    return () => {
+      window.removeEventListener('focus', refreshOnWindowFocus)
+    }
+  }, [refreshOrganizations])
+
   const value = useMemo(
     () => ({ state, refreshOrganizations }),
     [refreshOrganizations, state],

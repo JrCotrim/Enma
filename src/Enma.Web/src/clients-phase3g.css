@@ -12,12 +12,12 @@
 
 .clients-page,
 .client-details-page {
-  --clients-surface: rgba(255, 255, 255, 0.72);
-  --clients-surface-strong: rgba(255, 255, 255, 0.86);
-  --clients-border: rgba(25, 72, 51, 0.12);
-  --clients-text: #183126;
-  --clients-muted: #61766c;
-  --clients-accent: #0f5a40;
+  --clients-surface: rgba(255, 255, 255, 0.052);
+  --clients-surface-strong: rgba(255, 255, 255, 0.075);
+  --clients-border: var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  --clients-text: var(--enma-v3-text, #eee7f1);
+  --clients-muted: var(--enma-v3-muted, #b1a5b6);
+  --clients-accent: #a45bd6;
   --clients-danger: #963c37;
   color: var(--clients-text);
 }
@@ -36,7 +36,7 @@
 .clients-header .eyebrow,
 .client-details-header .eyebrow {
   margin-bottom: 0.48rem;
-  color: #60776c;
+  color: #a96bce;
   font-size: 0.68rem;
   font-weight: 780;
   letter-spacing: 0.12em;
@@ -57,12 +57,12 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.86),
-      rgba(249, 252, 249, 0.66)
+      rgba(255, 255, 255, 0.062),
+      rgba(255, 255, 255, 0.03)
     ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    0 12px 34px rgba(24, 60, 43, 0.055) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 34px rgba(0, 0, 0, 0.055) !important;
   backdrop-filter: blur(18px) saturate(118%);
   -webkit-backdrop-filter: blur(18px) saturate(118%);
 }
@@ -70,7 +70,7 @@
 .client-create-form h3 {
   margin: 0 0 0.9rem;
   color: var(--clients-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.25rem;
   font-weight: 500;
 }
@@ -115,18 +115,18 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.82),
-      rgba(249, 252, 249, 0.62)
+      rgba(255, 255, 255, 0.058),
+      rgba(255, 255, 255, 0.028)
     ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.76),
-    0 10px 28px rgba(24, 60, 43, 0.045);
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 28px rgba(0, 0, 0, 0.045);
 }
 
 .clients-state h3,
 .clients-state h2 {
   color: var(--clients-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-weight: 500;
 }
 
@@ -173,7 +173,7 @@
 }
 
 .client-detail-link:hover {
-  color: #0b4d36;
+  color: #e1b6f2;
 }
 
 /* ---------- Detail page ---------- */
@@ -186,7 +186,7 @@
 
 .client-details-page > .home-link {
   width: fit-content;
-  color: #557066;
+  color: #b87bd9;
   font-size: 0.76rem;
   font-weight: 700;
   text-decoration: none;
@@ -207,13 +207,13 @@
   justify-content: space-between;
   gap: 1.25rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(25, 72, 51, 0.08);
+  border-bottom: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .client-details-header h2 {
   margin: 0;
   color: var(--clients-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 3vw, 2.7rem);
   font-weight: 500;
   line-height: 1.05;
@@ -251,12 +251,12 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.84),
-      rgba(249, 252, 249, 0.64)
+      rgba(255, 255, 255, 0.058),
+      rgba(255, 255, 255, 0.028)
     );
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    0 12px 34px rgba(24, 60, 43, 0.05);
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 34px rgba(0, 0, 0, 0.05);
   backdrop-filter: blur(18px) saturate(116%);
   -webkit-backdrop-filter: blur(18px) saturate(116%);
 }
@@ -267,12 +267,12 @@
 }
 
 .client-properties > div + div {
-  border-left: 1px solid rgba(25, 72, 51, 0.08);
+  border-left: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .client-properties dt {
   margin-bottom: 0.38rem;
-  color: #60766b;
+  color: var(--clients-muted);
   font-size: 0.65rem;
   font-weight: 780;
   letter-spacing: 0.07em;
@@ -297,18 +297,18 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 250, 249, 0.90),
-      rgba(252, 246, 245, 0.72)
+      rgba(133, 48, 65, 0.15),
+      rgba(255, 255, 255, 0.026)
     ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 12px 30px rgba(93, 43, 39, 0.055);
 }
 
 .client-confirmation h3 {
   margin-top: 0;
   color: #6f3834;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-weight: 500;
 }
 
@@ -360,7 +360,7 @@
   }
 
   .client-properties > div + div {
-    border-top: 1px solid rgba(25, 72, 51, 0.08);
+    border-top: 1px solid rgba(228, 211, 237, 0.08);
     border-left: 0;
   }
 }

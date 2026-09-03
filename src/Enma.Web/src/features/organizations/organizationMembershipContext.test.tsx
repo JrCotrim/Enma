@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -122,8 +122,8 @@ describe('current organization membership identity', () => {
       `${organizationA.id}:${organizationA.membershipId}`,
     )
 
-    fireEvent.change(screen.getByLabelText(/atual$/i), {
-      target: { value: organizationB.id },
+    await act(async () => {
+      await router.navigate(`/organizations/${organizationB.id}`)
     })
 
     await waitFor(() => {

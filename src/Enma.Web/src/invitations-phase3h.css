@@ -5,10 +5,10 @@
  */
 
 .invitations-page {
-  --invitations-border: rgba(25, 72, 51, 0.12);
-  --invitations-text: #183126;
-  --invitations-muted: #61766c;
-  --invitations-accent: #0f5a40;
+  --invitations-border: var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  --invitations-text: var(--enma-v3-text, #eee7f1);
+  --invitations-muted: var(--enma-v3-muted, #b1a5b6);
+  --invitations-accent: #a45bd6;
   --invitations-danger: #963c37;
   display: grid;
   gap: 1.05rem;
@@ -45,7 +45,7 @@
 }
 
 .invitation-form-control label {
-  color: #40584d;
+  color: var(--invitations-muted);
   font-size: 0.74rem;
   font-weight: 760;
 }
@@ -162,7 +162,7 @@
 }
 
 .invitation-action-unavailable {
-  color: #77857e;
+  color: var(--invitations-muted);
   font-size: 0.7rem;
   line-height: 1.35;
 }
@@ -176,12 +176,10 @@
   border-radius: 0.72rem !important;
   background: linear-gradient(
     145deg,
-    rgba(255, 255, 255, 0.88),
-    rgba(252, 247, 245, 0.72)
+    rgba(133, 48, 65, 0.22),
+    #201a24
   ) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.74),
-    0 8px 20px rgba(93, 43, 39, 0.04);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .invitation-confirmation p {
@@ -269,7 +267,7 @@
     padding: 0.72rem 0.78rem;
     border: 1px solid var(--invitations-border) !important;
     border-radius: 0.78rem;
-    background: rgba(255, 255, 255, 0.56);
+    background: rgba(255, 255, 255, 0.038);
   }
 
   .invitations-table tr + tr { margin-top: 0.72rem; }

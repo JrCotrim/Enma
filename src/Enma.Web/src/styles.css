@@ -62,7 +62,7 @@ a {
 
 h1 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2.5rem, 7vw, 5.5rem);
   font-weight: 500;
   letter-spacing: -0.04em;
@@ -326,7 +326,7 @@ h1 {
 
 .notification-panel-header h2 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.35rem;
   font-weight: 500;
 }
@@ -518,7 +518,7 @@ h1 {
 .organization-empty h2 {
   margin: 0;
   color: #18221d;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
 }
@@ -606,7 +606,7 @@ h1 {
 .dashboard-header h2,
 .dashboard-section h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-weight: 500;
 }
 
@@ -673,7 +673,7 @@ h1 {
 
 .dashboard-kpi-card strong {
   color: #174d39;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2.25rem, 5vw, 3rem);
   font-weight: 500;
   line-height: 1;
@@ -706,7 +706,7 @@ h1 {
 .dashboard-attention-card h4,
 .dashboard-upcoming-group h4 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.25rem;
   font-weight: 500;
 }
@@ -874,7 +874,7 @@ h1 {
 
 .clients-header h2 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -906,7 +906,7 @@ h1 {
 .client-details-header h2 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -914,7 +914,7 @@ h1 {
 .process-details-header h2 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -922,7 +922,7 @@ h1 {
 .deadline-details-header h1 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -970,7 +970,7 @@ h1 {
 .client-confirmation h3,
 .clients-state h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
 }
@@ -1209,7 +1209,7 @@ h1 {
 
 .processes-header h2 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -1232,7 +1232,7 @@ h1 {
 .process-create-panel > h3,
 .processes-state h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
 }
@@ -1402,7 +1402,7 @@ h1 {
 
 .deadlines-header h2 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -1425,7 +1425,7 @@ h1 {
 .deadline-create-panel > h3,
 .deadlines-state h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
 }
@@ -1628,7 +1628,7 @@ h1 {
 
 .tasks-header h2 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -1652,7 +1652,7 @@ h1 {
 .task-create-panel > h3,
 .tasks-state h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
 }
@@ -1893,7 +1893,7 @@ h1 {
 .document-details-header h2 {
   margin: 0.35rem 0 0;
   overflow-wrap: anywhere;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(1.75rem, 4vw, 2.4rem);
   font-weight: 500;
 }
@@ -1914,7 +1914,7 @@ h1 {
 
 .document-upload-panel > h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
 }
@@ -2055,7 +2055,7 @@ h1 {
 
 .documents-state h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
 }
@@ -2152,7 +2152,7 @@ h1 {
 .task-details-header h1 {
   margin: 0;
   overflow-wrap: anywhere;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -2291,14 +2291,14 @@ h1 {
 
 .agenda-header h2 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
 
 .agenda-description {
   margin: 0.75rem 0 0;
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   line-height: 1.5;
 }
 
@@ -2311,14 +2311,14 @@ h1 {
   align-items: center;
   margin-top: 1.5rem;
   padding: 1rem;
-  border: 1px solid #d8d2c4;
+  border: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   border-radius: 0.75rem 0.75rem 0 0;
-  background: #fff;
+  background: #28212e;
 }
 
 .agenda-toolbar h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
   text-align: center;
@@ -2367,7 +2367,7 @@ h1 {
 }
 
 .agenda-legend-calendarEvent::before {
-  background: #39795b;
+  background: #a45bd6;
 }
 
 .agenda-loading,
@@ -2375,9 +2375,9 @@ h1 {
 .agenda-state {
   margin: 0;
   padding: 0.75rem 1rem;
-  border-inline: 1px solid #d8d2c4;
-  color: #547064;
-  background: #fff;
+  border-inline: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  color: var(--enma-v3-muted, #b1a5b6);
+  background: #211b26;
 }
 
 .agenda-state {
@@ -2392,6 +2392,11 @@ h1 {
   margin: 0;
 }
 
+.agenda-calendar {
+  overflow: hidden;
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+
 .agenda-weekdays,
 .agenda-grid {
   display: grid;
@@ -2399,10 +2404,10 @@ h1 {
 }
 
 .agenda-weekdays {
-  border-top: 1px solid #d8d2c4;
-  border-left: 1px solid #d8d2c4;
-  color: #547064;
-  background: #f4f1e9;
+  border-top: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  border-left: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  color: var(--enma-v3-muted, #b1a5b6);
+  background: #28212e;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -2412,25 +2417,25 @@ h1 {
 
 .agenda-weekdays span {
   padding: 0.65rem 0.25rem;
-  border-right: 1px solid #d8d2c4;
+  border-right: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
 }
 
 .agenda-grid {
-  border-left: 1px solid #d8d2c4;
-  border-bottom: 1px solid #d8d2c4;
+  border-left: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
 }
 
 .agenda-day {
   min-width: 0;
   min-height: 8.25rem;
   padding: 0.45rem;
-  border-top: 1px solid #d8d2c4;
-  border-right: 1px solid #d8d2c4;
-  background: #fff;
+  border-top: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  border-right: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  background: #211b26;
 }
 
 .agenda-day.is-adjacent {
-  background: #f7f5ef;
+  background: #1b171f;
 }
 
 .agenda-day-number {
@@ -2438,19 +2443,19 @@ h1 {
   width: 1.75rem;
   height: 1.75rem;
   border-radius: 50%;
-  color: #34483f;
+  color: #c8bdcd;
   font-size: 0.8rem;
   font-weight: 750;
   place-items: center;
 }
 
 .agenda-day.is-adjacent .agenda-day-number {
-  color: #85877f;
+  color: #746b79;
 }
 
 .agenda-day.is-today .agenda-day-number {
   color: #fff;
-  background: #174d39;
+  background: #a45bd6;
 }
 
 .agenda-day-items,
@@ -2468,34 +2473,33 @@ h1 {
   min-width: 0;
   padding: 0.35rem 0.45rem;
   border: 1px solid transparent;
-  border-left-width: 3px;
   border-radius: 0.35rem;
-  color: #18221d;
+  color: var(--enma-v3-text, #eee7f1);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .agenda-item-deadline {
-  border-left-color: #a65d22;
-  background: #fbefe5;
+  border-color: rgba(201, 126, 64, 0.34);
+  background: rgba(166, 93, 34, 0.16);
 }
 
 .agenda-item-task {
-  border-left-color: #466f9a;
-  background: #eaf1f8;
+  border-color: rgba(91, 139, 190, 0.34);
+  background: rgba(70, 111, 154, 0.18);
 }
 
 .agenda-item-calendarEvent {
-  border-left-color: #39795b;
-  background: #e7f3ed;
+  border-color: rgba(190, 123, 227, 0.34);
+  background: rgba(164, 91, 214, 0.16);
 }
 
 .agenda-item-kind,
 .agenda-item time,
 .agenda-item-completed {
   align-self: center;
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.66rem;
 }
 
@@ -2526,7 +2530,7 @@ h1 {
   margin-top: 0.3rem;
   padding: 0.15rem;
   border: 0;
-  color: #174d39;
+  color: #c387e1;
   background: transparent;
   font: inherit;
   font-size: 0.72rem;
@@ -2544,9 +2548,9 @@ h1 {
 .calendar-event-confirmation {
   margin-top: 1.5rem;
   padding: 1.5rem;
-  border: 1px solid #d8d2c4;
+  border: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   border-radius: 0.75rem;
-  background: #fff;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.058), rgba(255, 255, 255, 0.03));
 }
 
 .calendar-event-panel > h3,
@@ -2554,7 +2558,7 @@ h1 {
 .calendar-event-assignment h4,
 .calendar-event-confirmation h4 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
 }
@@ -2570,7 +2574,7 @@ h1 {
 .calendar-event-assignment > label {
   display: grid;
   gap: 0.4rem;
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -2581,10 +2585,11 @@ h1 {
   width: 100%;
   min-height: 3rem;
   padding: 0.75rem 0.9rem;
-  border: 1px solid #aaa99f;
+  border: 1px solid var(--enma-v3-border-strong, rgba(205, 162, 229, 0.20));
   border-radius: 0.5rem;
-  color: #18221d;
-  background: #fff;
+  color: var(--enma-v3-text, #eee7f1);
+  background: rgba(255, 255, 255, 0.045);
+  color-scheme: dark;
   font: inherit;
 }
 
@@ -2605,7 +2610,7 @@ h1 {
   gap: 0.75rem 1.5rem;
   margin: 0;
   padding: 1rem;
-  border: 1px solid #d8d2c4;
+  border: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   border-radius: 0.5rem;
 }
 
@@ -2638,7 +2643,7 @@ h1 {
 }
 
 .calendar-event-selection span {
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.85rem;
 }
 
@@ -2664,19 +2669,19 @@ h1 {
   gap: 1px;
   margin: 1.25rem 0 0;
   overflow: hidden;
-  border: 1px solid #d8d2c4;
+  border: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   border-radius: 0.75rem;
-  background: #d8d2c4;
+  background: var(--enma-v3-border, rgba(228, 211, 237, 0.11));
 }
 
 .agenda-properties div {
   min-width: 0;
   padding: 1rem;
-  background: #fbfaf6;
+  background: rgba(255, 255, 255, 0.045);
 }
 
 .agenda-properties dt {
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.75rem;
   font-weight: 750;
   letter-spacing: 0.04em;
@@ -2730,7 +2735,7 @@ h1 {
 
 .team-header h2 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -2774,10 +2779,10 @@ h1 {
   width: 100%;
   min-height: 3rem;
   padding: 0.75rem 0.9rem;
-  border: 1px solid #aaa99f;
+  border: 1px solid var(--enma-v3-border-strong, rgba(164, 91, 214, 0.28));
   border-radius: 0.5rem;
-  color: #18221d;
-  background: #fff;
+  color: var(--enma-v3-text, #eee7f1);
+  background: #211b26;
   font: inherit;
 }
 
@@ -2828,7 +2833,7 @@ h1 {
 }
 
 .team-state h3 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.35rem;
   font-weight: 500;
 }
@@ -3002,7 +3007,7 @@ h1 {
 
 .invitations-header h2 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   font-weight: 500;
 }
@@ -3086,7 +3091,7 @@ h1 {
 }
 
 .invitations-state h3 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.4rem;
   font-weight: 500;
 }
@@ -3244,7 +3249,7 @@ h1 {
 
 .audit-log-header h2 {
   margin: 0.35rem 0 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(1.75rem, 4vw, 2.4rem);
   font-weight: 500;
 }
@@ -3278,7 +3283,7 @@ h1 {
 }
 
 .audit-filter-control label {
-  color: #34483f;
+  color: var(--enma-ui-label);
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -3317,7 +3322,7 @@ h1 {
 
 .audit-log-state h3 {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.5rem;
   font-weight: 500;
 }
@@ -3671,7 +3676,7 @@ h1 {
 
   .agenda-mobile-day h4 {
     margin: 0 0 0.5rem;
-    font-family: Georgia, "Times New Roman", serif;
+    font-family: var(--enma-ui-font-display);
     font-size: 1rem;
     text-transform: capitalize;
   }

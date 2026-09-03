@@ -66,12 +66,8 @@
   align-items: center;
   min-height: 3.4rem;
   padding: 0.82rem 0.95rem;
-  color: #74867d;
-  background: linear-gradient(
-    180deg,
-    rgba(250, 252, 250, 0.36),
-    rgba(246, 249, 246, 0.22)
-  );
+  color: var(--dash-muted);
+  background: #27212c;
 }
 
 /* Bring secondary priorities closer when the operational cards are empty. */

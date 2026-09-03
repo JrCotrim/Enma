@@ -10,10 +10,10 @@
 
 .tasks-page,
 .task-details-page {
-  --tasks-border: rgba(25, 72, 51, 0.12);
-  --tasks-text: #183126;
-  --tasks-muted: #61766c;
-  --tasks-accent: #0f5a40;
+  --tasks-border: var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  --tasks-text: var(--enma-v3-text, #eee7f1);
+  --tasks-muted: var(--enma-v3-muted, #b1a5b6);
+  --tasks-accent: #a45bd6;
   --tasks-danger: #963c37;
 
   color: var(--tasks-text);
@@ -47,7 +47,7 @@
 .tasks-header .eyebrow,
 .task-details-header .eyebrow {
   margin-bottom: 0.48rem;
-  color: #60776c;
+  color: #a96bce;
   font-size: 0.68rem;
   font-weight: 780;
   letter-spacing: 0.12em;
@@ -68,12 +68,12 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.86),
-      rgba(249, 252, 249, 0.66)
+      rgba(255, 255, 255, 0.062),
+      rgba(255, 255, 255, 0.03)
     ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    0 12px 34px rgba(24, 60, 43, 0.055) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 34px rgba(0, 0, 0, 0.055) !important;
   backdrop-filter: blur(18px) saturate(118%);
   -webkit-backdrop-filter: blur(18px) saturate(118%);
   align-self: start;
@@ -83,7 +83,7 @@
 .task-edit-form > h2 {
   margin: 0 0 0.95rem;
   color: var(--tasks-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.25rem;
   font-weight: 500;
 }
@@ -122,14 +122,14 @@
   min-width: 0;
   margin: 0.35rem 0 0;
   padding: 0.95rem;
-  border: 1px solid rgba(25, 72, 51, 0.10);
+  border: 1px solid rgba(228, 211, 237, 0.10);
   border-radius: 0.8rem;
-  background: rgba(249, 252, 249, 0.56);
+  background: rgba(255, 255, 255, 0.032);
 }
 
 .task-relation-fieldset legend {
   padding: 0 0.3rem;
-  color: #40584d;
+  color: var(--tasks-muted);
   font-size: 0.74rem;
   font-weight: 760;
 }
@@ -147,7 +147,7 @@
   gap: 0.8rem;
   margin-bottom: 0.7rem;
   padding: 0.65rem 0.72rem;
-  border: 1px solid rgba(15, 90, 64, 0.10);
+  border: 1px solid rgba(164, 91, 214, 0.10);
   border-radius: 0.72rem;
   background: rgba(71, 151, 108, 0.08);
 }
@@ -160,7 +160,7 @@
 }
 
 .task-selected-relation strong {
-  color: #285b43;
+  color: #dec4ed;
   font-size: 0.8rem;
 }
 
@@ -174,9 +174,9 @@
   max-width: 100%;
   margin: 0.2rem 0 0;
   padding: 0.55rem 0.68rem;
-  border: 1px solid rgba(15, 90, 64, 0.10);
+  border: 1px solid rgba(164, 91, 214, 0.10);
   border-radius: 0.68rem;
-  color: #2d6048;
+  color: #d9cbe0;
   background: rgba(71, 151, 108, 0.08);
   font-size: 0.76rem;
 }
@@ -228,9 +228,9 @@
   gap: 0.5rem;
   margin-top: 0.7rem;
   padding: 0.78rem;
-  border: 1px solid rgba(25, 72, 51, 0.09);
+  border: 1px solid rgba(228, 211, 237, 0.09);
   border-radius: 0.78rem;
-  background: rgba(248, 251, 248, 0.58);
+  background: rgba(255, 255, 255, 0.032);
 }
 
 .task-lookup-search-row {
@@ -250,10 +250,10 @@
 .task-lookup-status {
   margin: 0;
   padding: 0.66rem 0.72rem;
-  border: 1px solid rgba(25, 72, 51, 0.08);
+  border: 1px solid rgba(228, 211, 237, 0.08);
   border-radius: 0.68rem;
   color: var(--tasks-muted);
-  background: rgba(255, 255, 255, 0.56);
+  background: rgba(255, 255, 255, 0.038);
   font-size: 0.76rem;
 }
 
@@ -279,7 +279,7 @@
   border: 1px solid var(--tasks-border);
   border-radius: 0.7rem;
   color: var(--tasks-accent);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.045);
   font: inherit;
   font-size: 0.78rem;
   font-weight: 720;
@@ -295,8 +295,8 @@
 
 .task-lookup-result:hover:not(:disabled),
 .task-lookup-result[aria-pressed="true"] {
-  border-color: rgba(15, 90, 64, 0.28);
-  background: rgba(15, 90, 64, 0.07);
+  border-color: rgba(164, 91, 214, 0.28);
+  background: rgba(164, 91, 214, 0.07);
 }
 
 .task-lookup-more {
@@ -315,12 +315,12 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.82),
-      rgba(249, 252, 249, 0.62)
+      rgba(255, 255, 255, 0.058),
+      rgba(255, 255, 255, 0.028)
     ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.76),
-    0 10px 30px rgba(24, 60, 43, 0.045) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 30px rgba(0, 0, 0, 0.045) !important;
   backdrop-filter: blur(16px) saturate(116%);
   -webkit-backdrop-filter: blur(16px) saturate(116%);
 }
@@ -344,7 +344,7 @@
 .task-filter-control > span:first-child,
 .task-filter-control > label {
   margin-bottom: 0.45rem;
-  color: #40584d;
+  color: var(--tasks-muted);
   font-size: 0.74rem;
   font-weight: 760;
 }
@@ -358,10 +358,10 @@
 }
 
 .task-state-filter .secondary-button[aria-pressed="true"] {
-  border-color: rgba(15, 90, 64, 0.34);
-  color: #174f3b;
-  background: rgba(15, 90, 64, 0.09);
-  box-shadow: inset 0 0 0 1px rgba(15, 90, 64, 0.05);
+  border-color: rgba(164, 91, 214, 0.34);
+  color: #f2ddff;
+  background: rgba(164, 91, 214, 0.09);
+  box-shadow: inset 0 0 0 1px rgba(164, 91, 214, 0.05);
 }
 
 .task-filter-control {
@@ -375,10 +375,10 @@
   display: flex;
   align-items: center;
   padding: 0.62rem 0.7rem;
-  border: 1px solid rgba(25, 72, 51, 0.08);
+  border: 1px solid rgba(228, 211, 237, 0.08);
   border-radius: 0.68rem;
   color: var(--tasks-muted);
-  background: rgba(255, 255, 255, 0.48);
+  background: rgba(255, 255, 255, 0.035);
   font-size: 0.76rem;
 }
 
@@ -393,14 +393,14 @@
   gap: 0.7rem;
   min-height: 2.65rem;
   padding: 0.58rem 0.68rem;
-  border: 1px solid rgba(15, 90, 64, 0.10);
+  border: 1px solid rgba(164, 91, 214, 0.10);
   border-radius: 0.68rem;
   background: rgba(71, 151, 108, 0.08);
 }
 
 .task-active-filter > span {
   min-width: 0;
-  color: #2d6048;
+  color: #dec4ed;
   font-size: 0.76rem;
   overflow-wrap: anywhere;
 }
@@ -414,19 +414,19 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.82),
-      rgba(249, 252, 249, 0.62)
+      rgba(255, 255, 255, 0.058),
+      rgba(255, 255, 255, 0.028)
     ) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.76),
-    0 10px 28px rgba(24, 60, 43, 0.045);
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 28px rgba(0, 0, 0, 0.045);
 }
 
 .tasks-state h1,
 .tasks-state h2,
 .tasks-state h3 {
   color: var(--tasks-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-weight: 500;
 }
 
@@ -465,7 +465,7 @@
 }
 
 .task-detail-link:hover {
-  color: #0b4d36;
+  color: #e1b6f2;
 }
 
 .tasks-pagination {
@@ -476,7 +476,7 @@
 
 .task-details-page > .home-link {
   width: fit-content;
-  color: #557066;
+  color: #b87bd9;
   font-size: 0.76rem;
   font-weight: 700;
   text-decoration: none;
@@ -497,13 +497,13 @@
   justify-content: space-between;
   gap: 1.25rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(25, 72, 51, 0.08);
+  border-bottom: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .task-details-header h1 {
   margin: 0;
   color: var(--tasks-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: clamp(2rem, 3vw, 2.7rem);
   font-weight: 500;
   line-height: 1.05;
@@ -531,12 +531,12 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.78),
-      rgba(249, 252, 249, 0.60)
+      rgba(255, 255, 255, 0.04),
+      rgba(255, 255, 255, 0.03)
     );
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.74),
-    0 10px 28px rgba(24, 60, 43, 0.04);
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 28px rgba(0, 0, 0, 0.04);
 }
 
 .task-assignment-header {
@@ -549,7 +549,7 @@
 .task-assignment-header h2 {
   margin: 0;
   color: var(--tasks-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--enma-ui-font-display);
   font-size: 1.1rem;
   font-weight: 500;
 }
@@ -565,7 +565,7 @@
   gap: 0.5rem;
   width: min(100%, 42rem);
   padding-top: 0.75rem;
-  border-top: 1px solid rgba(25, 72, 51, 0.08);
+  border-top: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .task-assignment-form select {
@@ -583,12 +583,12 @@
   background:
     linear-gradient(
       145deg,
-      rgba(255, 255, 255, 0.84),
-      rgba(249, 252, 249, 0.64)
+      rgba(255, 255, 255, 0.058),
+      rgba(255, 255, 255, 0.028)
     );
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    0 12px 34px rgba(24, 60, 43, 0.05);
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 34px rgba(0, 0, 0, 0.05);
   backdrop-filter: blur(18px) saturate(116%);
   -webkit-backdrop-filter: blur(18px) saturate(116%);
   align-self: start;
@@ -597,16 +597,16 @@
 .task-properties > div {
   min-width: 0;
   padding: 1rem 1.05rem;
-  border-bottom: 1px solid rgba(25, 72, 51, 0.08);
+  border-bottom: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .task-properties > div:not(:nth-child(3n + 1)) {
-  border-left: 1px solid rgba(25, 72, 51, 0.08);
+  border-left: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .task-properties dt {
   margin-bottom: 0.36rem;
-  color: #60766b;
+  color: var(--tasks-muted);
   font-size: 0.64rem;
   font-weight: 780;
   letter-spacing: 0.07em;
@@ -666,11 +666,11 @@
 
   .task-properties > div {
     border-left: 0 !important;
-    border-bottom: 1px solid rgba(25, 72, 51, 0.08) !important;
+    border-bottom: 1px solid rgba(228, 211, 237, 0.08) !important;
   }
 
   .task-properties > div:nth-child(even) {
-    border-left: 1px solid rgba(25, 72, 51, 0.08) !important;
+    border-left: 1px solid rgba(228, 211, 237, 0.08) !important;
   }
 
   .task-description-property {
@@ -773,7 +773,7 @@
   .task-description-property {
     grid-column: auto;
     border-left: 0 !important;
-    border-bottom: 1px solid rgba(25, 72, 51, 0.08) !important;
+    border-bottom: 1px solid rgba(228, 211, 237, 0.08) !important;
   }
 
   .task-properties > div:last-child {

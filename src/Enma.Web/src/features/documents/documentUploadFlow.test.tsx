@@ -310,7 +310,9 @@ describe('Documents D2 upload flow', () => {
     await screen.findByRole('button', { name: 'Enviando...' })
 
     await act(async () => router.navigate(documentsPath(organizationB.id)))
-    expect(await screen.findByRole('heading', { name: 'Organização Beta' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Nenhum documento disponível' }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Enviar documento' })).not.toBeInTheDocument()
 
     await act(async () => {

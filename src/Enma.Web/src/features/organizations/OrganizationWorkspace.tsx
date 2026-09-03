@@ -1,59 +1,26 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { AuthenticatedLogout } from '../authentication/AuthenticatedLogout'
-import { NotificationCenter } from '../notifications/NotificationCenter'
-import {
-  useCurrentOrganization,
-  useOrganizationDiscovery,
-} from './OrganizationContext'
-import { getOrganizationRoleLabel } from './organizationTypes'
+import { useCurrentOrganization } from './OrganizationContext'
+import { WorkspaceControlCenter } from './WorkspaceControlCenter'
 
 export function OrganizationWorkspace() {
   const { currentOrganization, organizations } = useCurrentOrganization()
-  const { refreshOrganizations } = useOrganizationDiscovery()
   const navigate = useNavigate()
 
   return (
     <section className="organization-workspace" aria-labelledby="workspace-title">
+      <h1 id="workspace-title" className="workspace-title-sr">
+        Espaço de trabalho: {currentOrganization.name}
+      </h1>
+
       <div className="workspace-toolbar">
-        <div className="organization-switcher">
-          <label htmlFor="organization-switcher">Organização atual</label>
-          <select
-            id="organization-switcher"
-            value={currentOrganization.id}
-            onChange={(event) => {
-              navigate(`/organizations/${event.target.value}`)
-            }}
-          >
-            {organizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>
-                {organization.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="workspace-actions">
-          <NotificationCenter
-            key={currentOrganization.id}
-            organizationId={currentOrganization.id}
-          />
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={refreshOrganizations}
-          >
-            Atualizar organizações
-          </button>
-          <AuthenticatedLogout />
-        </div>
-      </div>
-
-      <div className="workspace-context">
-        <p className="eyebrow">Espaço de trabalho</p>
-        <h1 id="workspace-title">{currentOrganization.name}</h1>
-        <p className="organization-role">
-          Seu papel: {getOrganizationRoleLabel(currentOrganization.role)}
-        </p>
+        <WorkspaceControlCenter
+          key={currentOrganization.id}
+          currentOrganization={currentOrganization}
+          organizations={organizations}
+          onSelectOrganization={(organizationId) => {
+            navigate(`/organizations/${organizationId}`)
+          }}
+        />
       </div>
 
       <nav className="workspace-navigation" aria-label="Navegação da organização">
@@ -137,7 +104,9 @@ export function OrganizationWorkspace() {
                 `workspace-navigation-link${isActive ? ' is-active' : ''}`
               }
               to="audit-log"
-            >Auditoria</NavLink>
+            >
+              Auditoria
+            </NavLink>
           </>
         ) : null}
       </nav>

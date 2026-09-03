@@ -514,14 +514,21 @@ describe('Clients D2 flow', () => {
     const router = renderRoute(detailPath(organizationA, clientA))
 
     await screen.findByRole('heading', { name: clientA.name })
-    fireEvent.change(screen.getByLabelText('Organização atual'), {
-      target: { value: organizationB.id },
-    })
+    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: `Trocar para ${organizationB.name}`,
+      }),
+    )
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe(`/organizations/${organizationB.id}`)
     })
-    expect(screen.getByRole('heading', { name: organizationB.name })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', {
+        name: `Espaço de trabalho: ${organizationB.name}`,
+      }),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: clientA.name })).not.toBeInTheDocument()
   })
 })
