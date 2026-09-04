@@ -18,12 +18,23 @@ import {
   getDashboard,
 } from './dashboardService'
 import type { DashboardResponse } from './dashboardTypes'
+import {
+  getDashboardSupplementaryData,
+  type DashboardSupplementaryData,
+} from './dashboardSupplementaryService'
 
 vi.mock('./dashboardService', async () => {
   const actual = await vi.importActual<typeof import('./dashboardService')>(
     './dashboardService',
   )
   return { ...actual, getDashboard: vi.fn() }
+})
+
+vi.mock('./dashboardSupplementaryService', async () => {
+  const actual = await vi.importActual<
+    typeof import('./dashboardSupplementaryService')
+  >('./dashboardSupplementaryService')
+  return { ...actual, getDashboardSupplementaryData: vi.fn() }
 })
 
 const organizationA: OrganizationNavigationItem = {
@@ -61,6 +72,19 @@ function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardRespons
       tasks: [],
       calendarEvents: [],
     },
+    ...overrides,
+  }
+}
+
+function supplementary(
+  overrides: Partial<DashboardSupplementaryData> = {},
+): DashboardSupplementaryData {
+  return {
+    processes: { status: 'success', items: [] },
+    documents: { status: 'success', items: [] },
+    invitations: null,
+    auditLogs: null,
+    team: { status: 'success', items: [], totalCount: 0 },
     ...overrides,
   }
 }
@@ -150,6 +174,8 @@ function renderDashboard(options?: {
 
 beforeEach(() => {
   vi.mocked(getDashboard).mockReset()
+  vi.mocked(getDashboardSupplementaryData).mockReset()
+  vi.mocked(getDashboardSupplementaryData).mockResolvedValue(supplementary())
 })
 
 afterEach(() => {
@@ -196,23 +222,27 @@ describe('DashboardPage', () => {
     )
   })
 
-  it('Attention_RendersSeparateExactBucketsAndActionableDestinations', async () => {
+  it('Attention_IsIntegratedIntoDeadlineAndTaskKpis', async () => {
     vi.mocked(getDashboard).mockResolvedValue(dashboard())
 
     renderDashboard()
 
-    await screen.findByRole('heading', { name: 'Pontos de atenção' })
-    expect(screen.getAllByText('Vencidos')).toHaveLength(2)
-    expect(screen.getAllByText('Hoje')).toHaveLength(2)
-    expect(screen.getAllByText('Próximos 7 dias')).toHaveLength(2)
-    expect(screen.getByRole('link', { name: /Prazos Vencidos 1 Hoje 2/ })).toHaveAttribute(
+    const deadlines = await screen.findByRole('link', {
+      name: /Prazos pendentes: 5\. 1 vencido/,
+    })
+    const tasks = screen.getByRole('link', {
+      name: /Tarefas pendentes: 9\. 2 vencidas/,
+    })
+
+    expect(deadlines).toHaveAttribute(
       'href',
       `/organizations/${organizationA.id}/deadlines`,
     )
-    expect(screen.getByRole('link', { name: /Tarefas Vencidos 2 Hoje 1/ })).toHaveAttribute(
+    expect(tasks).toHaveAttribute(
       'href',
       `/organizations/${organizationA.id}/tasks`,
     )
+    expect(screen.queryByRole('heading', { name: 'Pontos de atenção' })).not.toBeInTheDocument()
   })
 
   it('ZeroValues_AreRenderedAsValidMetricsWithoutError', async () => {
@@ -234,22 +264,22 @@ describe('DashboardPage', () => {
     renderDashboard()
 
     expect(await screen.findByRole('link', { name: /Clientes ativos: 0/ })).toBeInTheDocument()
-    expect(screen.getAllByText('0')).toHaveLength(10)
+    expect(screen.getAllByText('0')).toHaveLength(4)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('EmptyUpcoming_ShowsConciseBoundedEmptyStateAndFormattedThroughDate', async () => {
+  it('EmptyUpcoming_UsesCompactPerModuleEmptyStates', async () => {
     vi.mocked(getDashboard).mockResolvedValue(dashboard())
 
     renderDashboard()
 
-    expect(
-      await screen.findByText('Nenhum compromisso pendente para hoje e os próximos 7 dias.'),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Até 31/08/2026')).toBeInTheDocument()
+    expect(await screen.findByText('Nenhum evento no período.')).toBeInTheDocument()
+    expect(screen.getByText('Nenhum prazo no período.')).toBeInTheDocument()
+    expect(screen.getByText('Nenhuma tarefa no período.')).toBeInTheDocument()
+    expect(screen.queryByText(/Até 31\/08\/2026/)).not.toBeInTheDocument()
   })
 
-  it('UpcomingDeadline_RendersPriorityMetadataAndDetailNavigation', async () => {
+  it('UpcomingDeadline_RendersTemporalBadgeMetadataAndDetailNavigation', async () => {
     vi.mocked(getDashboard).mockResolvedValue(
       dashboard({
         upcoming: {
@@ -276,7 +306,7 @@ describe('DashboardPage', () => {
       'href',
       `/organizations/${organizationA.id}/deadlines/${deadlineId}`,
     )
-    expect(link).toHaveTextContent('25/08/2026')
+    expect(link).toHaveTextContent('Amanhã')
     expect(link).toHaveTextContent('Cliente Alfa')
     expect(link).toHaveTextContent('Ação contratual')
   })
@@ -309,12 +339,12 @@ describe('DashboardPage', () => {
       'href',
       `/organizations/${organizationA.id}/tasks/${taskId}`,
     )
-    expect(link).toHaveTextContent('26/08/2026')
+    expect(link).toHaveTextContent('26/08')
     expect(link).not.toHaveTextContent('-')
     expect(link).not.toHaveTextContent('Responsável:')
   })
 
-  it('UpcomingEvent_UsesLocalAgendaFormattingAndNavigatesToAgenda', async () => {
+  it('UpcomingEvent_UsesCompactLocalAgendaFormattingAndNavigatesToAgenda', async () => {
     const startsAt = '2026-08-27T13:00:00Z'
     const endsAt = '2026-08-27T14:00:00Z'
     vi.mocked(getDashboard).mockResolvedValue(
@@ -341,26 +371,120 @@ describe('DashboardPage', () => {
     renderDashboard()
 
     const link = await screen.findByRole('link', { name: /Audiência/ })
-    const formatter = new Intl.DateTimeFormat('pt-BR', {
-      dateStyle: 'short',
-      timeStyle: 'short',
+    const dayFormatter = new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+    })
+    const timeFormatter = new Intl.DateTimeFormat('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
     })
     expect(link).toHaveAttribute('href', `/organizations/${organizationA.id}/agenda`)
-    expect(link).toHaveTextContent(formatter.format(new Date(startsAt)))
-    expect(link).toHaveTextContent(formatter.format(new Date(endsAt)))
-    expect(link).toHaveTextContent('Responsável: Ana Lima')
+    expect(link).toHaveTextContent(dayFormatter.format(new Date(startsAt)))
+    expect(link).toHaveTextContent(timeFormatter.format(new Date(startsAt)))
+    expect(link).toHaveTextContent(timeFormatter.format(new Date(endsAt)))
+    expect(link).toHaveTextContent('Cliente Beta')
+    expect(link).toHaveTextContent('Ana Lima')
   })
 
-  it('UpcomingHeader_ProvidesAgendaNavigation', async () => {
+  it('OperationalCards_ProvideFeatureNavigation', async () => {
     vi.mocked(getDashboard).mockResolvedValue(dashboard())
 
     renderDashboard()
 
-    expect(await screen.findByRole('heading', { name: 'Próximos compromissos' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Ver Agenda' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Ver agenda' })).toHaveAttribute(
       'href',
       `/organizations/${organizationA.id}/agenda`,
     )
+    expect(screen.getByRole('link', { name: 'Ver todos os prazos' })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/deadlines`,
+    )
+    expect(screen.getByRole('link', { name: 'Ver todas as tarefas' })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/tasks`,
+    )
+    expect(screen.getByRole('link', { name: 'Ver todos os processos' })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/processes`,
+    )
+    expect(screen.getByRole('link', { name: 'Ver todos os documentos' })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/documents`,
+    )
+    expect(screen.getByRole('link', { name: 'Ver equipe' })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/team`,
+    )
+  })
+
+  it('SupplementaryModules_RenderRealMemberDataWithoutAdminSurfaces', async () => {
+    vi.mocked(getDashboard).mockResolvedValue(dashboard())
+    vi.mocked(getDashboardSupplementaryData).mockResolvedValue(
+      supplementary({
+        processes: {
+          status: 'success',
+          items: [
+            {
+              id: '66666666-6666-4666-8666-666666666666',
+              title: 'Ação indenizatória',
+              clientId: '77777777-7777-4777-8777-777777777777',
+              clientName: 'Cliente Gama',
+              createdAt: '2026-08-24T12:00:00Z',
+            },
+          ],
+        },
+        documents: {
+          status: 'success',
+          items: [
+            {
+              id: '88888888-8888-4888-8888-888888888888',
+              clientId: null,
+              processId: null,
+              originalFileName: 'Contrato.pdf',
+              contentType: 'application/pdf',
+              sizeBytes: 1024,
+              createdAt: '2026-08-24T13:00:00Z',
+            },
+          ],
+        },
+        team: {
+          status: 'success',
+          items: [
+            {
+              id: organizationA.membershipId,
+              name: 'João Silva',
+              role: 'Member',
+            },
+          ],
+          totalCount: 1,
+        },
+      }),
+    )
+
+    renderDashboard()
+
+    expect(
+      await screen.findByRole('heading', { name: 'Processos recentes' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Ação indenizatória/ })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/processes/66666666-6666-4666-8666-666666666666`,
+    )
+    expect(screen.getByRole('link', { name: /Contrato\.pdf/ })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/documents/88888888-8888-4888-8888-888888888888`,
+    )
+    expect(screen.getByRole('link', { name: 'João Silva, Membro' })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/team`,
+    )
+    expect(
+      screen.queryByRole('heading', { name: 'Convites pendentes' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Auditoria recente' }),
+    ).not.toBeInTheDocument()
   })
 
   it('RecoverableError_ShowsSafeInlineAlertWithoutStaleData', async () => {

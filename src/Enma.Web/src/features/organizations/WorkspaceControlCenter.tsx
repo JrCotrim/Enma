@@ -3,9 +3,16 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type ReactNode,
 } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import {
+  AnimatedBellIcon,
+  type AnimatedBellIconHandle,
+} from '../../components/icons/AnimatedBellIcon'
+import {
+  AnimatedUserIcon,
+  type AnimatedUserIconHandle,
+} from '../../components/icons/AnimatedUserIcon'
 import { AuthenticatedLogout } from '../authentication/AuthenticatedLogout'
 import { NotificationCenter } from '../notifications/NotificationCenter'
 import {
@@ -21,23 +28,6 @@ interface WorkspaceControlCenterProps {
   onSelectOrganization(organizationId: string): void
 }
 
-function UserIcon(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <circle cx="12" cy="8" r="3.25" />
-      <path d="M5.5 19c.75-3.5 3.15-5.25 6.5-5.25S17.75 15.5 18.5 19" />
-    </svg>
-  )
-}
-
-function BellIcon(): ReactNode {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
-    </svg>
-  )
-}
-
 export function WorkspaceControlCenter({
   currentOrganization,
   organizations,
@@ -46,6 +36,8 @@ export function WorkspaceControlCenter({
   const rootRef = useRef<HTMLDivElement>(null)
   const profileTabRef = useRef<HTMLButtonElement>(null)
   const notificationTabRef = useRef<HTMLButtonElement>(null)
+  const profileIconRef = useRef<AnimatedUserIconHandle>(null)
+  const notificationIconRef = useRef<AnimatedBellIconHandle>(null)
   const prefersReducedMotion = useReducedMotion()
   const [activeTab, setActiveTab] = useState<WorkspaceControlTab>('profile')
   const [isOpen, setIsOpen] = useState(false)
@@ -158,8 +150,16 @@ export function WorkspaceControlCenter({
           aria-expanded={isOpen && activeTab === 'profile'}
           onClick={() => activateTab('profile')}
           onKeyDown={(event) => handleTabKeyDown(event, 'profile')}
+          onMouseEnter={() => profileIconRef.current?.startAnimation()}
+          onMouseLeave={() => profileIconRef.current?.stopAnimation()}
+          onFocus={() => profileIconRef.current?.startAnimation()}
+          onBlur={() => profileIconRef.current?.stopAnimation()}
         >
-          <span className="workspace-control-icon">{UserIcon()}</span>
+          <AnimatedUserIcon
+            ref={profileIconRef}
+            className="workspace-control-icon"
+            size={17}
+          />
           <span>Perfil</span>
         </button>
 
@@ -174,22 +174,16 @@ export function WorkspaceControlCenter({
           aria-expanded={isOpen && activeTab === 'notifications'}
           onClick={() => activateTab('notifications')}
           onKeyDown={(event) => handleTabKeyDown(event, 'notifications')}
+          onMouseEnter={() => notificationIconRef.current?.startAnimation()}
+          onMouseLeave={() => notificationIconRef.current?.stopAnimation()}
+          onFocus={() => notificationIconRef.current?.startAnimation()}
+          onBlur={() => notificationIconRef.current?.stopAnimation()}
         >
-          <motion.span
-            key={notificationPulseKey}
+          <AnimatedBellIcon
+            ref={notificationIconRef}
             className="workspace-control-icon"
-            animate={
-              notificationPulseKey > 0 && !prefersReducedMotion
-                ? {
-                    rotate: [0, -12, 10, -7, 5, 0],
-                    scale: [1, 1.04, 1, 1.025, 1],
-                  }
-                : undefined
-            }
-            transition={{ duration: 0.72, ease: 'easeOut' }}
-          >
-            {BellIcon()}
-          </motion.span>
+            size={17}
+          />
           <span>Notificações</span>
           {unreadCount > 0 ? (
             <motion.span
@@ -212,6 +206,7 @@ export function WorkspaceControlCenter({
         onUnreadCountChange={setUnreadCount}
         onNewNotification={() => {
           setNotificationPulseKey((key) => key + 1)
+          notificationIconRef.current?.startAnimation()
         }}
       />
 
