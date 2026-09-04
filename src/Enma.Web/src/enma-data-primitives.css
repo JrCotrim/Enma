@@ -265,14 +265,16 @@
 }
 
 .invitation-feedback.is-accepted {
-  color: #276348 !important;
-  background: rgba(71, 151, 108, 0.12) !important;
+  color: #9fe5bd !important;
+  border-color: #2e6c4b !important;
+  background: #173b2a !important;
 }
 
 .invitation-feedback.is-failed,
 .invitation-mutation-error {
-  color: #7c4840 !important;
-  background: rgba(157, 93, 78, 0.10) !important;
+  color: #f0b0aa !important;
+  border-color: #6d4541 !important;
+  background: #3d2928 !important;
 }
 
 .audit-entity-id,
@@ -298,7 +300,7 @@
     .invitations-page,
     .audit-log-page
   ) table tr {
-    border-color: var(--enma-ui-border) !important;
+    border-color: var(--enma-v3-border, rgba(228, 211, 237, 0.11)) !important;
   }
 
   :where(

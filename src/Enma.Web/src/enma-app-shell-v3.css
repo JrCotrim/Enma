@@ -733,6 +733,9 @@ body:has(.organization-workspace) :is(.agenda-toolbar, .agenda-weekdays) {
     border-color: var(--enma-v3-border);
     color: var(--enma-v3-text);
     background: #201a24;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   body:has(.organization-workspace) :where(
@@ -811,6 +814,31 @@ body:has(.organization-workspace) :where(
   border-color: var(--enma-v3-border-strong);
   background: #251f2b;
   box-shadow: none;
+}
+
+body:has(.organization-workspace)
+  .agenda-month-navigation
+  .secondary-button {
+  color: var(--enma-v3-text);
+  border-color: var(--enma-v3-border-strong);
+  background: #251f2b;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+body:has(.organization-workspace)
+  .agenda-month-navigation
+  .secondary-button:hover:not(:disabled) {
+  color: var(--enma-v3-text-strong);
+  border-color: rgba(210, 166, 235, 0.34);
+  background: var(--enma-v3-surface-hover);
+}
+
+body:has(.organization-workspace)
+  .agenda-month-navigation
+  .secondary-button:focus-visible {
+  outline-color: #a45bd6;
 }
 
 
@@ -1321,7 +1349,7 @@ body:has(.organization-workspace) :where(
 
 body:has(.organization-workspace) :where(
   .organization-name-form input,
-  .team-search-row input,
+  .team-search input,
   .team-filter-control select
 ) {
   color: var(--enma-v3-text) !important;
@@ -1332,10 +1360,20 @@ body:has(.organization-workspace) :where(
 
 body:has(.organization-workspace) :where(
   .organization-name-form input,
-  .team-search-row input
+  .team-search input
 )::placeholder {
   color: #817587;
   opacity: 1;
+}
+
+body:has(.organization-workspace) :where(
+  .organization-name-form input,
+  .team-search input,
+  .team-filter-control select,
+  .audit-filter-control input,
+  .audit-filter-control select
+):focus-visible {
+  outline-color: #a45bd6;
 }
 
 body:has(.organization-workspace) .team-page table tbody a,

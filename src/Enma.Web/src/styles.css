@@ -1159,12 +1159,12 @@ h1 {
 .clients-table th,
 .clients-table td {
   padding: 1rem;
-  border-bottom: 1px solid #d8d2c4;
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   text-align: left;
 }
 
 .clients-table th {
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1366,12 +1366,12 @@ h1 {
 .processes-table th,
 .processes-table td {
   padding: 1rem;
-  border-bottom: 1px solid #d8d2c4;
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   text-align: left;
 }
 
 .processes-table th {
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1574,12 +1574,12 @@ h1 {
 .deadlines-table th,
 .deadlines-table td {
   padding: 1rem;
-  border-bottom: 1px solid #d8d2c4;
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   text-align: left;
 }
 
 .deadlines-table th {
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1838,13 +1838,13 @@ h1 {
 .tasks-table th,
 .tasks-table td {
   padding: 1rem;
-  border-bottom: 1px solid #d8d2c4;
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   text-align: left;
   overflow-wrap: anywhere;
 }
 
 .tasks-table th {
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2082,13 +2082,13 @@ h1 {
 .documents-table th,
 .documents-table td {
   padding: 1rem;
-  border-bottom: 1px solid #d8d2c4;
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   text-align: left;
   overflow-wrap: anywhere;
 }
 
 .documents-table th {
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2743,7 +2743,7 @@ h1 {
 .team-description {
   max-width: 42rem;
   margin: 0.75rem 0 0;
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   line-height: 1.5;
 }
 
@@ -2761,7 +2761,7 @@ h1 {
 .organization-name-form label,
 .team-search label,
 .team-filter-control label {
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -2803,7 +2803,7 @@ h1 {
   gap: 1.25rem;
   margin-top: 1.75rem;
   padding-bottom: 1.25rem;
-  border-bottom: 1px solid #d8d2c4;
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
 }
 
 .team-search,
@@ -2860,7 +2860,7 @@ h1 {
 
 .team-refresh-status {
   margin: 1rem 0 0;
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.9rem;
 }
 
@@ -2877,13 +2877,13 @@ h1 {
 .team-table th,
 .team-table td {
   padding: 0.85rem 0.75rem;
-  border-bottom: 1px solid #d8d2c4;
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   text-align: left;
   vertical-align: top;
 }
 
 .team-table th {
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.8rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2902,7 +2902,7 @@ h1 {
 .team-member-email,
 .team-action-unavailable,
 .team-confirmation-detail {
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.85rem;
   line-height: 1.45;
 }
@@ -3116,13 +3116,13 @@ h1 {
 .invitations-table th,
 .invitations-table td {
   padding: 0.9rem 0.75rem;
-  border-bottom: 1px solid #d8d2c4;
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   text-align: left;
   vertical-align: top;
 }
 
 .invitations-table th {
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.8rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3257,7 +3257,7 @@ h1 {
 .audit-log-description {
   max-width: 65ch;
   margin: 0.75rem 0 0;
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   line-height: 1.5;
 }
 
@@ -3265,9 +3265,9 @@ h1 {
 .audit-log-state {
   margin-top: 1.5rem;
   padding: 1.5rem;
-  border: 1px solid #d8d2c4;
+  border: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   border-radius: 0.75rem;
-  background: #fff;
+  background: #211b26;
 }
 
 .audit-log-filters {
@@ -3283,7 +3283,7 @@ h1 {
 }
 
 .audit-filter-control label {
-  color: var(--enma-ui-label);
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.9rem;
   font-weight: 700;
 }
@@ -3293,15 +3293,15 @@ h1 {
   width: 100%;
   min-height: 3rem;
   padding: 0.75rem 0.9rem;
-  border: 1px solid #aaa99f;
+  border: 1px solid var(--enma-v3-border-strong, rgba(164, 91, 214, 0.28));
   border-radius: 0.5rem;
-  color: #18221d;
-  background: #fff;
+  color: var(--enma-v3-text, #eee7f1);
+  background: #211b26;
   font: inherit;
 }
 
 .audit-filter-control small {
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   line-height: 1.4;
 }
 
@@ -3351,14 +3351,14 @@ h1 {
 .audit-log-table th,
 .audit-log-table td {
   padding: 1rem;
-  border-bottom: 1px solid #d8d2c4;
+  border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   text-align: left;
   vertical-align: top;
   overflow-wrap: anywhere;
 }
 
 .audit-log-table th {
-  color: #34483f;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.85rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3373,7 +3373,7 @@ h1 {
 .audit-membership-id {
   display: block;
   margin-top: 0.35rem;
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.78rem;
   line-height: 1.4;
   overflow-wrap: anywhere;
@@ -3391,7 +3391,7 @@ h1 {
 }
 
 .audit-details-list dt {
-  color: #547064;
+  color: var(--enma-v3-muted, #b1a5b6);
   font-size: 0.78rem;
   font-weight: 700;
 }
@@ -3411,7 +3411,7 @@ h1 {
 
 .audit-filter-control select:focus-visible,
 .audit-filter-control input:focus-visible {
-  outline: 3px solid #9ecdb6;
+  outline: 3px solid #a45bd6;
   outline-offset: 2px;
 }
 
@@ -3420,7 +3420,7 @@ h1 {
 .team-filter-control select:focus-visible,
 .team-danger-text-button:focus-visible,
 .team-header h2:focus-visible {
-  outline: 3px solid #9ecdb6;
+  outline: 3px solid #a45bd6;
   outline-offset: 2px;
 }
 
@@ -3515,7 +3515,7 @@ h1 {
 
   .invitations-table tr {
     padding: 0.5rem 0;
-    border-bottom: 1px solid #d8d2c4;
+    border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   }
 
   .invitations-table td {
@@ -3527,7 +3527,7 @@ h1 {
   }
 
   .invitations-table td::before {
-    color: #34483f;
+    color: var(--enma-v3-muted, #b1a5b6);
     content: attr(data-label);
     font-size: 0.8rem;
     font-weight: 750;
@@ -3590,7 +3590,7 @@ h1 {
 
   .audit-log-table tr {
     padding: 0.5rem 0;
-    border-bottom: 1px solid #d8d2c4;
+    border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   }
 
   .audit-log-table td {
@@ -3602,7 +3602,7 @@ h1 {
   }
 
   .audit-log-table td::before {
-    color: #34483f;
+    color: var(--enma-v3-muted, #b1a5b6);
     content: attr(data-label);
     font-size: 0.8rem;
     font-weight: 750;
@@ -3743,7 +3743,7 @@ h1 {
 
   .documents-table tr {
     padding: 0.5rem 0;
-    border-bottom: 1px solid #d8d2c4;
+    border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   }
 
   .documents-table td {
@@ -3755,7 +3755,7 @@ h1 {
   }
 
   .documents-table td::before {
-    color: #34483f;
+    color: var(--enma-v3-muted, #b1a5b6);
     content: attr(data-label);
     font-size: 0.8rem;
     font-weight: 750;
@@ -4011,7 +4011,7 @@ h1 {
 
   .tasks-table tr {
     padding: 0.5rem 0;
-    border-bottom: 1px solid #d8d2c4;
+    border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   }
 
   .tasks-table td {
@@ -4023,7 +4023,7 @@ h1 {
   }
 
   .tasks-table td::before {
-    color: #34483f;
+    color: var(--enma-v3-muted, #b1a5b6);
     content: attr(data-label);
     font-size: 0.8rem;
     font-weight: 750;
@@ -4032,7 +4032,7 @@ h1 {
 
   .deadlines-table tr {
     padding: 0.5rem 0;
-    border-bottom: 1px solid #d8d2c4;
+    border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   }
 
   .deadlines-table td {
@@ -4044,7 +4044,7 @@ h1 {
   }
 
   .deadlines-table td::before {
-    color: #34483f;
+    color: var(--enma-v3-muted, #b1a5b6);
     content: attr(data-label);
     font-size: 0.8rem;
     font-weight: 750;
@@ -4053,7 +4053,7 @@ h1 {
 
   .processes-table tr {
     padding: 0.5rem 0;
-    border-bottom: 1px solid #d8d2c4;
+    border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   }
 
   .processes-table td {
@@ -4065,7 +4065,7 @@ h1 {
   }
 
   .processes-table td::before {
-    color: #34483f;
+    color: var(--enma-v3-muted, #b1a5b6);
     content: attr(data-label);
     font-size: 0.8rem;
     font-weight: 750;
@@ -4074,7 +4074,7 @@ h1 {
 
   .clients-table tr {
     padding: 0.5rem 0;
-    border-bottom: 1px solid #d8d2c4;
+    border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   }
 
   .clients-table td {
@@ -4086,7 +4086,7 @@ h1 {
   }
 
   .clients-table td::before {
-    color: #34483f;
+    color: var(--enma-v3-muted, #b1a5b6);
     content: attr(data-label);
     font-size: 0.8rem;
     font-weight: 750;
@@ -4154,7 +4154,7 @@ h1 {
 
   .team-table tr {
     padding: 0.5rem 0;
-    border-bottom: 1px solid #d8d2c4;
+    border-bottom: 1px solid var(--enma-v3-border, rgba(228, 211, 237, 0.11));
   }
 
   .team-table td {
@@ -4166,7 +4166,7 @@ h1 {
   }
 
   .team-table td::before {
-    color: #34483f;
+    color: var(--enma-v3-muted, #b1a5b6);
     content: attr(data-label);
     font-size: 0.8rem;
     font-weight: 750;
