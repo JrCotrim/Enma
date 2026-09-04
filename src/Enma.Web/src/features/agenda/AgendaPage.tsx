@@ -37,9 +37,8 @@ import type {
   UpdateCalendarEventRequest,
 } from './agendaTypes'
 import { CalendarEventForm } from './CalendarEventForm'
+import { AgendaCompactBoard } from './AgendaCompactBoard'
 
-const weekdayLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-const visibleItemsPerCell = 3
 
 const monthFormatter = new Intl.DateTimeFormat('pt-BR', {
   month: 'long',
@@ -75,7 +74,6 @@ type Selection =
       readonly itemKind: AgendaItem['kind']
       readonly itemId: string
     }
-  | { readonly kind: 'day'; readonly date: string }
 
 type DetailState =
   | { readonly status: 'idle' }
@@ -655,98 +653,21 @@ function OrganizationAgendaPage({
         <p className="agenda-empty" role="status">Nenhum item neste período.</p>
       ) : null}
 
-      <div
-        className="agenda-calendar"
-        aria-busy={currentAgendaState.status === 'loading'}
-        aria-label={`Calendário de ${formatMonth(month)}`}
-      >
-        <div className="agenda-weekdays" aria-hidden="true">
-          {weekdayLabels.map((label) => <span key={label}>{label}</span>)}
-        </div>
-        <div className="agenda-grid">
-          {viewport.dates.map((dateKey) => {
-            const parts = parseCalendarDate(dateKey)!
-            const dateItems = itemsForDate(dateKey)
-            const overflowCount = dateItems.length - visibleItemsPerCell
-            const isAdjacent = parts.month !== month.month
-            const isToday = dateKey === calendarDateFromLocalDate(new Date())
-            return (
-              <section
-                className={`agenda-day${isAdjacent ? ' is-adjacent' : ''}${isToday ? ' is-today' : ''}`}
-                key={dateKey}
-                aria-label={formatFullDate(dateKey)}
-              >
-                <time dateTime={dateKey} className="agenda-day-number">{parts.day}</time>
-                <div className="agenda-day-items">
-                  {dateItems.slice(0, visibleItemsPerCell).map((item) => (
-                    <AgendaItemButton
-                      key={`${item.kind}:${item.id}`}
-                      item={item}
-                      dateKey={dateKey}
-                      onSelect={selectItem}
-                    />
-                  ))}
-                </div>
-                {overflowCount > 0 ? (
-                  <button
-                    className="agenda-more-button"
-                    type="button"
-                    onClick={() => {
-                      setSelection({ kind: 'day', date: dateKey })
-                      setIsCreating(false)
-                    }}
-                    aria-label={`Ver mais ${overflowCount} ${overflowCount === 1 ? 'item' : 'itens'} de ${formatFullDate(dateKey)}`}
-                  >
-                    +{overflowCount} mais
-                  </button>
-                ) : null}
-              </section>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="agenda-mobile-list" aria-label={`Lista de ${formatMonth(month)}`}>
-        {viewport.dates.map((dateKey) => {
-          const dateItems = itemsForDate(dateKey)
-          if (dateItems.length === 0) return null
-          return (
-            <section className="agenda-mobile-day" key={dateKey}>
-              <h4>{formatFullDate(dateKey)}</h4>
-              {dateItems.map((item) => (
-                <AgendaItemButton
-                  key={`${item.kind}:${item.id}`}
-                  item={item}
-                  dateKey={dateKey}
-                  onSelect={selectItem}
-                />
-              ))}
-            </section>
-          )
-        })}
-      </div>
-
-      {selection?.kind === 'day' ? (
-        <section className="agenda-detail-panel" aria-labelledby="agenda-day-detail-title">
-          <div className="agenda-detail-header">
-            <h3 id="agenda-day-detail-title">{formatFullDate(selection.date)}</h3>
-            <button className="text-button" type="button" onClick={() => setSelection(undefined)}>
-              Fechar
-            </button>
-          </div>
-          <div className="agenda-day-detail-items">
-            {itemsForDate(selection.date).map((item) => (
-              <AgendaItemButton
-                key={`${item.kind}:${item.id}`}
-                item={item}
-                dateKey={selection.date}
-                onSelect={selectItem}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
+      <AgendaCompactBoard
+        key={`${month.year}-${month.month}`}
+        month={month}
+        dates={viewport.dates}
+        itemsForDate={itemsForDate}
+        isLoading={currentAgendaState.status === 'loading'}
+        renderItem={(item, dateKey) => (
+          <AgendaItemButton
+            key={`${item.kind}:${item.id}`}
+            item={item}
+            dateKey={dateKey}
+            onSelect={selectItem}
+          />
+        )}
+      />
       {selectedItem && selectedItem.kind !== 'calendarEvent' ? (
         <section className="agenda-detail-panel" aria-labelledby="agenda-item-detail-title">
           <div className="agenda-detail-header">

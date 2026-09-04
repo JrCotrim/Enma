@@ -204,7 +204,7 @@ describe('Agenda E flow', () => {
       'href',
       `/organizations/${organizationA.id}/agenda`,
     )
-    expect(screen.getByRole('heading', { name: /Setembro de 2026/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^Setembro de 2026$/i })).toBeInTheDocument()
     expect(screen.getAllByRole('region', { name: /2026/ })).toHaveLength(42)
     expect((await screen.findAllByRole('button', { name: /Prazo: Prazo concluído, concluído/ })).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Tarefa: Tarefa pendente' }).length).toBeGreaterThan(0)
@@ -212,7 +212,11 @@ describe('Agenda E flow', () => {
     expect(screen.getAllByText('Prazo').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Tarefa').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Evento').length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /Ver mais 1 item/ })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', {
+        name: /1 de setembro de 2026, 4 compromissos/i,
+      }),
+    ).toBeInTheDocument()
 
     const firstAgendaUrl = fetchMock.mock.calls
       .map((call) => call[0].toString())
@@ -221,14 +225,14 @@ describe('Agenda E flow', () => {
     expect(firstFrom).toMatch(/^2026-08-30T00:00:00[+-]\d{2}:\d{2}$/)
 
     fireEvent.click(screen.getByRole('button', { name: 'Próximo mês' }))
-    expect(await screen.findByRole('heading', { name: /Outubro de 2026/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^Outubro de 2026$/i })).toBeInTheDocument()
     await waitFor(() => {
       expect(fetchMock.mock.calls.filter((call) => call[0].toString().includes('/agenda?'))).toHaveLength(2)
     })
     fireEvent.click(screen.getByRole('button', { name: 'Hoje' }))
-    expect(await screen.findByRole('heading', { name: /Setembro de 2026/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^Setembro de 2026$/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Mês anterior' }))
-    expect(await screen.findByRole('heading', { name: /Agosto de 2026/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^Agosto de 2026$/i })).toBeInTheDocument()
   })
 
   it('CalendarEventCreate_SendsOnlyContractFieldsWithCsrfAndRefreshesAgenda', async () => {
