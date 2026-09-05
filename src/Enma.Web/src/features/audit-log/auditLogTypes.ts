@@ -5,6 +5,7 @@ export const auditEventTypes = [
   'organization_membership.reactivated',
   'client.created',
   'client.renamed',
+  'client.profile_updated',
   'client.deactivated',
   'client.reactivated',
   'legal_process.created',

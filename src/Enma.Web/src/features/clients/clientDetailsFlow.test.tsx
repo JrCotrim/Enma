@@ -9,7 +9,7 @@ import { createAppRoutes } from '../../app/router'
 import { clearCsrfToken } from '../authentication/csrfClient'
 import { createEmailVerificationFlow } from '../email-verification/emailVerificationService'
 import type { OrganizationNavigationItem } from '../organizations/organizationTypes'
-import type { Client } from './clientTypes'
+import type { Client, ClientDetail } from './clientTypes'
 
 const organizationA: OrganizationNavigationItem = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -25,16 +25,22 @@ const organizationB: OrganizationNavigationItem = {
   role: 'Administrator',
 }
 
-const clientA: Client = {
+const clientA: ClientDetail = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   name: 'Cliente Alfa',
+  email: 'cliente.alfa@example.com',
+  phone: '22999998888',
+  cpf: '52998224725',
   isActive: true,
   createdAt: '2026-08-12T14:30:00Z',
 }
 
-const clientB: Client = {
+const clientB: ClientDetail = {
   id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   name: 'Cliente Beta',
+  email: null,
+  phone: null,
+  cpf: null,
   isActive: false,
   createdAt: '2026-08-11T12:00:00Z',
 }
@@ -54,7 +60,16 @@ function organizationResponse(
 }
 
 function clientListResponse(items: readonly Client[]): Response {
-  return response(200, { items, pageNumber: 1, pageSize: 20 })
+  return response(200, {
+    items: items.map((client) => ({
+      id: client.id,
+      name: client.name,
+      isActive: client.isActive,
+      createdAt: client.createdAt,
+    })),
+    pageNumber: 1,
+    pageSize: 20,
+  })
 }
 
 function renderRoute(path: string) {
@@ -122,6 +137,9 @@ describe('Clients D2 flow', () => {
       await screen.findByRole('heading', { name: clientA.name }),
     ).toBeInTheDocument()
     expect(screen.getByText('Ativo')).toBeInTheDocument()
+    expect(screen.getByText(clientA.email!)).toBeInTheDocument()
+    expect(screen.getByText(clientA.phone!)).toBeInTheDocument()
+    expect(screen.getByText(clientA.cpf!)).toBeInTheDocument()
     expect(screen.getByText(/12\/08\/2026/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Voltar para clientes' })).toHaveAttribute(
       'href',
@@ -233,8 +251,18 @@ describe('Clients D2 flow', () => {
       'Content-Type': 'application/json',
       'X-CSRF-TOKEN': 'test-token',
     })
-    expect(JSON.parse(updateInit.body as string)).toEqual({ name: 'Novo nome' })
-    expect(Object.keys(JSON.parse(updateInit.body as string))).toEqual(['name'])
+    expect(JSON.parse(updateInit.body as string)).toEqual({
+      name: 'Novo nome',
+      email: clientA.email,
+      phone: clientA.phone,
+      cpf: clientA.cpf,
+    })
+    expect(Object.keys(JSON.parse(updateInit.body as string))).toEqual([
+      'name',
+      'email',
+      'phone',
+      'cpf',
+    ])
 
     await act(async () => {
       resolveUpdate?.(response(204))
@@ -245,6 +273,76 @@ describe('Clients D2 flow', () => {
       await screen.findByRole('heading', { name: updatedClient.name }),
     ).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(6)
+  })
+
+  it('ClientEdit_ClearedOptionalProfileFields_SendsNullAndRefetchesAuthoritativeDetail', async () => {
+    const clearedClient: ClientDetail = {
+      ...clientA,
+      email: null,
+      phone: null,
+      cpf: null,
+    }
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(organizationResponse([organizationA]))
+      .mockResolvedValueOnce(response(200, clientA))
+      .mockResolvedValueOnce(response(200, { requestToken: 'test-token' }))
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, clearedClient))
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, clientA))
+
+    await screen.findByRole('heading', { name: clientA.name })
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Editar cliente' }),
+    )
+
+    expect(screen.getByLabelText('E-mail')).toHaveValue(clientA.email)
+    expect(screen.getByLabelText('Telefone')).toHaveValue(clientA.phone)
+    expect(screen.getByLabelText('CPF')).toHaveValue(clientA.cpf)
+
+    fireEvent.change(screen.getByLabelText('E-mail'), {
+      target: { value: '   ' },
+    })
+    fireEvent.change(screen.getByLabelText('Telefone'), {
+      target: { value: '   ' },
+    })
+    fireEvent.change(screen.getByLabelText('CPF'), {
+      target: { value: '   ' },
+    })
+
+    const form = screen
+      .getByRole('button', { name: 'Salvar alterações' })
+      .closest('form')!
+
+    fireEvent.submit(form)
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(6)
+    })
+
+    const [updateUrl, updateInit] = fetchMock.mock.calls[4] as [
+      string,
+      RequestInit,
+    ]
+
+    expect(updateUrl).toBe(
+      `/api/organizations/${organizationA.id}/clients/${clientA.id}`,
+    )
+    expect(updateInit.method).toBe('PUT')
+    expect(JSON.parse(updateInit.body as string)).toEqual({
+      name: clientA.name,
+      email: null,
+      phone: null,
+      cpf: null,
+    })
+
+    expect(screen.getAllByText('Não informado')).toHaveLength(3)
   })
 
   it('ClientEdit_InvalidNames_PreventWhitespaceAndOverlongRequests', async () => {

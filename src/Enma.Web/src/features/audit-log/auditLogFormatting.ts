@@ -15,6 +15,7 @@ export const auditEventOptions: readonly {
   { value: 'organization_membership.reactivated', label: 'Membro reativado' },
   { value: 'client.created', label: 'Cliente cadastrado' },
   { value: 'client.renamed', label: 'Cliente renomeado' },
+  { value: 'client.profile_updated', label: 'Perfil do cliente atualizado' },
   { value: 'client.deactivated', label: 'Cliente desativado' },
   { value: 'client.reactivated', label: 'Cliente reativado' },
   { value: 'legal_process.created', label: 'Processo cadastrado' },

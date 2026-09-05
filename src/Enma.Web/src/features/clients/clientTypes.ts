@@ -5,6 +5,12 @@ export interface Client {
   readonly createdAt: string
 }
 
+export interface ClientDetail extends Client {
+  readonly email: string | null
+  readonly phone: string | null
+  readonly cpf: string | null
+}
+
 export interface ClientListResponse {
   readonly items: readonly Client[]
   readonly pageNumber: number
@@ -13,10 +19,16 @@ export interface ClientListResponse {
 
 export interface CreateClientRequest {
   readonly name: string
+  readonly email: string | null
+  readonly phone: string | null
+  readonly cpf: string | null
 }
 
 export interface UpdateClientRequest {
   readonly name: string
+  readonly email: string | null
+  readonly phone: string | null
+  readonly cpf: string | null
 }
 
 export interface CreateClientResponse {

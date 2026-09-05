@@ -97,6 +97,43 @@ afterEach(() => {
 })
 
 describe('Audit G flow', () => {
+  it('ClientProfileUpdated_RendersKnownLabelAndFilterOptionWithoutProfileDetails', async () => {
+    const fetchMock = authenticatedFetch(
+      'Owner',
+      auditList([
+        auditItem({
+          eventType: 'client.profile_updated',
+          entityType: 'client',
+          details: null,
+        }),
+      ]),
+    )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute()
+
+    expect(
+      await screen.findByRole('cell', {
+        name: 'Perfil do cliente atualizado',
+      }),
+    ).toBeInTheDocument()
+
+    const eventTypeFilter = screen.getByLabelText('Tipo de evento')
+
+    expect(
+      within(eventTypeFilter).getByRole('option', {
+        name: 'Perfil do cliente atualizado',
+      }),
+    ).toHaveValue('client.profile_updated')
+
+    expect(
+      screen.queryByText('cliente.alfa@example.com'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('22999998888')).not.toBeInTheDocument()
+    expect(screen.queryByText('52998224725')).not.toBeInTheDocument()
+  })
+
   it.each<OrganizationRole>(['Owner', 'Administrator'])(
     '%s visualiza o Audit Log e sua navegação administrativa',
     async (role) => {

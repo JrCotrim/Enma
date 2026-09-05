@@ -290,6 +290,62 @@ describe('Clients D1 flow', () => {
     expect(screen.queryByText(clientA.name)).not.toBeInTheDocument()
   })
 
+  it('ClientList_OvercompleteSummaryPayload_DoesNotRenderContactPii', async () => {
+    const member = { ...organizationA, role: 'Member' as const }
+    const privateEmail = 'private.client@example.com'
+    const privatePhone = '22999990000'
+    const privateCpf = '52998224725'
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(organizationResponse([member]))
+      .mockResolvedValueOnce(
+        response(200, {
+          items: [
+            {
+              ...activeClient,
+              email: privateEmail,
+              phone: privatePhone,
+              cpf: privateCpf,
+            },
+          ],
+          pageNumber: 1,
+          pageSize: 20,
+        }),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${member.id}/clients`)
+
+    expect(await screen.findByText(activeClient.name)).toBeInTheDocument()
+
+    expect(
+      screen.getByRole('columnheader', { name: 'Nome' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Status' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Criado em' }),
+    ).toBeInTheDocument()
+
+    expect(
+      screen.queryByRole('columnheader', { name: 'E-mail' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('columnheader', { name: 'Telefone' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('columnheader', { name: 'CPF' }),
+    ).not.toBeInTheDocument()
+
+    expect(screen.queryByText(privateEmail)).not.toBeInTheDocument()
+    expect(screen.queryByText(privatePhone)).not.toBeInTheDocument()
+    expect(screen.queryByText(privateCpf)).not.toBeInTheDocument()
+  })
+
   it('ClientCreate_Success_SendsExactTenantScopedCsrfBodyAndRefreshesWithoutOptimism', async () => {
     const localStorageSpy = vi.spyOn(window.localStorage, 'setItem')
     const sessionStorageSpy = vi.spyOn(window.sessionStorage, 'setItem')
@@ -322,8 +378,18 @@ describe('Clients D1 flow', () => {
     expect(postUrl).toBe(
       `/api/organizations/${organizationB.id}/clients`,
     )
-    expect(JSON.parse(postInit.body as string)).toEqual({ name: 'Cliente' })
-    expect(Object.keys(JSON.parse(postInit.body as string))).toEqual(['name'])
+    expect(JSON.parse(postInit.body as string)).toEqual({
+      name: 'Cliente',
+      email: null,
+      phone: null,
+      cpf: null,
+    })
+    expect(Object.keys(JSON.parse(postInit.body as string))).toEqual([
+      'name',
+      'email',
+      'phone',
+      'cpf',
+    ])
     expect(postInit.headers).toEqual({
       'Content-Type': 'application/json',
       'X-CSRF-TOKEN': 'test-token',
@@ -341,6 +407,71 @@ describe('Clients D1 flow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Novo cliente' })).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(6)
+  })
+
+  it('ClientCreate_PopulatedProfile_SendsAllContactFieldsWithoutFrontendNormalization', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(organizationResponse([organizationB]))
+      .mockResolvedValueOnce(clientListResponse([activeClient]))
+      .mockResolvedValueOnce(response(200, { requestToken: 'test-token' }))
+      .mockResolvedValueOnce(
+        response(201, { id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' }),
+      )
+      .mockResolvedValueOnce(clientListResponse([activeClient]))
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationB.id}/clients`)
+    await screen.findByText(activeClient.name)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Cadastrar cliente' }),
+    )
+
+    fireEvent.change(screen.getByLabelText('Nome'), {
+      target: { value: '  Cliente Perfil  ' },
+    })
+    fireEvent.change(screen.getByLabelText('E-mail'), {
+      target: { value: '  contato@example.com  ' },
+    })
+    fireEvent.change(screen.getByLabelText('Telefone'), {
+      target: { value: '  (22) 99999-8888  ' },
+    })
+    fireEvent.change(screen.getByLabelText('CPF'), {
+      target: { value: '  529.982.247-25  ' },
+    })
+
+    const form = screen
+      .getByRole('button', { name: 'Cadastrar' })
+      .closest('form')!
+
+    fireEvent.submit(form)
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(6)
+    })
+
+    const [postUrl, postInit] = fetchMock.mock.calls[4] as [
+      string,
+      RequestInit,
+    ]
+
+    expect(postUrl).toBe(
+      `/api/organizations/${organizationB.id}/clients`,
+    )
+    expect(postInit.method).toBe('POST')
+    expect(postInit.headers).toEqual({
+      'Content-Type': 'application/json',
+      'X-CSRF-TOKEN': 'test-token',
+    })
+    expect(JSON.parse(postInit.body as string)).toEqual({
+      name: 'Cliente Perfil',
+      email: 'contato@example.com',
+      phone: '(22) 99999-8888',
+      cpf: '529.982.247-25',
+    })
   })
 
   it('ClientCreate_StaleAdministratorRoleGetsForbidden_ShowsPermissionWithoutInsertOrRetry', async () => {

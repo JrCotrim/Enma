@@ -5,6 +5,7 @@ import {
 } from '../authentication/sessionClient'
 import type {
   Client,
+  ClientDetail,
   ClientListResponse,
   CreateClientRequest,
   CreateClientResponse,
@@ -46,6 +47,38 @@ function parseClient(value: unknown): Client | undefined {
     name: candidate.name,
     isActive: candidate.isActive,
     createdAt: candidate.createdAt,
+  }
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string'
+}
+
+function parseClientDetail(value: unknown): ClientDetail | undefined {
+  const client = parseClient(value)
+
+  if (!client || typeof value !== 'object' || value === null) {
+    return undefined
+  }
+
+  const candidate = value as Record<string, unknown>
+
+  if (
+    !Object.prototype.hasOwnProperty.call(candidate, 'email') ||
+    !Object.prototype.hasOwnProperty.call(candidate, 'phone') ||
+    !Object.prototype.hasOwnProperty.call(candidate, 'cpf') ||
+    !isNullableString(candidate.email) ||
+    !isNullableString(candidate.phone) ||
+    !isNullableString(candidate.cpf)
+  ) {
+    return undefined
+  }
+
+  return {
+    ...client,
+    email: candidate.email,
+    phone: candidate.phone,
+    cpf: candidate.cpf,
   }
 }
 
@@ -143,6 +176,7 @@ export async function listClients(
     pageNumber: pageNumber.toString(),
     pageSize: pageSize.toString(),
   })
+
   const response = await fetchWithSession(
     `${getClientsEndpoint(organizationId)}?${query.toString()}`,
     {
@@ -168,12 +202,12 @@ export async function listClients(
 
 export async function createClient(
   organizationId: string,
-  name: string,
+  request: CreateClientRequest,
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
 ): Promise<CreateClientResponse> {
   const requestToken = await getCsrfToken()
-  const body: CreateClientRequest = { name }
+
   const response = await fetchWithSession(
     getClientsEndpoint(organizationId),
     {
@@ -182,7 +216,7 @@ export async function createClient(
         'Content-Type': 'application/json',
         'X-CSRF-TOKEN': requestToken,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(request),
       cache: 'no-store',
       signal,
     },
@@ -205,7 +239,7 @@ export async function getClient(
   clientId: string,
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
-): Promise<Client> {
+): Promise<ClientDetail> {
   const response = await fetchWithSession(
     getClientEndpoint(organizationId, clientId),
     {
@@ -220,7 +254,7 @@ export async function getClient(
     throwForStatus(response.status)
   }
 
-  const client = parseClient(await response.json())
+  const client = parseClientDetail(await response.json())
 
   if (!client || client.id.toLowerCase() !== clientId.toLowerCase()) {
     throw new ClientRequestError('unexpected')
@@ -239,6 +273,7 @@ async function mutateClient(
   body?: UpdateClientRequest,
 ): Promise<void> {
   const requestToken = await getCsrfToken()
+
   const response = await fetchWithSession(
     `${getClientEndpoint(organizationId, clientId)}${path}`,
     {
@@ -268,7 +303,7 @@ async function mutateClient(
 export function updateClient(
   organizationId: string,
   clientId: string,
-  name: string,
+  request: UpdateClientRequest,
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -279,7 +314,7 @@ export function updateClient(
     'PUT',
     onUnauthorized,
     signal,
-    { name },
+    request,
   )
 }
 

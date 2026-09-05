@@ -13,7 +13,7 @@ import {
   reactivateClient,
   updateClient,
 } from './clientService'
-import type { Client } from './clientTypes'
+import type { Client, ClientDetail } from './clientTypes'
 
 const clientIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -28,13 +28,22 @@ const mutationPermissionMessage =
 
 type DetailState =
   | { readonly status: 'loading'; readonly scope: string }
-  | { readonly status: 'success'; readonly scope: string; readonly client: Client }
+  | { readonly status: 'success'; readonly scope: string; readonly client: ClientDetail }
   | { readonly status: 'forbidden'; readonly scope: string }
   | { readonly status: 'not-found'; readonly scope: string }
   | { readonly status: 'error'; readonly scope: string }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function normalizeOptionalClientField(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed.length === 0 ? null : trimmed
+}
+
+function formatOptionalClientField(value: string | null): string {
+  return value ?? 'Não informado'
 }
 
 export function ClientDetailsPage() {
@@ -67,6 +76,9 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
   const isMutatingRef = useRef(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editPhone, setEditPhone] = useState('')
+  const [editCpf, setEditCpf] = useState('')
   const [editNameError, setEditNameError] = useState<string>()
   const [mutationError, setMutationError] = useState<string>()
   const [successMessage, setSuccessMessage] = useState<string>()
@@ -145,8 +157,11 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
       ? detailState
       : { status: 'loading', scope: requestScope }
 
-  function startEditing(client: Client) {
+  function startEditing(client: ClientDetail) {
     setEditName(client.name)
+    setEditEmail(client.email ?? '')
+    setEditPhone(client.phone ?? '')
+    setEditCpf(client.cpf ?? '')
     setEditNameError(undefined)
     setMutationError(undefined)
     setSuccessMessage(undefined)
@@ -257,7 +272,12 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
         updateClient(
           currentOrganization.id,
           routeClientId,
-          trimmedName,
+          {
+            name: trimmedName,
+            email: normalizeOptionalClientField(editEmail),
+            phone: normalizeOptionalClientField(editPhone),
+            cpf: normalizeOptionalClientField(editCpf),
+          },
           handleUnauthorized,
           signal,
         ),
@@ -422,6 +442,35 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
             required
           />
           {editNameError ? <p id="client-edit-name-error" className="form-error" role="alert">{editNameError}</p> : null}
+          <label htmlFor="client-edit-email">E-mail</label>
+          <input
+            id="client-edit-email"
+            name="email"
+            type="email"
+            value={editEmail}
+            maxLength={254}
+            autoComplete="email"
+            onChange={(event) => setEditEmail(event.target.value)}
+          />
+
+          <label htmlFor="client-edit-phone">Telefone</label>
+          <input
+            id="client-edit-phone"
+            name="phone"
+            type="tel"
+            value={editPhone}
+            autoComplete="tel"
+            onChange={(event) => setEditPhone(event.target.value)}
+          />
+
+          <label htmlFor="client-edit-cpf">CPF</label>
+          <input
+            id="client-edit-cpf"
+            name="cpf"
+            type="text"
+            value={editCpf}
+            onChange={(event) => setEditCpf(event.target.value)}
+          />
           <div className="client-form-actions">
             <button className="secondary-button" type="button" onClick={cancelEditing} disabled={isMutating}>Cancelar</button>
             <button className="primary-button" type="submit" disabled={isMutating}>
@@ -454,6 +503,18 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
 
       <dl className="client-properties">
         <div><dt>Nome</dt><dd>{client.name}</dd></div>
+        <div>
+          <dt>E-mail</dt>
+          <dd>{formatOptionalClientField(client.email)}</dd>
+        </div>
+        <div>
+          <dt>Telefone</dt>
+          <dd>{formatOptionalClientField(client.phone)}</dd>
+        </div>
+        <div>
+          <dt>CPF</dt>
+          <dd>{formatOptionalClientField(client.cpf)}</dd>
+        </div>
         <div>
           <dt>Status</dt>
           <dd><span className={`client-status ${client.isActive ? 'is-active' : 'is-inactive'}`}>{client.isActive ? 'Ativo' : 'Inativo'}</span></dd>

@@ -59,6 +59,11 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
+function normalizeOptionalClientField(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed.length === 0 ? null : trimmed
+}
+
 export function ClientsPage() {
   const { currentOrganization } = useCurrentOrganization()
   const { refreshOrganizations } = useOrganizationDiscovery()
@@ -77,6 +82,9 @@ export function ClientsPage() {
   const isSubmittingRef = useRef(false)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [cpf, setCpf] = useState('')
   const [nameError, setNameError] = useState<string>()
   const [createError, setCreateError] = useState<string>()
   const [successMessage, setSuccessMessage] = useState<string>()
@@ -175,6 +183,9 @@ export function ClientsPage() {
 
     setIsCreateOpen(false)
     setName('')
+    setEmail('')
+    setPhone('')
+    setCpf('')
     setNameError(undefined)
     setCreateError(undefined)
   }
@@ -211,12 +222,20 @@ export function ClientsPage() {
     try {
       await createClient(
         currentOrganization.id,
-        trimmedName,
+        {
+          name: trimmedName,
+          email: normalizeOptionalClientField(email),
+          phone: normalizeOptionalClientField(phone),
+          cpf: normalizeOptionalClientField(cpf),
+        },
         handleUnauthorized,
         controller.signal,
       )
       setIsCreateOpen(false)
       setName('')
+    setEmail('')
+    setPhone('')
+    setCpf('')
       setSuccessMessage('Cliente cadastrado com sucesso.')
       setRefreshVersion((version) => version + 1)
     } catch (error) {
@@ -286,6 +305,35 @@ export function ClientsPage() {
               {nameError}
             </p>
           ) : null}
+          <label htmlFor="client-email">E-mail</label>
+          <input
+            id="client-email"
+            name="email"
+            type="email"
+            value={email}
+            maxLength={254}
+            autoComplete="email"
+            onChange={(event) => setEmail(event.target.value)}
+          />
+
+          <label htmlFor="client-phone">Telefone</label>
+          <input
+            id="client-phone"
+            name="phone"
+            type="tel"
+            value={phone}
+            autoComplete="tel"
+            onChange={(event) => setPhone(event.target.value)}
+          />
+
+          <label htmlFor="client-cpf">CPF</label>
+          <input
+            id="client-cpf"
+            name="cpf"
+            type="text"
+            value={cpf}
+            onChange={(event) => setCpf(event.target.value)}
+          />
           {createError ? (
             <div className="client-create-error">
               <p className="form-error" role="alert">
