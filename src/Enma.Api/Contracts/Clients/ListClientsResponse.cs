@@ -1,6 +1,6 @@
 namespace Enma.Api.Contracts.Clients;
 
 public sealed record ListClientsResponse(
-    IReadOnlyList<ClientResponse> Items,
+    IReadOnlyList<ClientSummaryResponse> Items,
     int PageNumber,
     int PageSize);

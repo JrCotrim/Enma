@@ -96,7 +96,21 @@ public sealed class CalendarEventMigrationTests(
 
         await using (EnmaDbContext seedContext = fixture.CreateDbContext())
         {
-            seedContext.AddRange(GetGraphEntities(graph));
+            seedContext.AddRange(
+                graph.Organization,
+                graph.CreatorUser,
+                graph.CreatorMembership,
+                graph.AssigneeUser,
+                graph.AssigneeMembership);
+            await seedContext.SaveChangesAsync();
+            await PostgreSqlFixture.InsertClientWithoutProfileColumnsAsync(
+                seedContext,
+                graph.Client);
+            seedContext.AddRange(
+                graph.LegalProcess,
+                graph.LegalDeadline,
+                graph.LegalTask,
+                graph.LegalDocument);
             await seedContext.SaveChangesAsync();
         }
 

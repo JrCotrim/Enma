@@ -27,7 +27,10 @@ public sealed class ClientReadQueries : IClientReadQueries
                 client.Id,
                 client.Name,
                 client.IsActive,
-                client.CreatedAt))
+                client.CreatedAt,
+                client.Email,
+                client.Phone,
+                client.Cpf))
             .SingleOrDefaultAsync(cancellationToken);
     }
 

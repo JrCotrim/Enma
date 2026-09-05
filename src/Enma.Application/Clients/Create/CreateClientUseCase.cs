@@ -24,10 +24,29 @@ public sealed class CreateClientUseCase
         _timeProvider = timeProvider;
     }
 
+    public Task<CreateClientResult> ExecuteAsync(
+        Guid userId,
+        Guid organizationId,
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        return ExecuteAsync(
+            userId,
+            organizationId,
+            name,
+            null,
+            null,
+            null,
+            cancellationToken);
+    }
+
     public async Task<CreateClientResult> ExecuteAsync(
         Guid userId,
         Guid organizationId,
         string name,
+        string? email,
+        string? phone,
+        string? cpf,
         CancellationToken cancellationToken = default)
     {
         OrganizationAccessAuthorizationResult authorization =
@@ -46,10 +65,17 @@ public sealed class CreateClientUseCase
             userId,
             organizationId,
             actorMembershipId);
+
         ClientCreationPersistenceResult persistenceResult =
             await _creationPersistence.ExecuteAsync(
                 request,
-                state => DecideCreation(request, state, name),
+                state => DecideCreation(
+                    request,
+                    state,
+                    name,
+                    email,
+                    phone,
+                    cpf),
                 cancellationToken);
 
         return persistenceResult.Status switch
@@ -67,7 +93,10 @@ public sealed class CreateClientUseCase
     private ClientCreationDecision DecideCreation(
         ClientCreationPersistenceRequest request,
         ClientCreationLockedState state,
-        string name)
+        string name,
+        string? email,
+        string? phone,
+        string? cpf)
     {
         if (!state.IsOrganizationActive ||
             state.Actor is not { } actor ||
@@ -84,21 +113,39 @@ public sealed class CreateClientUseCase
             CreateClient(
                 request.OrganizationId,
                 name,
+                email,
+                phone,
+                cpf,
                 _timeProvider.GetUtcNow()));
     }
 
     private static Client CreateClient(
         Guid organizationId,
         string name,
+        string? email,
+        string? phone,
+        string? cpf,
         DateTimeOffset createdAt)
     {
         try
         {
-            return new Client(organizationId, name, createdAt);
+            return new Client(
+                organizationId,
+                name,
+                createdAt,
+                email,
+                phone,
+                cpf);
         }
-        catch (ArgumentException exception) when (exception.ParamName == "name")
+        catch (ArgumentException exception)
+            when (IsProfileParameter(exception.ParamName))
         {
             throw new RequestValidationException(exception.Message, exception);
         }
+    }
+
+    private static bool IsProfileParameter(string? parameterName)
+    {
+        return parameterName is "name" or "email" or "phone" or "cpf";
     }
 }

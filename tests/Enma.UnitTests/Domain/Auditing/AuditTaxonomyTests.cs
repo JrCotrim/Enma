@@ -238,7 +238,13 @@ public sealed class AuditTaxonomyTests
                 28,
                 "organization_invitation.resent",
                 AuditEntityType.OrganizationInvitation
-            }
+            },
+            {
+                AuditEventType.ClientProfileUpdated,
+                29,
+                "client.profile_updated",
+                AuditEntityType.Client
+            },
         };
 
     public static TheoryData<AuditEntityType, int, string> ExpectedEntities =>

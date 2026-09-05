@@ -72,10 +72,20 @@ public sealed class ClientEndpointTests : IAsyncLifetime
     public void ClientContracts_CurrentScope_ExposeOnlyApprovedFields()
     {
         Assert.Equal(
-            [nameof(CreateClientRequest.Name)],
+            [
+                nameof(CreateClientRequest.Name),
+                nameof(CreateClientRequest.Email),
+                nameof(CreateClientRequest.Phone),
+                nameof(CreateClientRequest.Cpf)
+            ],
             GetPropertyNames<CreateClientRequest>());
         Assert.Equal(
-            [nameof(UpdateClientRequest.Name)],
+            [
+                nameof(UpdateClientRequest.Name),
+                nameof(UpdateClientRequest.Email),
+                nameof(UpdateClientRequest.Phone),
+                nameof(UpdateClientRequest.Cpf)
+            ],
             GetPropertyNames<UpdateClientRequest>());
         Assert.Equal(
             [nameof(CreateClientResponse.Id)],
@@ -84,10 +94,21 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             [
                 nameof(ClientResponse.Id),
                 nameof(ClientResponse.Name),
+                nameof(ClientResponse.Email),
+                nameof(ClientResponse.Phone),
+                nameof(ClientResponse.Cpf),
                 nameof(ClientResponse.IsActive),
                 nameof(ClientResponse.CreatedAt)
             ],
             GetPropertyNames<ClientResponse>());
+        Assert.Equal(
+            [
+                nameof(ClientSummaryResponse.Id),
+                nameof(ClientSummaryResponse.Name),
+                nameof(ClientSummaryResponse.IsActive),
+                nameof(ClientSummaryResponse.CreatedAt)
+            ],
+            GetPropertyNames<ClientSummaryResponse>());
         Assert.Equal(
             [
                 nameof(ListClientsResponse.Items),
@@ -126,6 +147,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             typeof(UpdateClientRequest),
             typeof(CreateClientResponse),
             typeof(ClientResponse),
+            typeof(ClientSummaryResponse),
             typeof(ListClientsResponse),
             typeof(ActiveClientLookupItemResponse),
             typeof(ActiveClientLookupResponse)
@@ -208,7 +230,13 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             user,
             organization,
             OrganizationRole.Member);
-        ClientEntity activeClient = CreateClient(organization, "Active Client", 2);
+        ClientEntity activeClient = CreateClient(
+            organization,
+            "Active Client",
+            2,
+            "list-pii@example.test",
+            "11987654321",
+            "52998224725");
         ClientEntity inactiveClient = CreateClient(
             organization,
             "Inactive Client",
@@ -229,7 +257,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         string getJson = await getResponse.Content.ReadAsStringAsync();
         using JsonDocument getDocument = JsonDocument.Parse(getJson);
         Assert.Equal(
-            ["id", "name", "isActive", "createdAt"],
+            ["id", "name", "email", "phone", "cpf", "isActive", "createdAt"],
             getDocument.RootElement
                 .EnumerateObject()
                 .Select(property => property.Name)
@@ -240,6 +268,9 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         Assert.NotNull(getResult);
         Assert.Equal(activeClient.Id, getResult.Id);
         Assert.Equal(activeClient.Name, getResult.Name);
+        Assert.Equal(activeClient.Email, getResult.Email);
+        Assert.Equal(activeClient.Phone, getResult.Phone);
+        Assert.Equal(activeClient.Cpf, getResult.Cpf);
         Assert.True(getResult.IsActive);
         Assert.Equal(activeClient.CreatedAt, getResult.CreatedAt);
 
@@ -249,8 +280,21 @@ public sealed class ClientEndpointTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
         Assert.True(listResponse.Headers.CacheControl?.NoStore);
-        ListClientsResponse? listResult =
-            await listResponse.Content.ReadFromJsonAsync<ListClientsResponse>();
+        string listJson = await listResponse.Content.ReadAsStringAsync();
+        using JsonDocument listDocument = JsonDocument.Parse(listJson);
+        JsonElement[] listItems = listDocument.RootElement
+            .GetProperty("items")
+            .EnumerateArray()
+            .ToArray();
+        Assert.All(listItems, item => Assert.Equal(
+            ["id", "name", "isActive", "createdAt"],
+            item.EnumerateObject().Select(property => property.Name).ToArray()));
+        Assert.DoesNotContain("email", listJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("phone", listJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("cpf", listJson, StringComparison.OrdinalIgnoreCase);
+        ListClientsResponse? listResult = JsonSerializer.Deserialize<ListClientsResponse>(
+            listJson,
+            JsonSerializerOptions.Web);
         Assert.NotNull(listResult);
         Assert.Equal(1, listResult.PageNumber);
         Assert.Equal(20, listResult.PageSize);
@@ -458,6 +502,149 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         ClientEntity persisted = await GetPersistedClientAsync(created.Id);
         Assert.Equal("Administrator Updated", persisted.Name);
         Assert.True(persisted.IsActive);
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner)]
+    [InlineData(OrganizationRole.Administrator)]
+    public async Task ClientProfile_AdministrativeRoles_CreateUpdateNormalizeAndClearOptionalFields(
+        OrganizationRole role)
+    {
+        User user = CreateUser($"profile-{role}");
+        Organization organization = CreateOrganization($"Profile {role}");
+        OrganizationMembership membership = CreateMembership(user, organization, role);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage createResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetClientsPath(organization.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                name = "  Profile Client  ",
+                email = "  PROFILE@Example.TEST  ",
+                phone = " +55 (11) 98765-4321 ",
+                cpf = "529.982.247-25"
+            });
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        CreateClientResponse? created =
+            await createResponse.Content.ReadFromJsonAsync<CreateClientResponse>();
+        Assert.NotNull(created);
+
+        using HttpResponseMessage createdDetailResponse = await SendGetAsync(
+            GetClientPath(organization.Id, created.Id),
+            rawHandle);
+        ClientResponse? createdDetail = await createdDetailResponse.Content
+            .ReadFromJsonAsync<ClientResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, createdDetailResponse.StatusCode);
+        Assert.NotNull(createdDetail);
+        Assert.Equal("Profile Client", createdDetail.Name);
+        Assert.Equal("profile@example.test", createdDetail.Email);
+        Assert.Equal("5511987654321", createdDetail.Phone);
+        Assert.Equal("52998224725", createdDetail.Cpf);
+
+        using HttpResponseMessage updateResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetClientPath(organization.Id, created.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                name = "  Updated Profile  ",
+                email = "  UPDATED@Example.TEST ",
+                phone = "(21) 2345-6789",
+                cpf = "111.444.777-35"
+            });
+
+        await AssertEmptyResponseAsync(updateResponse, HttpStatusCode.NoContent);
+        ClientEntity updated = await GetPersistedClientAsync(created.Id);
+        Assert.Equal("Updated Profile", updated.Name);
+        Assert.Equal("updated@example.test", updated.Email);
+        Assert.Equal("2123456789", updated.Phone);
+        Assert.Equal("11144477735", updated.Cpf);
+
+        using HttpResponseMessage clearResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetClientPath(organization.Id, created.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                name = "Updated Profile",
+                email = "  ",
+                phone = " ",
+                cpf = ""
+            });
+        using HttpResponseMessage clearedDetailResponse = await SendGetAsync(
+            GetClientPath(organization.Id, created.Id),
+            rawHandle);
+        ClientResponse? clearedDetail = await clearedDetailResponse.Content
+            .ReadFromJsonAsync<ClientResponse>();
+
+        await AssertEmptyResponseAsync(clearResponse, HttpStatusCode.NoContent);
+        Assert.Equal(HttpStatusCode.OK, clearedDetailResponse.StatusCode);
+        Assert.NotNull(clearedDetail);
+        Assert.Null(clearedDetail.Email);
+        Assert.Null(clearedDetail.Phone);
+        Assert.Null(clearedDetail.Cpf);
+    }
+
+    [Theory]
+    [InlineData("not-an-email", "(11) 98765-4321", "529.982.247-25")]
+    [InlineData("changed@example.test", "123", "529.982.247-25")]
+    [InlineData("changed@example.test", "(11) 98765-4321", "111.111.111-11")]
+    public async Task UpdateClient_InvalidProfile_ReturnsBadRequestWithoutPartialMutation(
+        string email,
+        string phone,
+        string cpf)
+    {
+        User user = CreateUser("invalid-profile");
+        Organization organization = CreateOrganization("Invalid Profile");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        var existingClient = new ClientEntity(
+            organization.Id,
+            "Original Profile",
+            Now.AddMinutes(-1),
+            "original@example.test",
+            "11987654321",
+            "52998224725");
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [existingClient]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage response = await SendMutationAsync(
+            HttpMethod.Put,
+            GetClientPath(organization.Id, existingClient.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                name = "Partially Changed",
+                email,
+                phone,
+                cpf
+            });
+
+        await AssertProblemResponseAsync(response, HttpStatusCode.BadRequest);
+        ClientEntity persisted = await GetPersistedClientAsync(existingClient.Id);
+        Assert.Equal("Original Profile", persisted.Name);
+        Assert.Equal("original@example.test", persisted.Email);
+        Assert.Equal("11987654321", persisted.Phone);
+        Assert.Equal("52998224725", persisted.Cpf);
     }
 
     [Fact]
@@ -754,8 +941,8 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         Assert.True(secondPageResponse.Headers.CacheControl?.NoStore);
         Assert.NotNull(firstPage);
         Assert.NotNull(secondPage);
-        ClientResponse firstItem = Assert.Single(firstPage.Items);
-        ClientResponse secondItem = Assert.Single(secondPage.Items);
+        ClientSummaryResponse firstItem = Assert.Single(firstPage.Items);
+        ClientSummaryResponse secondItem = Assert.Single(secondPage.Items);
         Assert.Equal(clientA1.Id, firstItem.Id);
         Assert.True(firstItem.IsActive);
         Assert.Equal(clientA2.Id, secondItem.Id);
@@ -1182,12 +1369,18 @@ public sealed class ClientEndpointTests : IAsyncLifetime
     private static ClientEntity CreateClient(
         Organization organization,
         string name,
-        int createdMinutesAgo)
+        int createdMinutesAgo,
+        string? email = null,
+        string? phone = null,
+        string? cpf = null)
     {
         return new ClientEntity(
             organization.Id,
             name,
-            Now.AddMinutes(-createdMinutesAgo));
+            Now.AddMinutes(-createdMinutesAgo),
+            email,
+            phone,
+            cpf);
     }
 
     private async Task<string> SeedAuthenticatedUserAsync(

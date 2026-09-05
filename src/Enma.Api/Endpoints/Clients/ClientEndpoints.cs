@@ -122,6 +122,9 @@ public static class ClientEndpoints
             userId,
             organizationId,
             request.Name,
+            request.Email,
+            request.Phone,
+            request.Cpf,
             cancellationToken);
 
         if (result.Status == CreateClientResultStatus.AccessDenied)
@@ -196,8 +199,8 @@ public static class ClientEndpoints
             return TypedResults.Forbid();
         }
 
-        ClientResponse[] items = result.Items
-            .Select(MapClient)
+        ClientSummaryResponse[] items = result.Items
+            .Select(MapClientSummary)
             .ToArray();
 
         return TypedResults.Ok(new ListClientsResponse(
@@ -224,6 +227,9 @@ public static class ClientEndpoints
             organizationId,
             clientId,
             request.Name,
+            request.Email,
+            request.Phone,
+            request.Cpf,
             cancellationToken);
 
         return result.Status switch
@@ -371,6 +377,19 @@ public static class ClientEndpoints
     private static ClientResponse MapClient(ClientReadModel client)
     {
         return new ClientResponse(
+            client.Id,
+            client.Name,
+            client.Email,
+            client.Phone,
+            client.Cpf,
+            client.IsActive,
+            client.CreatedAt);
+    }
+
+    private static ClientSummaryResponse MapClientSummary(
+        ClientReadModel client)
+    {
+        return new ClientSummaryResponse(
             client.Id,
             client.Name,
             client.IsActive,

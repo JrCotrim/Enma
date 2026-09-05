@@ -1,3 +1,4 @@
+using Enma.Domain.Clients;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
@@ -37,6 +38,20 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
             ?? throw new InvalidOperationException("The PostgreSQL fixture has not been initialized.");
 
         return new EnmaDbContext(options);
+    }
+
+    public static Task InsertClientWithoutProfileColumnsAsync(
+        EnmaDbContext dbContext,
+        Client client)
+    {
+        return dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO clients
+                (id, organization_id, name, is_active, created_at)
+            VALUES
+                ({client.Id}, {client.OrganizationId}, {client.Name},
+                 {client.IsActive}, {client.CreatedAt})
+            """);
     }
 
     public async Task ResetDatabaseAsync(

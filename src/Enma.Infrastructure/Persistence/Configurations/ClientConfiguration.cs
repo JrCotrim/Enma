@@ -9,7 +9,20 @@ public sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
 {
     public void Configure(EntityTypeBuilder<Client> builder)
     {
-        builder.ToTable("clients");
+        builder.ToTable("clients", table =>
+        {
+            table.HasCheckConstraint(
+                "ck_clients_email_normalized",
+                "email IS NULL OR (email = lower(btrim(email)) AND length(email) BETWEEN 3 AND 254)");
+
+            table.HasCheckConstraint(
+                "ck_clients_phone_normalized",
+                "phone IS NULL OR phone ~ '^[0-9]{8,15}$'");
+
+            table.HasCheckConstraint(
+                "ck_clients_cpf_normalized",
+                "cpf IS NULL OR cpf ~ '^[0-9]{11}$'");
+        });
 
         builder.HasKey(client => client.Id)
             .HasName("pk_clients");
@@ -30,6 +43,21 @@ public sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
             .HasMaxLength(150)
             .HasColumnType("varchar(150)")
             .IsRequired();
+
+        builder.Property(client => client.Email)
+            .HasColumnName("email")
+            .HasMaxLength(254)
+            .HasColumnType("varchar(254)");
+
+        builder.Property(client => client.Phone)
+            .HasColumnName("phone")
+            .HasMaxLength(15)
+            .HasColumnType("varchar(15)");
+
+        builder.Property(client => client.Cpf)
+            .HasColumnName("cpf")
+            .HasMaxLength(11)
+            .HasColumnType("varchar(11)");
 
         builder.Property(client => client.IsActive)
             .HasColumnName("is_active")

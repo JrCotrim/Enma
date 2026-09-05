@@ -19,13 +19,52 @@ public sealed class UpdateClientUseCase
         _mutationPersistence = mutationPersistence;
     }
 
-    public async Task<UpdateClientResult> ExecuteAsync(
+    public Task<UpdateClientResult> ExecuteAsync(
         Guid userId,
         Guid organizationId,
         Guid clientId,
         string name,
         CancellationToken cancellationToken = default)
     {
+        return ExecuteCoreAsync(
+            userId,
+            organizationId,
+            clientId,
+            state => state.Client.ChangeName(name),
+            cancellationToken);
+    }
+
+    public Task<UpdateClientResult> ExecuteAsync(
+        Guid userId,
+        Guid organizationId,
+        Guid clientId,
+        string name,
+        string? email,
+        string? phone,
+        string? cpf,
+        CancellationToken cancellationToken = default)
+    {
+        return ExecuteCoreAsync(
+            userId,
+            organizationId,
+            clientId,
+            state => state.Client.UpdateProfile(
+                name,
+                email,
+                phone,
+                cpf),
+            cancellationToken);
+    }
+
+    private async Task<UpdateClientResult> ExecuteCoreAsync(
+        Guid userId,
+        Guid organizationId,
+        Guid clientId,
+        Action<ClientMutationLockedState> mutate,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(mutate);
+
         OrganizationAccessAuthorizationResult authorization =
             await _actionAuthorization.AuthorizeActorAsync(
                 userId,
@@ -48,16 +87,18 @@ public sealed class UpdateClientUseCase
             organizationId,
             actorMembershipId,
             clientId);
+
         ClientMutationPersistenceResult persistenceResult;
 
         try
         {
             persistenceResult = await _mutationPersistence.UpdateNameAsync(
                 request,
-                state => DecideUpdate(request, state, name),
+                state => DecideUpdate(request, state, mutate),
                 cancellationToken);
         }
-        catch (ArgumentException exception) when (exception.ParamName == "name")
+        catch (ArgumentException exception)
+            when (IsProfileParameter(exception.ParamName))
         {
             throw new RequestValidationException(exception.Message, exception);
         }
@@ -78,14 +119,14 @@ public sealed class UpdateClientUseCase
     private ClientMutationDecision DecideUpdate(
         ClientMutationPersistenceRequest request,
         ClientMutationLockedState state,
-        string name)
+        Action<ClientMutationLockedState> mutate)
     {
         if (!IsAuthorized(request, state, ClientAction.Update))
         {
             return ClientMutationDecision.AccessDenied;
         }
 
-        state.Client.ChangeName(name);
+        mutate(state);
         return ClientMutationDecision.Persist;
     }
 
@@ -101,5 +142,10 @@ public sealed class UpdateClientUseCase
                 request.OrganizationId,
                 request.ActorMembershipId) &&
             _actionAuthorization.CanExecute(action, actor.Role);
+    }
+
+    private static bool IsProfileParameter(string? parameterName)
+    {
+        return parameterName is "name" or "email" or "phone" or "cpf";
     }
 }

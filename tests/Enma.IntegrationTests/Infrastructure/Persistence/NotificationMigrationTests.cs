@@ -44,7 +44,19 @@ public sealed class NotificationMigrationTests(
 
         await using (EnmaDbContext seedContext = fixture.CreateDbContext())
         {
-            seedContext.AddRange(GetGraphEntities(graph));
+            seedContext.AddRange(
+                graph.Organization,
+                graph.RecipientUser,
+                graph.RecipientMembership);
+            await seedContext.SaveChangesAsync();
+            await PostgreSqlFixture.InsertClientWithoutProfileColumnsAsync(
+                seedContext,
+                graph.Client);
+            seedContext.AddRange(
+                graph.LegalProcess,
+                graph.LegalDeadline,
+                graph.LegalTask,
+                graph.CalendarEvent);
             await seedContext.SaveChangesAsync();
         }
 

@@ -22,7 +22,7 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
                     "ck_audit_logs_event_type",
                     "event_type IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, " +
                     "13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, " +
-                    "25, 26, 27, 28)");
+                    "25, 26, 27, 28, 29)");
                 tableBuilder.HasCheckConstraint(
                     "ck_audit_logs_entity_type",
                     "entity_type IN (1, 2, 3, 4, 5, 6, 7, 8, 9)");
@@ -30,7 +30,7 @@ public sealed class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
                     "ck_audit_logs_event_entity_type",
                     "(event_type = 1 AND entity_type = 1) OR " +
                     "(event_type IN (2, 3, 4) AND entity_type = 2) OR " +
-                    "(event_type IN (5, 6, 7, 8) AND entity_type = 3) OR " +
+                    "(event_type IN (5, 6, 7, 8, 29) AND entity_type = 3) OR " +
                     "(event_type IN (9, 10) AND entity_type = 4) OR " +
                     "(event_type IN (11, 12, 13, 14) AND entity_type = 5) OR " +
                     "(event_type IN (15, 16, 17, 18, 19) AND entity_type = 6) OR " +

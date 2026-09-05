@@ -34,20 +34,39 @@ public sealed class ClientPersistenceTests(
     public async Task SaveChangesAsync_WithValidClient_PersistsTenantOwnedClient()
     {
         Organization organization = CreateOrganization();
-        var client = new Client(organization.Id, "Acme Legal", CreatedAt);
+        var client = new Client(
+            organization.Id,
+            "Acme Legal",
+            CreatedAt,
+            "client@example.test",
+            "11987654321",
+            "52998224725");
+        var clientWithoutProfile = new Client(
+            organization.Id,
+            "No Profile",
+            CreatedAt.AddMinutes(1));
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
-        dbContext.AddRange(organization, client);
+        dbContext.AddRange(organization, client, clientWithoutProfile);
         await dbContext.SaveChangesAsync();
         dbContext.ChangeTracker.Clear();
 
-        Client persistedClient = await dbContext.Clients.SingleAsync();
+        Client persistedClient = await dbContext.Clients.SingleAsync(
+            candidate => candidate.Id == client.Id);
+        Client persistedClientWithoutProfile = await dbContext.Clients.SingleAsync(
+            candidate => candidate.Id == clientWithoutProfile.Id);
 
         Assert.Equal(client.Id, persistedClient.Id);
         Assert.Equal(organization.Id, persistedClient.OrganizationId);
         Assert.Equal("Acme Legal", persistedClient.Name);
+        Assert.Equal("client@example.test", persistedClient.Email);
+        Assert.Equal("11987654321", persistedClient.Phone);
+        Assert.Equal("52998224725", persistedClient.Cpf);
         Assert.True(persistedClient.IsActive);
         Assert.Equal(CreatedAt, persistedClient.CreatedAt);
+        Assert.Null(persistedClientWithoutProfile.Email);
+        Assert.Null(persistedClientWithoutProfile.Phone);
+        Assert.Null(persistedClientWithoutProfile.Cpf);
     }
 
     [Fact]

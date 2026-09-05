@@ -11,6 +11,7 @@ using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
+using System.Text.Json;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
 
@@ -87,6 +88,101 @@ public sealed class LegacyMutationAuditPersistenceTests(
         Client persisted = await FindClientAsync(clientId);
         Assert.Equal("Renamed client", persisted.Name);
         Assert.True(persisted.IsActive);
+    }
+
+    [Fact]
+    public async Task ClientProfileUpdates_RecordOnlyEffectiveNullDetailsEventsWithoutPii()
+    {
+        LegacyGraph graph = await SeedGraphAsync();
+        var mutation = new ClientMutationPersistence(CreateOptions(), Clock());
+        ClientMutationPersistenceRequest request = CreateClientMutationRequest(graph);
+
+        await mutation.UpdateNameAsync(
+            request,
+            state => UpdateProfile(
+                state,
+                "Initial client",
+                "private@example.test",
+                "(11) 98765-4321",
+                "529.982.247-25"));
+        AuditLog contactOnly = Assert.Single(await FindAuditLogsAsync());
+        Assert.Equal(AuditEventType.ClientProfileUpdated, contactOnly.EventType);
+
+        await mutation.UpdateNameAsync(
+            request,
+            state => UpdateProfile(
+                state,
+                "Renamed client",
+                "private@example.test",
+                "11987654321",
+                "52998224725"));
+        AuditLog[] beforeCombinedUpdate = await FindAuditLogsAsync();
+        Assert.Equal(2, beforeCombinedUpdate.Length);
+        Assert.Single(
+            beforeCombinedUpdate,
+            auditLog => auditLog.EventType == AuditEventType.ClientRenamed);
+
+        await mutation.UpdateNameAsync(
+            request,
+            state => UpdateProfile(
+                state,
+                "Renamed with profile",
+                "changed@example.test",
+                "(21) 2345-6789",
+                "111.444.777-35"));
+        AuditLog[] afterCombinedUpdate = await FindAuditLogsAsync();
+        HashSet<Guid> existingAuditIds = beforeCombinedUpdate
+            .Select(auditLog => auditLog.Id)
+            .ToHashSet();
+        AuditLog[] combinedEvents = afterCombinedUpdate
+            .Where(auditLog => !existingAuditIds.Contains(auditLog.Id))
+            .ToArray();
+        AssertEventSet(
+            combinedEvents,
+            graph.Client.Id,
+            AuditEntityType.Client,
+            graph,
+            AuditEventType.ClientRenamed,
+            AuditEventType.ClientProfileUpdated);
+
+        await mutation.UpdateNameAsync(
+            request,
+            state => UpdateProfile(
+                state,
+                " Renamed with profile ",
+                " CHANGED@EXAMPLE.TEST ",
+                "2123456789",
+                "11144477735"));
+        AuditLog[] auditLogs = await FindAuditLogsAsync();
+
+        Assert.Equal(4, auditLogs.Length);
+        Assert.Equal(
+            2,
+            auditLogs.Count(
+                auditLog => auditLog.EventType == AuditEventType.ClientRenamed));
+        Assert.Equal(
+            2,
+            auditLogs.Count(auditLog =>
+                auditLog.EventType == AuditEventType.ClientProfileUpdated));
+        Assert.All(auditLogs, auditLog =>
+        {
+            Assert.Equal(AuditEntityType.Client, auditLog.EntityType);
+            Assert.Equal(graph.Client.Id, auditLog.EntityId);
+            Assert.Null(auditLog.Details);
+        });
+        string serializedAuditPayload = JsonSerializer.Serialize(auditLogs);
+        Assert.DoesNotContain("private@example.test", serializedAuditPayload);
+        Assert.DoesNotContain("changed@example.test", serializedAuditPayload);
+        Assert.DoesNotContain("11987654321", serializedAuditPayload);
+        Assert.DoesNotContain("2123456789", serializedAuditPayload);
+        Assert.DoesNotContain("52998224725", serializedAuditPayload);
+        Assert.DoesNotContain("11144477735", serializedAuditPayload);
+
+        Client persisted = await FindClientAsync(graph.Client.Id);
+        Assert.Equal("Renamed with profile", persisted.Name);
+        Assert.Equal("changed@example.test", persisted.Email);
+        Assert.Equal("2123456789", persisted.Phone);
+        Assert.Equal("11144477735", persisted.Cpf);
     }
 
     [Fact]
@@ -471,6 +567,7 @@ public sealed class LegacyMutationAuditPersistenceTests(
     [Theory]
     [InlineData(AuditFailureOperation.ClientCreate)]
     [InlineData(AuditFailureOperation.ClientRename)]
+    [InlineData(AuditFailureOperation.ClientProfileUpdate)]
     [InlineData(AuditFailureOperation.ClientDeactivate)]
     [InlineData(AuditFailureOperation.ClientReactivate)]
     [InlineData(AuditFailureOperation.ProcessCreate)]
@@ -507,6 +604,9 @@ public sealed class LegacyMutationAuditPersistenceTests(
 
         Client persistedClient = await FindClientAsync(graph.Client.Id);
         Assert.Equal("Initial client", persistedClient.Name);
+        Assert.Null(persistedClient.Email);
+        Assert.Null(persistedClient.Phone);
+        Assert.Null(persistedClient.Cpf);
         Assert.Equal(
             operation != AuditFailureOperation.ClientReactivate,
             persistedClient.IsActive);
@@ -699,6 +799,17 @@ public sealed class LegacyMutationAuditPersistenceTests(
                         CreateClientMutationRequest(graph),
                         state => Rename(state, "Must roll back"));
                 break;
+            case AuditFailureOperation.ClientProfileUpdate:
+                await CreateClientMutationPersistence(options)
+                    .UpdateNameAsync(
+                        CreateClientMutationRequest(graph),
+                        state => UpdateProfile(
+                            state,
+                            "Must roll back",
+                            "rollback@example.test",
+                            "(11) 98765-4321",
+                            "529.982.247-25"));
+                break;
             case AuditFailureOperation.ClientDeactivate:
                 await CreateClientMutationPersistence(options)
                     .DeactivateAsync(
@@ -814,6 +925,17 @@ public sealed class LegacyMutationAuditPersistenceTests(
         string name)
     {
         state.Client.ChangeName(name);
+        return ClientMutationDecision.Persist;
+    }
+
+    private static ClientMutationDecision UpdateProfile(
+        ClientMutationLockedState state,
+        string name,
+        string? email,
+        string? phone,
+        string? cpf)
+    {
+        state.Client.UpdateProfile(name, email, phone, cpf);
         return ClientMutationDecision.Persist;
     }
 
@@ -1151,14 +1273,15 @@ public sealed class LegacyMutationAuditPersistenceTests(
     {
         ClientCreate = 0,
         ClientRename = 1,
-        ClientDeactivate = 2,
-        ClientReactivate = 3,
-        ProcessCreate = 4,
-        ProcessTitle = 5,
-        DeadlineCreate = 6,
-        DeadlineDetails = 7,
-        DeadlineComplete = 8,
-        DeadlineReopen = 9
+        ClientProfileUpdate = 2,
+        ClientDeactivate = 3,
+        ClientReactivate = 4,
+        ProcessCreate = 5,
+        ProcessTitle = 6,
+        DeadlineCreate = 7,
+        DeadlineDetails = 8,
+        DeadlineComplete = 9,
+        DeadlineReopen = 10
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
@@ -1179,12 +1302,19 @@ public sealed class LegacyMutationAuditPersistenceTests(
         {
             EnmaDbContext dbContext = Assert.IsType<EnmaDbContext>(
                 eventData.Context);
-            AuditLog auditLog = Assert.Single(
-                dbContext.ChangeTracker.Entries<AuditLog>(),
-                entry => entry.State == EntityState.Added).Entity;
-            dbContext.Entry(auditLog)
-                .Property<string?>("_detailsJson")
-                .CurrentValue = detailsJson;
+            AuditLog[] auditLogs = dbContext.ChangeTracker.Entries<AuditLog>()
+                .Where(entry => entry.State == EntityState.Added)
+                .Select(entry => entry.Entity)
+                .ToArray();
+            Assert.NotEmpty(auditLogs);
+
+            foreach (AuditLog auditLog in auditLogs)
+            {
+                dbContext.Entry(auditLog)
+                    .Property<string?>("_detailsJson")
+                    .CurrentValue = detailsJson;
+            }
+
             return ValueTask.FromResult(result);
         }
     }

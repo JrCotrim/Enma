@@ -49,7 +49,8 @@ public enum AuditEventType
     /// The actor is the live administrative Membership revalidated with the
     /// target invitation and its role by the authoritative resend transaction.
     /// </summary>
-    OrganizationInvitationResent = 28
+    OrganizationInvitationResent = 28,
+    ClientProfileUpdated = 29
 }
 
 public static class AuditEventTypeExtensions
@@ -95,6 +96,8 @@ public static class AuditEventTypeExtensions
                 "organization_invitation.accepted",
             AuditEventType.OrganizationInvitationResent =>
                 "organization_invitation.resent",
+            AuditEventType.ClientProfileUpdated =>
+                "client.profile_updated",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -113,7 +116,8 @@ public static class AuditEventTypeExtensions
             AuditEventType.ClientCreated or
                 AuditEventType.ClientRenamed or
                 AuditEventType.ClientDeactivated or
-                AuditEventType.ClientReactivated => AuditEntityType.Client,
+                AuditEventType.ClientReactivated or
+                AuditEventType.ClientProfileUpdated => AuditEntityType.Client,
             AuditEventType.LegalProcessCreated or
                 AuditEventType.LegalProcessTitleChanged => AuditEntityType.LegalProcess,
             AuditEventType.LegalDeadlineCreated or
@@ -169,6 +173,7 @@ public static class AuditEventTypeExtensions
                 AuditEventType.ClientRenamed or
                 AuditEventType.ClientDeactivated or
                 AuditEventType.ClientReactivated or
+                AuditEventType.ClientProfileUpdated or
                 AuditEventType.LegalProcessCreated or
                 AuditEventType.LegalProcessTitleChanged or
                 AuditEventType.LegalDeadlineCreated or

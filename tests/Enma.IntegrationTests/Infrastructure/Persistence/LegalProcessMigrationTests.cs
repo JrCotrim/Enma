@@ -63,8 +63,11 @@ public sealed class LegalProcessMigrationTests(
 
         await using (EnmaDbContext seedContext = fixture.CreateDbContext())
         {
-            seedContext.AddRange(organization, client);
+            seedContext.Add(organization);
             await seedContext.SaveChangesAsync();
+            await PostgreSqlFixture.InsertClientWithoutProfileColumnsAsync(
+                seedContext,
+                client);
         }
 
         await MigrateAsync();

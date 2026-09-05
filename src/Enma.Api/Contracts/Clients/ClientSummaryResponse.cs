@@ -1,10 +1,7 @@
 namespace Enma.Api.Contracts.Clients;
 
-public sealed record ClientResponse(
+public sealed record ClientSummaryResponse(
     Guid Id,
     string Name,
-    string? Email,
-    string? Phone,
-    string? Cpf,
     bool IsActive,
     DateTimeOffset CreatedAt);

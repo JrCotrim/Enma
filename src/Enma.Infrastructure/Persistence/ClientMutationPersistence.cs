@@ -34,7 +34,7 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
         return MutateAsync(
             request,
             decide,
-            ClientMutationOperation.Rename,
+            ClientMutationOperation.Update,
             cancellationToken);
     }
 
@@ -104,22 +104,31 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
         }
 
         string oldName = client.Name;
+        string? oldEmail = client.Email;
+        string? oldPhone = client.Phone;
+        string? oldCpf = client.Cpf;
         bool oldIsActive = client.IsActive;
-        OrganizationMembership? actorMembership = await LockActorMembershipAsync(
-            dbContext,
-            request.OrganizationId,
-            request.ActorMembershipId,
-            cancellationToken);
+
+        OrganizationMembership? actorMembership =
+            await LockActorMembershipAsync(
+                dbContext,
+                request.OrganizationId,
+                request.ActorMembershipId,
+                cancellationToken);
+
         User? actorUser = actorMembership is null
             ? null
             : await LockActorUserAsync(
                 dbContext,
                 actorMembership.UserId,
                 cancellationToken);
-        Organization? organization = await LockOrganizationAsync(
-            dbContext,
-            request.OrganizationId,
-            cancellationToken);
+
+        Organization? organization =
+            await LockOrganizationAsync(
+                dbContext,
+                request.OrganizationId,
+                cancellationToken);
+
         ClientMutationDecision decision = decide(
             new ClientMutationLockedState(
                 client,
@@ -132,13 +141,17 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
             return ClientMutationPersistenceResult.AccessDenied;
         }
 
-        AuditEventType? eventType = GetEventType(
-            client,
-            oldName,
-            oldIsActive,
-            operation);
+        IReadOnlyList<AuditEventType> eventTypes =
+            GetEventTypes(
+                client,
+                oldName,
+                oldEmail,
+                oldPhone,
+                oldCpf,
+                oldIsActive,
+                operation);
 
-        if (eventType is null)
+        if (eventTypes.Count == 0)
         {
             await transaction.CommitAsync(cancellationToken);
             return ClientMutationPersistenceResult.Succeeded;
@@ -151,52 +164,104 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
         }
 
         TransactionalAuditActorContext auditActor =
-            TransactionalAuditActorContext.FromValidatedMembership(actorMembership);
-        AuditLogAppender.Append(
-            dbContext,
-            _timeProvider,
-            auditActor,
-            new AuditIntent(eventType.Value, client.Id));
+            TransactionalAuditActorContext.FromValidatedMembership(
+                actorMembership);
+
+        foreach (AuditEventType eventType in eventTypes)
+        {
+            AuditLogAppender.Append(
+                dbContext,
+                _timeProvider,
+                auditActor,
+                new AuditIntent(eventType, client.Id));
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return ClientMutationPersistenceResult.Succeeded;
     }
 
-    private static AuditEventType? GetEventType(
+    private static IReadOnlyList<AuditEventType> GetEventTypes(
         Client client,
         string oldName,
+        string? oldEmail,
+        string? oldPhone,
+        string? oldCpf,
         bool oldIsActive,
         ClientMutationOperation operation)
     {
-        return operation switch
+        bool nameChanged =
+            !StringComparer.Ordinal.Equals(oldName, client.Name);
+
+        bool profileChanged =
+            !StringComparer.Ordinal.Equals(oldEmail, client.Email) ||
+            !StringComparer.Ordinal.Equals(oldPhone, client.Phone) ||
+            !StringComparer.Ordinal.Equals(oldCpf, client.Cpf);
+
+        switch (operation)
         {
-            ClientMutationOperation.Rename when client.IsActive != oldIsActive =>
+            case ClientMutationOperation.Update:
+            {
+                if (client.IsActive != oldIsActive)
+                {
+                    throw new InvalidOperationException(
+                        "A client update decision changed lifecycle state.");
+                }
+
+                var events = new List<AuditEventType>(2);
+
+                if (nameChanged)
+                {
+                    events.Add(AuditEventType.ClientRenamed);
+                }
+
+                if (profileChanged)
+                {
+                    events.Add(AuditEventType.ClientProfileUpdated);
+                }
+
+                return events;
+            }
+
+            case ClientMutationOperation.Deactivate:
+            case ClientMutationOperation.Reactivate:
+            {
+                if (nameChanged || profileChanged)
+                {
+                    throw new InvalidOperationException(
+                        "A client lifecycle decision changed profile data.");
+                }
+
+                break;
+            }
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(operation));
+        }
+
+        if (operation == ClientMutationOperation.Deactivate)
+        {
+            if (client.IsActive)
+            {
                 throw new InvalidOperationException(
-                    "A client rename decision changed lifecycle state."),
-            ClientMutationOperation.Rename
-                when !StringComparer.Ordinal.Equals(oldName, client.Name) =>
-                AuditEventType.ClientRenamed,
-            ClientMutationOperation.Rename => null,
-            ClientMutationOperation.Deactivate or
-                ClientMutationOperation.Reactivate
-                when !StringComparer.Ordinal.Equals(oldName, client.Name) =>
-                throw new InvalidOperationException(
-                    "A client lifecycle decision changed the client name."),
-            ClientMutationOperation.Deactivate when client.IsActive =>
-                throw new InvalidOperationException(
-                    "A client deactivation decision did not deactivate the client."),
-            ClientMutationOperation.Deactivate when oldIsActive =>
-                AuditEventType.ClientDeactivated,
-            ClientMutationOperation.Deactivate => null,
-            ClientMutationOperation.Reactivate when !client.IsActive =>
-                throw new InvalidOperationException(
-                    "A client reactivation decision did not reactivate the client."),
-            ClientMutationOperation.Reactivate when !oldIsActive =>
-                AuditEventType.ClientReactivated,
-            ClientMutationOperation.Reactivate => null,
-            _ => throw new ArgumentOutOfRangeException(nameof(operation))
-        };
+                    "A client deactivation decision did not deactivate the client.");
+            }
+
+            return oldIsActive
+                ? [AuditEventType.ClientDeactivated]
+                : [];
+        }
+
+        if (!client.IsActive)
+        {
+            throw new InvalidOperationException(
+                "A client reactivation decision did not reactivate the client.");
+        }
+
+        return !oldIsActive
+            ? [AuditEventType.ClientReactivated]
+            : [];
     }
 
     private static ClientLockedActorState? CreateActorState(
@@ -263,7 +328,7 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
 
     private enum ClientMutationOperation
     {
-        Rename = 0,
+        Update = 0,
         Deactivate = 1,
         Reactivate = 2
     }
