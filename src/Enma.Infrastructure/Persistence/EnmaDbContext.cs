@@ -7,6 +7,7 @@ using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
 using Enma.Domain.Documents;
+using Enma.Domain.Finance;
 using Enma.Domain.Notifications;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
@@ -32,6 +33,12 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
     public DbSet<Client> Clients => Set<Client>();
 
     public DbSet<LegalDocument> LegalDocuments => Set<LegalDocument>();
+
+    public DbSet<ClientPaymentPlan> ClientPaymentPlans =>
+        Set<ClientPaymentPlan>();
+
+    public DbSet<PaymentInstallment> PaymentInstallments =>
+        Set<PaymentInstallment>();
 
     public DbSet<LegalDeadline> LegalDeadlines => Set<LegalDeadline>();
 

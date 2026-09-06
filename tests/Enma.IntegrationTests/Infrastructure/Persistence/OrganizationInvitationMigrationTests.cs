@@ -59,6 +59,8 @@ public sealed class OrganizationInvitationMigrationTests(
         Assert.Equal(
             tablesBefore
                 .Append("organization_invitations")
+                .Append("client_payment_plans")
+                .Append("payment_installments")
                 .Order(StringComparer.Ordinal),
             await GetPublicTablesAsync());
         await using EnmaDbContext dbContext = fixture.CreateDbContext();

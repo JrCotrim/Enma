@@ -105,6 +105,8 @@ public sealed class LegalTaskMigrationTests(
                 .Append("notifications")
                 .Append("audit_logs")
                 .Append("organization_invitations")
+                .Append("client_payment_plans")
+                .Append("payment_installments")
                 .OrderBy(table => table),
             tablesAfter);
         await using EnmaDbContext dbContext = fixture.CreateDbContext();

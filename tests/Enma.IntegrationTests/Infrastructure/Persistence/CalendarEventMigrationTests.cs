@@ -125,6 +125,8 @@ public sealed class CalendarEventMigrationTests(
                 .Append("notifications")
                 .Append("audit_logs")
                 .Append("organization_invitations")
+                .Append("client_payment_plans")
+                .Append("payment_installments")
                 .OrderBy(table => table),
             tablesAfter);
 
