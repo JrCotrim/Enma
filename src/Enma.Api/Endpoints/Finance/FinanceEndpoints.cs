@@ -8,6 +8,7 @@ using Enma.Application.Finance;
 using Enma.Application.Finance.Create;
 using Enma.Application.Finance.GetById;
 using Enma.Application.Finance.List;
+using Enma.Application.Finance.MarkPaid;
 
 namespace Enma.Api.Endpoints.Finance;
 
@@ -56,6 +57,19 @@ public static class FinanceEndpoints
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        group.MapPost(
+                "{paymentPlanId:guid}/installments/{installmentId:guid}/mark-paid",
+                MarkInstallmentPaidAsync)
+            .WithName("MarkPaymentInstallmentPaid")
+            .WithSummary("Marks a payment installment as paid.")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireEnmaAntiforgery();
 
         return endpoints;
     }
@@ -175,6 +189,40 @@ public static class FinanceEndpoints
                         "A successful payment plan query did not provide a plan."))),
             _ => throw new InvalidOperationException(
                 "Payment plan query returned an unknown status.")
+        };
+    }
+
+    private static async Task<IResult> MarkInstallmentPaidAsync(
+        Guid organizationId,
+        Guid paymentPlanId,
+        Guid installmentId,
+        ClaimsPrincipal principal,
+        MarkPaymentInstallmentPaidUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        MarkPaymentInstallmentPaidResult result = await useCase.ExecuteAsync(
+            new MarkPaymentInstallmentPaidCommand(
+                userId,
+                organizationId,
+                paymentPlanId,
+                installmentId),
+            cancellationToken);
+
+        return result switch
+        {
+            MarkPaymentInstallmentPaidResult.AccessDenied =>
+                TypedResults.Forbid(),
+            MarkPaymentInstallmentPaidResult.NotFound =>
+                TypedResults.NotFound(),
+            MarkPaymentInstallmentPaidResult.Succeeded =>
+                TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "Payment installment mark-paid returned an unknown result.")
         };
     }
 

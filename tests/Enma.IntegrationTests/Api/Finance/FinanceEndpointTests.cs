@@ -510,6 +510,472 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
         await AssertNoWritesAsync(dbContext);
     }
 
+    [Fact]
+    public async Task MarkPaid_Anonymous_ReturnsUnauthorizedBeforeAntiforgery()
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            GetMarkPaidPath(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid()));
+
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        await AssertEmptyResponseAsync(
+            response,
+            HttpStatusCode.Unauthorized);
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner, HttpStatusCode.NoContent)]
+    [InlineData(OrganizationRole.Administrator, HttpStatusCode.NoContent)]
+    [InlineData(OrganizationRole.Member, HttpStatusCode.Forbidden)]
+    public async Task MarkPaid_CurrentFinanceRole_EnforcesAction(
+        OrganizationRole role,
+        HttpStatusCode expectedStatus)
+    {
+        User user = CreateUser($"mark-paid-{role}");
+        Organization organization = CreateOrganization(
+            $"Mark Paid {role}");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            role);
+
+        var relatedClient = new Enma.Domain.Clients.Client(
+            organization.Id,
+            $"Mark Paid Client {role}",
+            Now.AddHours(-1));
+
+        var paymentPlan = new Enma.Domain.Finance.ClientPaymentPlan(
+            organization.Id,
+            relatedClient.Id,
+            100m,
+            1,
+            DateOnly.FromDateTime(Now.UtcDateTime).AddDays(10),
+            Now.AddMinutes(-30));
+
+        var installment = Assert.Single(paymentPlan.Installments);
+
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient]);
+
+        await SeedFinanceAsync(paymentPlan);
+
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage response =
+            await SendBodylessMutationAsync(
+                GetMarkPaidPath(
+                    organization.Id,
+                    paymentPlan.Id,
+                    installment.Id),
+                rawHandle,
+                csrf);
+
+        await AssertEmptyResponseAsync(
+            response,
+            expectedStatus);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+
+        var persisted = await dbContext.PaymentInstallments
+            .AsNoTracking()
+            .SingleAsync(candidate =>
+                candidate.Id == installment.Id);
+
+        if (expectedStatus == HttpStatusCode.NoContent)
+        {
+            Assert.Equal(Now, persisted.PaidAt);
+
+            var auditLog = await dbContext.AuditLogs
+                .AsNoTracking()
+                .SingleAsync();
+
+            Assert.Equal(
+                organization.Id,
+                auditLog.OrganizationId);
+            Assert.Equal(
+                user.Id,
+                auditLog.ActorUserId);
+            Assert.Equal(
+                membership.Id,
+                auditLog.ActorMembershipId);
+            Assert.Equal(
+                role,
+                auditLog.ActorRoleAtOccurrence);
+            Assert.Equal(
+                Enma.Domain.Auditing.AuditEventType.PaymentInstallmentPaid,
+                auditLog.EventType);
+            Assert.Equal(
+                Enma.Domain.Auditing.AuditEntityType.PaymentInstallment,
+                auditLog.EntityType);
+            Assert.Equal(
+                installment.Id,
+                auditLog.EntityId);
+            Assert.Equal(
+                Now,
+                auditLog.OccurredAt);
+            Assert.Null(auditLog.Details);
+        }
+        else
+        {
+            Assert.Null(persisted.PaidAt);
+            Assert.Equal(
+                0,
+                await dbContext.AuditLogs.CountAsync());
+        }
+    }
+
+    [Fact]
+    public async Task MarkPaid_MissingAntiforgery_ReturnsBadRequestWithoutMutation()
+    {
+        User user = CreateUser("mark-paid-csrf");
+        Organization organization = CreateOrganization(
+            "Mark Paid Csrf");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+
+        var relatedClient = new Enma.Domain.Clients.Client(
+            organization.Id,
+            "Mark Paid Csrf Client",
+            Now.AddHours(-1));
+
+        var paymentPlan = new Enma.Domain.Finance.ClientPaymentPlan(
+            organization.Id,
+            relatedClient.Id,
+            100m,
+            1,
+            DateOnly.FromDateTime(Now.UtcDateTime).AddDays(10),
+            Now.AddMinutes(-30));
+
+        var installment = Assert.Single(paymentPlan.Installments);
+
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient]);
+
+        await SeedFinanceAsync(paymentPlan);
+
+        using HttpResponseMessage response =
+            await SendBodylessMutationAsync(
+                GetMarkPaidPath(
+                    organization.Id,
+                    paymentPlan.Id,
+                    installment.Id),
+                rawHandle,
+                csrf: null);
+
+        await AssertEmptyResponseAsync(
+            response,
+            HttpStatusCode.BadRequest);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+
+        var persisted = await dbContext.PaymentInstallments
+            .AsNoTracking()
+            .SingleAsync(candidate =>
+                candidate.Id == installment.Id);
+
+        Assert.Null(persisted.PaidAt);
+        Assert.Equal(
+            0,
+            await dbContext.AuditLogs.CountAsync());
+    }
+    [Fact]
+    public async Task MarkPaid_UnavailableResources_ReturnNotFoundWithoutMutation()
+    {
+        User user = CreateUser("mark-paid-not-found");
+
+        Organization organization = CreateOrganization(
+            "Mark Paid Available Organization");
+
+        Organization foreignOrganization = CreateOrganization(
+            "Mark Paid Foreign Organization");
+
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+
+        var clientA = new Enma.Domain.Clients.Client(
+            organization.Id,
+            "Mark Paid Client A",
+            Now.AddHours(-1));
+
+        var clientB = new Enma.Domain.Clients.Client(
+            organization.Id,
+            "Mark Paid Client B",
+            Now.AddHours(-1));
+
+        var foreignClient = new Enma.Domain.Clients.Client(
+            foreignOrganization.Id,
+            "Mark Paid Foreign Client",
+            Now.AddHours(-1));
+
+        var planA = new Enma.Domain.Finance.ClientPaymentPlan(
+            organization.Id,
+            clientA.Id,
+            100m,
+            1,
+            DateOnly.FromDateTime(Now.UtcDateTime).AddDays(10),
+            Now.AddMinutes(-30));
+
+        var planB = new Enma.Domain.Finance.ClientPaymentPlan(
+            organization.Id,
+            clientB.Id,
+            100m,
+            1,
+            DateOnly.FromDateTime(Now.UtcDateTime).AddDays(11),
+            Now.AddMinutes(-30));
+
+        var foreignPlan = new Enma.Domain.Finance.ClientPaymentPlan(
+            foreignOrganization.Id,
+            foreignClient.Id,
+            100m,
+            1,
+            DateOnly.FromDateTime(Now.UtcDateTime).AddDays(12),
+            Now.AddMinutes(-30));
+
+        var installmentA = Assert.Single(planA.Installments);
+        var installmentB = Assert.Single(planB.Installments);
+        var foreignInstallment = Assert.Single(foreignPlan.Installments);
+
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization, foreignOrganization],
+            [membership],
+            [clientA, clientB, foreignClient]);
+
+        await SeedFinanceAsync(
+            planA,
+            planB,
+            foreignPlan);
+
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage missingPlan =
+            await SendBodylessMutationAsync(
+                GetMarkPaidPath(
+                    organization.Id,
+                    Guid.NewGuid(),
+                    Guid.NewGuid()),
+                rawHandle,
+                csrf);
+
+        using HttpResponseMessage foreignPlanResponse =
+            await SendBodylessMutationAsync(
+                GetMarkPaidPath(
+                    organization.Id,
+                    foreignPlan.Id,
+                    foreignInstallment.Id),
+                rawHandle,
+                csrf);
+
+        using HttpResponseMessage missingInstallment =
+            await SendBodylessMutationAsync(
+                GetMarkPaidPath(
+                    organization.Id,
+                    planA.Id,
+                    Guid.NewGuid()),
+                rawHandle,
+                csrf);
+
+        using HttpResponseMessage installmentOutsidePlan =
+            await SendBodylessMutationAsync(
+                GetMarkPaidPath(
+                    organization.Id,
+                    planA.Id,
+                    installmentB.Id),
+                rawHandle,
+                csrf);
+
+        using HttpResponseMessage foreignInstallmentResponse =
+            await SendBodylessMutationAsync(
+                GetMarkPaidPath(
+                    organization.Id,
+                    planA.Id,
+                    foreignInstallment.Id),
+                rawHandle,
+                csrf);
+
+        await AssertEmptyResponseAsync(
+            missingPlan,
+            HttpStatusCode.NotFound);
+
+        await AssertEmptyResponseAsync(
+            foreignPlanResponse,
+            HttpStatusCode.NotFound);
+
+        await AssertEmptyResponseAsync(
+            missingInstallment,
+            HttpStatusCode.NotFound);
+
+        await AssertEmptyResponseAsync(
+            installmentOutsidePlan,
+            HttpStatusCode.NotFound);
+
+        await AssertEmptyResponseAsync(
+            foreignInstallmentResponse,
+            HttpStatusCode.NotFound);
+
+        string canonicalNotFoundBody =
+            await missingPlan.Content.ReadAsStringAsync();
+
+        Assert.Equal(
+            canonicalNotFoundBody,
+            await foreignPlanResponse.Content.ReadAsStringAsync());
+
+        Assert.Equal(
+            canonicalNotFoundBody,
+            await missingInstallment.Content.ReadAsStringAsync());
+
+        Assert.Equal(
+            canonicalNotFoundBody,
+            await installmentOutsidePlan.Content.ReadAsStringAsync());
+
+        Assert.Equal(
+            canonicalNotFoundBody,
+            await foreignInstallmentResponse.Content.ReadAsStringAsync());
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+
+        var persistedA = await dbContext.PaymentInstallments
+            .AsNoTracking()
+            .SingleAsync(candidate =>
+                candidate.Id == installmentA.Id);
+
+        var persistedB = await dbContext.PaymentInstallments
+            .AsNoTracking()
+            .SingleAsync(candidate =>
+                candidate.Id == installmentB.Id);
+
+        var persistedForeign = await dbContext.PaymentInstallments
+            .AsNoTracking()
+            .SingleAsync(candidate =>
+                candidate.Id == foreignInstallment.Id);
+
+        Assert.Null(persistedA.PaidAt);
+        Assert.Null(persistedB.PaidAt);
+        Assert.Null(persistedForeign.PaidAt);
+
+        Assert.Equal(
+            0,
+            await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
+    public async Task MarkPaid_RepeatedRequest_RemainsNoContentAndEmitsSingleAudit()
+    {
+        User user = CreateUser("mark-paid-repeat");
+
+        Organization organization = CreateOrganization(
+            "Mark Paid Repeat");
+
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+
+        var relatedClient = new Enma.Domain.Clients.Client(
+            organization.Id,
+            "Mark Paid Repeat Client",
+            Now.AddHours(-1));
+
+        var paymentPlan = new Enma.Domain.Finance.ClientPaymentPlan(
+            organization.Id,
+            relatedClient.Id,
+            100m,
+            1,
+            DateOnly.FromDateTime(Now.UtcDateTime).AddDays(10),
+            Now.AddMinutes(-30));
+
+        var installment = Assert.Single(paymentPlan.Installments);
+
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient]);
+
+        await SeedFinanceAsync(paymentPlan);
+
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        string path = GetMarkPaidPath(
+            organization.Id,
+            paymentPlan.Id,
+            installment.Id);
+
+        using HttpResponseMessage first =
+            await SendBodylessMutationAsync(
+                path,
+                rawHandle,
+                csrf);
+
+        using HttpResponseMessage second =
+            await SendBodylessMutationAsync(
+                path,
+                rawHandle,
+                csrf);
+
+        await AssertEmptyResponseAsync(
+            first,
+            HttpStatusCode.NoContent);
+
+        await AssertEmptyResponseAsync(
+            second,
+            HttpStatusCode.NoContent);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+
+        var persisted = await dbContext.PaymentInstallments
+            .AsNoTracking()
+            .SingleAsync(candidate =>
+                candidate.Id == installment.Id);
+
+        Assert.Equal(Now, persisted.PaidAt);
+
+        var auditLogs = await dbContext.AuditLogs
+            .AsNoTracking()
+            .ToArrayAsync();
+
+        var auditLog = Assert.Single(auditLogs);
+
+        Assert.Equal(
+            Enma.Domain.Auditing.AuditEventType.PaymentInstallmentPaid,
+            auditLog.EventType);
+
+        Assert.Equal(
+            Enma.Domain.Auditing.AuditEntityType.PaymentInstallment,
+            auditLog.EntityType);
+
+        Assert.Equal(
+            installment.Id,
+            auditLog.EntityId);
+
+        Assert.Equal(
+            organization.Id,
+            auditLog.OrganizationId);
+
+        Assert.Equal(
+            membership.Id,
+            auditLog.ActorMembershipId);
+
+        Assert.Equal(
+            Now,
+            auditLog.OccurredAt);
+
+        Assert.Null(auditLog.Details);
+    }
     private static string[] GetPropertyNames<T>()
     {
         return typeof(T).GetProperties().Select(property => property.Name).ToArray();
@@ -611,6 +1077,24 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
         return new CsrfPair(result.RequestToken, cookie.Value.ToString());
     }
 
+    private async Task<HttpResponseMessage> SendBodylessMutationAsync(
+        string path,
+        string rawHandle,
+        CsrfPair? csrf)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path);
+        AddCookiesAndCsrf(request, rawHandle, csrf);
+        return await client.SendAsync(request);
+    }
+
+    private static string GetMarkPaidPath(
+        Guid organizationId,
+        Guid paymentPlanId,
+        Guid installmentId)
+    {
+        return $"{GetPaymentPlansPath(organizationId)}/" +
+            $"{paymentPlanId:D}/installments/{installmentId:D}/mark-paid";
+    }
     private async Task<HttpResponseMessage> SendMutationAsync(
         string path,
         string rawHandle,
