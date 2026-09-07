@@ -1,6 +1,7 @@
 using Enma.Application.Finance;
 using Enma.Application.Finance.GetById;
 using Enma.Application.Finance.List;
+using Enma.Application.Finance.Overview;
 using Enma.Infrastructure;
 using Enma.Infrastructure.Persistence.Queries;
 using Enma.IntegrationTests.Infrastructure.Persistence;
@@ -33,5 +34,6 @@ public sealed class FinanceReadDependencyInjectionTests(PostgreSqlFixture fixtur
             scope.ServiceProvider.GetRequiredService<IFinanceReadQueries>());
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<ListPaymentPlansUseCase>());
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<GetPaymentPlanUseCase>());
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<GetFinanceOverviewUseCase>());
     }
 }

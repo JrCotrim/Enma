@@ -2,6 +2,11 @@ namespace Enma.Application.Finance;
 
 public interface IFinanceReadQueries
 {
+    Task<FinanceOverviewReadModel> GetOverviewAsync(
+        Guid organizationId,
+        DateOnly referenceDate,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<PaymentPlanListItemReadModel>> ListAsync(
         Guid organizationId,
         Guid? clientId,

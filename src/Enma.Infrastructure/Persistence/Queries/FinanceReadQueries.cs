@@ -14,6 +14,151 @@ public sealed class FinanceReadQueries : IFinanceReadQueries
         _dbContext = dbContext;
     }
 
+    public async Task<FinanceOverviewReadModel> GetOverviewAsync(
+        Guid organizationId,
+        DateOnly referenceDate,
+        CancellationToken cancellationToken = default)
+    {
+        var installmentMetrics = _dbContext.PaymentInstallments
+            .AsNoTracking()
+            .Where(installment =>
+                installment.OrganizationId == organizationId)
+            .GroupBy(installment => new
+            {
+                installment.OrganizationId,
+                installment.PaymentPlanId
+            })
+            .Select(group => new
+            {
+                group.Key.OrganizationId,
+                group.Key.PaymentPlanId,
+                ReceivedAmount = (decimal?)group.Sum(installment =>
+                    installment.PaidAt != null ? installment.Amount : 0m),
+                OverdueAmount = (decimal?)group.Sum(installment =>
+                    installment.PaidAt == null &&
+                    installment.DueDate < referenceDate
+                        ? installment.Amount
+                        : 0m),
+                DueTodayAmount = (decimal?)group.Sum(installment =>
+                    installment.PaidAt == null &&
+                    installment.DueDate == referenceDate
+                        ? installment.Amount
+                        : 0m),
+                UpcomingAmount = (decimal?)group.Sum(installment =>
+                    installment.PaidAt == null &&
+                    installment.DueDate > referenceDate
+                        ? installment.Amount
+                        : 0m),
+                PaidInstallmentCount = (long?)group.LongCount(installment =>
+                    installment.PaidAt != null),
+                OverdueInstallmentCount = (long?)group.LongCount(installment =>
+                    installment.PaidAt == null &&
+                    installment.DueDate < referenceDate),
+                DueTodayInstallmentCount = (long?)group.LongCount(installment =>
+                    installment.PaidAt == null &&
+                    installment.DueDate == referenceDate),
+                UpcomingInstallmentCount = (long?)group.LongCount(installment =>
+                    installment.PaidAt == null &&
+                    installment.DueDate > referenceDate)
+            });
+
+        var planMetrics =
+            from paymentPlan in _dbContext.ClientPaymentPlans.AsNoTracking()
+            where paymentPlan.OrganizationId == organizationId
+            join installmentMetric in installmentMetrics
+                on new
+                {
+                    paymentPlan.OrganizationId,
+                    PaymentPlanId = paymentPlan.Id
+                }
+                equals new
+                {
+                    installmentMetric.OrganizationId,
+                    installmentMetric.PaymentPlanId
+                }
+                into installmentMetricMatches
+            from installmentMetric in installmentMetricMatches.DefaultIfEmpty()
+            select new
+            {
+                paymentPlan.TotalAmount,
+                ReceivedAmount = installmentMetric.ReceivedAmount ?? 0m,
+                OverdueAmount = installmentMetric.OverdueAmount ?? 0m,
+                DueTodayAmount = installmentMetric.DueTodayAmount ?? 0m,
+                UpcomingAmount = installmentMetric.UpcomingAmount ?? 0m,
+                PaidInstallmentCount =
+                    installmentMetric.PaidInstallmentCount ?? 0L,
+                OverdueInstallmentCount =
+                    installmentMetric.OverdueInstallmentCount ?? 0L,
+                DueTodayInstallmentCount =
+                    installmentMetric.DueTodayInstallmentCount ?? 0L,
+                UpcomingInstallmentCount =
+                    installmentMetric.UpcomingInstallmentCount ?? 0L
+            };
+
+        var overview = await planMetrics
+            .GroupBy(_ => 1)
+            .Select(group => new
+            {
+                TotalContractedAmount = group.Sum(plan => plan.TotalAmount),
+                TotalReceivedAmount = group.Sum(plan => plan.ReceivedAmount),
+                OverdueAmount = group.Sum(plan => plan.OverdueAmount),
+                DueTodayAmount = group.Sum(plan => plan.DueTodayAmount),
+                UpcomingAmount = group.Sum(plan => plan.UpcomingAmount),
+                PaymentPlanCount = group.LongCount(),
+                OpenPaymentPlanCount = group.LongCount(plan =>
+                    plan.OverdueInstallmentCount +
+                    plan.DueTodayInstallmentCount +
+                    plan.UpcomingInstallmentCount > 0),
+                PaidInstallmentCount = group.Sum(plan =>
+                    plan.PaidInstallmentCount),
+                OverdueInstallmentCount = group.Sum(plan =>
+                    plan.OverdueInstallmentCount),
+                DueTodayInstallmentCount = group.Sum(plan =>
+                    plan.DueTodayInstallmentCount),
+                UpcomingInstallmentCount = group.Sum(plan =>
+                    plan.UpcomingInstallmentCount)
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (overview is null)
+        {
+            return new FinanceOverviewReadModel(
+                referenceDate,
+                0m,
+                0m,
+                0m,
+                0m,
+                0m,
+                0m,
+                0L,
+                0L,
+                0L,
+                0L,
+                0L,
+                0L);
+        }
+
+        decimal totalOutstandingAmount =
+            overview.OverdueAmount +
+            overview.DueTodayAmount +
+            overview.UpcomingAmount;
+
+        return new FinanceOverviewReadModel(
+            referenceDate,
+            overview.TotalContractedAmount,
+            overview.TotalReceivedAmount,
+            totalOutstandingAmount,
+            overview.OverdueAmount,
+            overview.DueTodayAmount,
+            overview.UpcomingAmount,
+            overview.PaymentPlanCount,
+            overview.OpenPaymentPlanCount,
+            overview.PaidInstallmentCount,
+            overview.OverdueInstallmentCount,
+            overview.DueTodayInstallmentCount,
+            overview.UpcomingInstallmentCount);
+    }
+
     public async Task<IReadOnlyList<PaymentPlanListItemReadModel>> ListAsync(
         Guid organizationId,
         Guid? clientId,

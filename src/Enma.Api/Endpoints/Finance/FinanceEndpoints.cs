@@ -9,24 +9,35 @@ using Enma.Application.Finance.Create;
 using Enma.Application.Finance.GetById;
 using Enma.Application.Finance.List;
 using Enma.Application.Finance.MarkPaid;
+using Enma.Application.Finance.Overview;
 
 namespace Enma.Api.Endpoints.Finance;
 
 public static class FinanceEndpoints
 {
     private const string RoutePrefix =
-        "/api/organizations/{organizationId:guid}/finance/payment-plans";
+        "/api/organizations/{organizationId:guid}/finance";
 
     public static IEndpointRouteBuilder MapFinanceEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        RouteGroupBuilder group = endpoints
+        RouteGroupBuilder financeGroup = endpoints
             .MapGroup(RoutePrefix)
             .WithTags("Finance")
             .RequireAuthorization(EnmaAuthorizationPolicies.OrganizationAccess)
             .RequireNoStoreResponses();
+
+        financeGroup.MapGet("/overview", GetOverviewAsync)
+            .WithName("GetFinanceOverview")
+            .WithSummary("Gets the financial overview for the contextual organization.")
+            .Produces<FinanceOverviewResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        RouteGroupBuilder group = financeGroup.MapGroup("/payment-plans");
 
         group.MapPost(string.Empty, CreateAsync)
             .WithName("CreatePaymentPlan")
@@ -72,6 +83,33 @@ public static class FinanceEndpoints
             .RequireEnmaAntiforgery();
 
         return endpoints;
+    }
+
+    private static async Task<IResult> GetOverviewAsync(
+        Guid organizationId,
+        ClaimsPrincipal principal,
+        GetFinanceOverviewUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        GetFinanceOverviewResult result = await useCase.ExecuteAsync(
+            new GetFinanceOverviewQuery(userId, organizationId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GetFinanceOverviewResultStatus.AccessDenied => TypedResults.Forbid(),
+            GetFinanceOverviewResultStatus.Succeeded => TypedResults.Ok(
+                MapFinanceOverview(result.Overview ??
+                    throw new InvalidOperationException(
+                        "A successful finance overview query did not provide a read model."))),
+            _ => throw new InvalidOperationException(
+                "Finance overview query returned an unknown status.")
+        };
     }
 
     private static async Task<IResult> CreateAsync(
@@ -240,6 +278,25 @@ public static class FinanceEndpoints
             paymentPlan.OutstandingAmount,
             paymentPlan.OverdueInstallmentCount,
             paymentPlan.NextDueDate);
+    }
+
+    private static FinanceOverviewResponse MapFinanceOverview(
+        FinanceOverviewReadModel overview)
+    {
+        return new FinanceOverviewResponse(
+            overview.ReferenceDate,
+            overview.TotalContractedAmount,
+            overview.TotalReceivedAmount,
+            overview.TotalOutstandingAmount,
+            overview.OverdueAmount,
+            overview.DueTodayAmount,
+            overview.UpcomingAmount,
+            overview.PaymentPlanCount,
+            overview.OpenPaymentPlanCount,
+            overview.PaidInstallmentCount,
+            overview.OverdueInstallmentCount,
+            overview.DueTodayInstallmentCount,
+            overview.UpcomingInstallmentCount);
     }
 
     private static PaymentPlanResponse MapPaymentPlan(

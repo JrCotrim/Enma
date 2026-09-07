@@ -98,6 +98,28 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public void OverviewContract_ExposesOnlyApprovedFields()
+    {
+        Assert.Equal(
+            [
+                nameof(FinanceOverviewResponse.ReferenceDate),
+                nameof(FinanceOverviewResponse.TotalContractedAmount),
+                nameof(FinanceOverviewResponse.TotalReceivedAmount),
+                nameof(FinanceOverviewResponse.TotalOutstandingAmount),
+                nameof(FinanceOverviewResponse.OverdueAmount),
+                nameof(FinanceOverviewResponse.DueTodayAmount),
+                nameof(FinanceOverviewResponse.UpcomingAmount),
+                nameof(FinanceOverviewResponse.PaymentPlanCount),
+                nameof(FinanceOverviewResponse.OpenPaymentPlanCount),
+                nameof(FinanceOverviewResponse.PaidInstallmentCount),
+                nameof(FinanceOverviewResponse.OverdueInstallmentCount),
+                nameof(FinanceOverviewResponse.DueTodayInstallmentCount),
+                nameof(FinanceOverviewResponse.UpcomingInstallmentCount)
+            ],
+            GetPropertyNames<FinanceOverviewResponse>());
+    }
+
+    [Fact]
     public async Task Read_Anonymous_ReturnsUnauthorized()
     {
         Guid organizationId = Guid.NewGuid();
@@ -106,9 +128,12 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
             GetPaymentPlansPath(organizationId));
         using HttpResponseMessage detail = await client.GetAsync(
             $"{GetPaymentPlansPath(organizationId)}/{Guid.NewGuid():D}");
+        using HttpResponseMessage overview = await client.GetAsync(
+            GetFinanceOverviewPath(organizationId));
 
         await AssertEmptyResponseAsync(list, HttpStatusCode.Unauthorized);
         await AssertEmptyResponseAsync(detail, HttpStatusCode.Unauthorized);
+        await AssertEmptyResponseAsync(overview, HttpStatusCode.Unauthorized);
     }
 
     [Theory]
@@ -141,11 +166,15 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
             GetPaymentPlansPath(organization.Id), rawHandle);
         using HttpResponseMessage detail = await SendReadAsync(
             $"{GetPaymentPlansPath(organization.Id)}/{plan.Id:D}", rawHandle);
+        using HttpResponseMessage overview = await SendReadAsync(
+            GetFinanceOverviewPath(organization.Id), rawHandle);
 
         Assert.Equal(expectedStatus, list.StatusCode);
         Assert.Equal(expectedStatus, detail.StatusCode);
+        Assert.Equal(expectedStatus, overview.StatusCode);
         Assert.True(list.Headers.CacheControl?.NoStore);
         Assert.True(detail.Headers.CacheControl?.NoStore);
+        Assert.True(overview.Headers.CacheControl?.NoStore);
 
         if (expectedStatus == HttpStatusCode.OK)
         {
@@ -179,11 +208,29 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
             Assert.Equal(paidAt, detailBody.Installments[1].PaidAt);
             Assert.Contains("\"status\":\"Overdue\"",
                 await detail.Content.ReadAsStringAsync());
+
+            FinanceOverviewResponse? overviewBody = await overview.Content
+                .ReadFromJsonAsync<FinanceOverviewResponse>();
+            Assert.NotNull(overviewBody);
+            Assert.Equal(new DateOnly(2026, 9, 7), overviewBody.ReferenceDate);
+            Assert.Equal(40m, overviewBody.TotalContractedAmount);
+            Assert.Equal(10m, overviewBody.TotalReceivedAmount);
+            Assert.Equal(30m, overviewBody.TotalOutstandingAmount);
+            Assert.Equal(10m, overviewBody.OverdueAmount);
+            Assert.Equal(10m, overviewBody.DueTodayAmount);
+            Assert.Equal(10m, overviewBody.UpcomingAmount);
+            Assert.Equal(1L, overviewBody.PaymentPlanCount);
+            Assert.Equal(1L, overviewBody.OpenPaymentPlanCount);
+            Assert.Equal(1L, overviewBody.PaidInstallmentCount);
+            Assert.Equal(1L, overviewBody.OverdueInstallmentCount);
+            Assert.Equal(1L, overviewBody.DueTodayInstallmentCount);
+            Assert.Equal(1L, overviewBody.UpcomingInstallmentCount);
         }
         else
         {
             await AssertEmptyResponseAsync(list, HttpStatusCode.Forbidden);
             await AssertEmptyResponseAsync(detail, HttpStatusCode.Forbidden);
+            await AssertEmptyResponseAsync(overview, HttpStatusCode.Forbidden);
         }
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -196,6 +243,86 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
             .Where(item => item.Id == relatedClient.Id)
             .Select(item => item.Name)
             .SingleAsync());
+    }
+
+    [Fact]
+    public async Task Overview_EmptyTenantIgnoresForeignFinanceAndReturnsExactZeros()
+    {
+        User user = CreateUser("overview-empty");
+        Organization tenant = CreateOrganization("Overview Empty");
+        Organization foreignTenant = CreateOrganization("Overview Foreign");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            tenant,
+            OrganizationRole.Owner);
+        var foreignClient = new Client(
+            foreignTenant.Id,
+            "Foreign Overview Client",
+            Now.AddDays(-2));
+        var foreignPlan = new ClientPaymentPlan(
+            foreignTenant.Id,
+            foreignClient.Id,
+            9_999_999.99m,
+            1,
+            new DateOnly(2026, 9, 6),
+            Now.AddDays(-1));
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [tenant, foreignTenant],
+            [membership],
+            [foreignClient]);
+        await SeedFinanceAsync(foreignPlan);
+
+        using HttpResponseMessage response = await SendReadAsync(
+            GetFinanceOverviewPath(tenant.Id),
+            rawHandle);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        FinanceOverviewResponse? overview = await response.Content
+            .ReadFromJsonAsync<FinanceOverviewResponse>();
+        Assert.Equal(
+            new FinanceOverviewResponse(
+                new DateOnly(2026, 9, 7),
+                0m,
+                0m,
+                0m,
+                0m,
+                0m,
+                0m,
+                0L,
+                0L,
+                0L,
+                0L,
+                0L,
+                0L),
+            overview);
+
+        using JsonDocument document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            [
+                "referenceDate",
+                "totalContractedAmount",
+                "totalReceivedAmount",
+                "totalOutstandingAmount",
+                "overdueAmount",
+                "dueTodayAmount",
+                "upcomingAmount",
+                "paymentPlanCount",
+                "openPaymentPlanCount",
+                "paidInstallmentCount",
+                "overdueInstallmentCount",
+                "dueTodayInstallmentCount",
+                "upcomingInstallmentCount"
+            ],
+            document.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .ToArray());
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
     }
 
     [Fact]
@@ -1195,6 +1322,11 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
     private static string GetPaymentPlansPath(Guid organizationId)
     {
         return $"/api/organizations/{organizationId:D}/finance/payment-plans";
+    }
+
+    private static string GetFinanceOverviewPath(Guid organizationId)
+    {
+        return $"/api/organizations/{organizationId:D}/finance/overview";
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

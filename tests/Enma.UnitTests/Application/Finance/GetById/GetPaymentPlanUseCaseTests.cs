@@ -113,6 +113,11 @@ public sealed class GetPaymentPlanUseCaseTests
         public Guid PaymentPlanId { get; private set; }
         public DateOnly ReferenceDate { get; private set; }
 
+        public Task<FinanceOverviewReadModel> GetOverviewAsync(
+            Guid organizationId, DateOnly referenceDate,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlyList<PaymentPlanListItemReadModel>> ListAsync(
             Guid organizationId, Guid? clientId, DateOnly referenceDate,
             int pageNumber, int pageSize, CancellationToken cancellationToken = default) =>

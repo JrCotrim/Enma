@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Enma.Application.Finance;
 using Enma.Domain.Clients;
 using Enma.Domain.Finance;
@@ -5,6 +6,7 @@ using Enma.Domain.Organizations;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
 
@@ -17,6 +19,131 @@ public sealed class FinanceReadQueriesTests(PostgreSqlFixture fixture) : IAsyncL
 
     public Task InitializeAsync() => fixture.ResetDatabaseAsync();
     public Task DisposeAsync() => Task.CompletedTask;
+
+    [Fact]
+    public async Task GetOverviewAsync_OrganizationWithoutFinance_ReturnsZeros()
+    {
+        Organization tenant = CreateOrganization("overview-empty");
+        await SeedAsync(tenant);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+
+        FinanceOverviewReadModel overview =
+            await new FinanceReadQueries(dbContext).GetOverviewAsync(
+                tenant.Id,
+                ReferenceDate);
+
+        Assert.Equal(
+            new FinanceOverviewReadModel(
+                ReferenceDate,
+                0m,
+                0m,
+                0m,
+                0m,
+                0m,
+                0m,
+                0L,
+                0L,
+                0L,
+                0L,
+                0L,
+                0L),
+            overview);
+        Assert.Empty(dbContext.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task GetOverviewAsync_MixedPlans_ReturnsExactTenantScopedMetrics()
+    {
+        Organization tenant = CreateOrganization("overview");
+        Organization foreignTenant = CreateOrganization("overview-foreign");
+        Client client = CreateClient(tenant, "Overview Client");
+        Client foreignClient = CreateClient(foreignTenant, "Foreign Overview Client");
+        ClientPaymentPlan openPlan = CreatePlan(
+            client,
+            100.01m,
+            4,
+            new DateOnly(2026, 7, 7),
+            CreatedAt);
+        ClientPaymentPlan paidPlan = CreatePlan(
+            client,
+            20m,
+            2,
+            new DateOnly(2026, 11, 7),
+            CreatedAt);
+        ClientPaymentPlan foreignPlan = CreatePlan(
+            foreignClient,
+            9_999_999.99m,
+            1,
+            ReferenceDate.AddDays(-1),
+            CreatedAt);
+
+        openPlan.Installments.Single(item => item.SequenceNumber == 1)
+            .MarkPaid(CreatedAt.AddDays(1));
+        foreach (PaymentInstallment installment in paidPlan.Installments)
+        {
+            installment.MarkPaid(CreatedAt.AddDays(1));
+        }
+
+        await SeedAsync(
+            tenant,
+            foreignTenant,
+            client,
+            foreignClient,
+            openPlan,
+            paidPlan,
+            foreignPlan);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+
+        FinanceOverviewReadModel overview =
+            await new FinanceReadQueries(dbContext).GetOverviewAsync(
+                tenant.Id,
+                ReferenceDate);
+
+        Assert.Equal(ReferenceDate, overview.ReferenceDate);
+        Assert.Equal(120.01m, overview.TotalContractedAmount);
+        Assert.Equal(45.01m, overview.TotalReceivedAmount);
+        Assert.Equal(75m, overview.TotalOutstandingAmount);
+        Assert.Equal(25m, overview.OverdueAmount);
+        Assert.Equal(25m, overview.DueTodayAmount);
+        Assert.Equal(25m, overview.UpcomingAmount);
+        Assert.Equal(2L, overview.PaymentPlanCount);
+        Assert.Equal(1L, overview.OpenPaymentPlanCount);
+        Assert.Equal(3L, overview.PaidInstallmentCount);
+        Assert.Equal(1L, overview.OverdueInstallmentCount);
+        Assert.Equal(1L, overview.DueTodayInstallmentCount);
+        Assert.Equal(1L, overview.UpcomingInstallmentCount);
+        Assert.Equal(
+            overview.TotalContractedAmount,
+            overview.TotalReceivedAmount + overview.TotalOutstandingAmount);
+        Assert.Empty(dbContext.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task GetOverviewAsync_UsesOneAggregateCommandWithoutClientJoin()
+    {
+        Organization tenant = CreateOrganization("overview-sql");
+        Client client = CreateClient(tenant, "Overview SQL Client");
+        ClientPaymentPlan plan = CreatePlan(
+            client,
+            10m,
+            1,
+            ReferenceDate,
+            CreatedAt);
+        await SeedAsync(tenant, client, plan);
+        var interceptor = new ReaderCommandInterceptor();
+        await using EnmaDbContext dbContext = CreateContext(interceptor);
+
+        await new FinanceReadQueries(dbContext).GetOverviewAsync(
+            tenant.Id,
+            ReferenceDate);
+
+        string sql = Assert.Single(interceptor.CommandTexts);
+        Assert.Contains("client_payment_plans", sql, StringComparison.Ordinal);
+        Assert.Contains("payment_installments", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("FROM clients", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CROSS JOIN", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(dbContext.ChangeTracker.Entries());
+    }
 
     [Fact]
     public async Task ListAsync_IsTenantScopedFilteredOrderedPagedAndComputesMetrics()
@@ -160,5 +287,33 @@ public sealed class FinanceReadQueriesTests(PostgreSqlFixture fixture) : IAsyncL
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         dbContext.AddRange(entities);
         await dbContext.SaveChangesAsync();
+    }
+
+    private EnmaDbContext CreateContext(DbCommandInterceptor interceptor)
+    {
+        DbContextOptions<EnmaDbContext> options =
+            new DbContextOptionsBuilder<EnmaDbContext>()
+                .UseNpgsql(fixture.ConnectionString)
+                .AddInterceptors(interceptor)
+                .Options;
+        return new EnmaDbContext(options);
+    }
+
+    private sealed class ReaderCommandInterceptor : DbCommandInterceptor
+    {
+        private readonly List<string> _commandTexts = [];
+
+        public IReadOnlyList<string> CommandTexts => _commandTexts;
+
+        public override ValueTask<InterceptionResult<DbDataReader>>
+            ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            _commandTexts.Add(command.CommandText);
+            return ValueTask.FromResult(result);
+        }
     }
 }
