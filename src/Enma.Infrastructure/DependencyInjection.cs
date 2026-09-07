@@ -36,6 +36,8 @@ using Enma.Application.Documents.List;
 using Enma.Application.Documents.Staging;
 using Enma.Application.Documents.Storage;
 using Enma.Application.Documents.Upload;
+using Enma.Application.Finance;
+using Enma.Application.Finance.Create;
 using Enma.Application.Notifications;
 using Enma.Application.Notifications.List;
 using Enma.Application.Notifications.MarkAllRead;
@@ -293,6 +295,9 @@ public static class DependencyInjection
         services.AddScoped<IClientReadQueries, ClientReadQueries>();
         services.AddScoped<IActiveClientLookupQueries, ActiveClientLookupQueries>();
         services.AddScoped<
+            IPaymentPlanCreationPersistence,
+            PaymentPlanCreationPersistence>();
+        services.AddScoped<
             ILegalProcessCreationPersistence,
             LegalProcessCreationPersistence>();
         services.AddScoped<
@@ -392,6 +397,7 @@ public static class DependencyInjection
         services.AddScoped<ProcessActionAuthorization>();
         services.AddScoped<DeadlineAccessAuthorization>();
         services.AddScoped<DeadlineActionAuthorization>();
+        services.AddScoped<FinanceActionAuthorization>();
         services.AddScoped<LegalTaskViewAuthorization>();
         services.AddScoped<LegalTaskMutationAuthorization>();
         services.AddScoped<CalendarEventAccessAuthorization>();
@@ -410,6 +416,7 @@ public static class DependencyInjection
         services.AddScoped<SearchActiveClientsUseCase>();
         services.AddScoped<ReactivateClientUseCase>();
         services.AddScoped<UpdateClientUseCase>();
+        services.AddScoped<CreatePaymentPlanUseCase>();
         services.AddScoped<CreateLegalProcessUseCase>();
         services.AddScoped<GetLegalProcessUseCase>();
         services.AddScoped<ListLegalProcessesUseCase>();
