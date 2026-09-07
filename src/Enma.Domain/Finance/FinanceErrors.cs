@@ -40,4 +40,10 @@ public static class FinanceErrors
 
     public const string DueDateInvalid =
         "Installment due date is invalid.";
+
+    public const string PaidAtInvalid =
+        "Installment payment date is invalid.";
+
+    public const string PaymentBeforeCreation =
+        "Installment payment date cannot predate its creation date.";
 }

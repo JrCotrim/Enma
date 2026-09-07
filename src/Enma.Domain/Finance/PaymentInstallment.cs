@@ -80,4 +80,23 @@ public sealed class PaymentInstallment
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset? PaidAt { get; private set; }
+
+    public void MarkPaid(DateTimeOffset paidAt)
+    {
+        if (paidAt == DateTimeOffset.MinValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(paidAt),
+                FinanceErrors.PaidAtInvalid);
+        }
+
+        if (paidAt < CreatedAt)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(paidAt),
+                FinanceErrors.PaymentBeforeCreation);
+        }
+
+        PaidAt ??= paidAt;
+    }
 }

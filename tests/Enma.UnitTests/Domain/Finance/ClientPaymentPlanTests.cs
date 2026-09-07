@@ -314,4 +314,74 @@ public sealed class ClientPaymentPlanTests
                 .Distinct()
                 .Count());
     }
+
+    [Fact]
+    public void MarkPaid_ValidTimestamp_RecordsPayment()
+    {
+        PaymentInstallment installment = CreateInstallment();
+        DateTimeOffset paidAt = CreatedAt.AddDays(1);
+
+        installment.MarkPaid(paidAt);
+
+        Assert.Equal(paidAt, installment.PaidAt);
+    }
+
+    [Fact]
+    public void MarkPaid_MinimumTimestamp_Rejects()
+    {
+        PaymentInstallment installment = CreateInstallment();
+
+        ArgumentOutOfRangeException exception =
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => installment.MarkPaid(DateTimeOffset.MinValue));
+
+        Assert.Equal("paidAt", exception.ParamName);
+    }
+
+    [Fact]
+    public void MarkPaid_BeforeCreation_Rejects()
+    {
+        PaymentInstallment installment = CreateInstallment();
+
+        ArgumentOutOfRangeException exception =
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => installment.MarkPaid(CreatedAt.AddTicks(-1)));
+
+        Assert.Equal("paidAt", exception.ParamName);
+    }
+
+    [Fact]
+    public void MarkPaid_RepeatedCall_PreservesFirstPaymentTimestamp()
+    {
+        PaymentInstallment installment = CreateInstallment();
+        DateTimeOffset firstPaidAt = CreatedAt.AddDays(1);
+
+        installment.MarkPaid(firstPaidAt);
+        installment.MarkPaid(firstPaidAt.AddDays(1));
+
+        Assert.Equal(firstPaidAt, installment.PaidAt);
+    }
+
+    [Fact]
+    public void MarkPaid_AtCreationTimestamp_Accepts()
+    {
+        PaymentInstallment installment = CreateInstallment();
+
+        installment.MarkPaid(CreatedAt);
+
+        Assert.Equal(CreatedAt, installment.PaidAt);
+    }
+
+    private static PaymentInstallment CreateInstallment()
+    {
+        var plan = new ClientPaymentPlan(
+            OrganizationId,
+            ClientId,
+            100m,
+            1,
+            new DateOnly(2026, 9, 10),
+            CreatedAt);
+
+        return Assert.Single(plan.Installments);
+    }
 }
