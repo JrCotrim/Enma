@@ -50,7 +50,9 @@ public enum AuditEventType
     /// target invitation and its role by the authoritative resend transaction.
     /// </summary>
     OrganizationInvitationResent = 28,
-    ClientProfileUpdated = 29
+    ClientProfileUpdated = 29,
+    PaymentPlanCreated = 30,
+    PaymentInstallmentPaid = 31
 }
 
 public static class AuditEventTypeExtensions
@@ -98,6 +100,10 @@ public static class AuditEventTypeExtensions
                 "organization_invitation.resent",
             AuditEventType.ClientProfileUpdated =>
                 "client.profile_updated",
+            AuditEventType.PaymentPlanCreated =>
+                "payment_plan.created",
+            AuditEventType.PaymentInstallmentPaid =>
+                "payment_installment.paid",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -139,6 +145,10 @@ public static class AuditEventTypeExtensions
                 AuditEventType.OrganizationInvitationAccepted or
                 AuditEventType.OrganizationInvitationResent =>
                 AuditEntityType.OrganizationInvitation,
+            AuditEventType.PaymentPlanCreated =>
+                AuditEntityType.ClientPaymentPlan,
+            AuditEventType.PaymentInstallmentPaid =>
+                AuditEntityType.PaymentInstallment,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -187,7 +197,9 @@ public static class AuditEventTypeExtensions
                 AuditEventType.LegalDocumentUploaded or
                 AuditEventType.OrganizationInvitationRevoked or
                 AuditEventType.OrganizationInvitationAccepted or
-                AuditEventType.OrganizationInvitationResent => null,
+                AuditEventType.OrganizationInvitationResent or
+                AuditEventType.PaymentPlanCreated or
+                AuditEventType.PaymentInstallmentPaid => null,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)

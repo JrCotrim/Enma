@@ -245,6 +245,18 @@ public sealed class AuditTaxonomyTests
                 "client.profile_updated",
                 AuditEntityType.Client
             },
+            {
+                AuditEventType.PaymentPlanCreated,
+                30,
+                "payment_plan.created",
+                AuditEntityType.ClientPaymentPlan
+            },
+            {
+                AuditEventType.PaymentInstallmentPaid,
+                31,
+                "payment_installment.paid",
+                AuditEntityType.PaymentInstallment
+            },
         };
 
     public static TheoryData<AuditEntityType, int, string> ExpectedEntities =>
@@ -266,6 +278,16 @@ public sealed class AuditTaxonomyTests
                 AuditEntityType.OrganizationInvitation,
                 9,
                 "organization_invitation"
+            },
+            {
+                AuditEntityType.ClientPaymentPlan,
+                10,
+                "client_payment_plan"
+            },
+            {
+                AuditEntityType.PaymentInstallment,
+                11,
+                "payment_installment"
             }
         };
 }

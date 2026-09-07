@@ -66,6 +66,13 @@ public sealed class AuditIntentTests
                 roleChanged));
         Assert.Throws<ArgumentException>(() =>
             new AuditIntent(AuditEventType.ClientCreated, EntityId, renamed));
+        Assert.Throws<ArgumentException>(() =>
+            new AuditIntent(AuditEventType.PaymentPlanCreated, EntityId, renamed));
+        Assert.Throws<ArgumentException>(() =>
+            new AuditIntent(
+                AuditEventType.PaymentInstallmentPaid,
+                EntityId,
+                renamed));
     }
 
     [Fact]
@@ -274,6 +281,16 @@ public sealed class AuditIntentTests
             {
                 AuditEventType.OrganizationInvitationResent,
                 AuditEntityType.OrganizationInvitation,
+                null
+            },
+            {
+                AuditEventType.PaymentPlanCreated,
+                AuditEntityType.ClientPaymentPlan,
+                null
+            },
+            {
+                AuditEventType.PaymentInstallmentPaid,
+                AuditEntityType.PaymentInstallment,
                 null
             }
         };

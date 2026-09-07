@@ -14,7 +14,9 @@ public enum AuditEntityType
     LegalTask = 6,
     CalendarEvent = 7,
     LegalDocument = 8,
-    OrganizationInvitation = 9
+    OrganizationInvitation = 9,
+    ClientPaymentPlan = 10,
+    PaymentInstallment = 11
 }
 
 public static class AuditEntityTypeExtensions
@@ -32,6 +34,8 @@ public static class AuditEntityTypeExtensions
             AuditEntityType.CalendarEvent => "calendar_event",
             AuditEntityType.LegalDocument => "legal_document",
             AuditEntityType.OrganizationInvitation => "organization_invitation",
+            AuditEntityType.ClientPaymentPlan => "client_payment_plan",
+            AuditEntityType.PaymentInstallment => "payment_installment",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(entityType),
                 AuditLogErrors.EntityTypeInvalid)
