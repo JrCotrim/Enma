@@ -6,6 +6,7 @@ using Enma.Api.Contracts.Finance;
 using Enma.Application.Authentication;
 using Enma.Domain.Authentication;
 using Enma.Domain.Clients;
+using Enma.Domain.Finance;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
@@ -94,6 +95,189 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
                     property.Name,
                     StringComparer.Ordinal));
         }
+    }
+
+    [Fact]
+    public async Task Read_Anonymous_ReturnsUnauthorized()
+    {
+        Guid organizationId = Guid.NewGuid();
+
+        using HttpResponseMessage list = await client.GetAsync(
+            GetPaymentPlansPath(organizationId));
+        using HttpResponseMessage detail = await client.GetAsync(
+            $"{GetPaymentPlansPath(organizationId)}/{Guid.NewGuid():D}");
+
+        await AssertEmptyResponseAsync(list, HttpStatusCode.Unauthorized);
+        await AssertEmptyResponseAsync(detail, HttpStatusCode.Unauthorized);
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner, HttpStatusCode.OK)]
+    [InlineData(OrganizationRole.Administrator, HttpStatusCode.OK)]
+    [InlineData(OrganizationRole.Member, HttpStatusCode.Forbidden)]
+    public async Task Read_CurrentFinanceRole_EnforcesListAndDetail(
+        OrganizationRole role,
+        HttpStatusCode expectedStatus)
+    {
+        User user = CreateUser($"read-{role}");
+        Organization organization = CreateOrganization($"Read {role}");
+        OrganizationMembership membership = CreateMembership(user, organization, role);
+        var relatedClient = new Client(
+            organization.Id, $"{role} Read Client", Now.AddDays(-100));
+        var plan = new ClientPaymentPlan(
+            organization.Id,
+            relatedClient.Id,
+            40m,
+            4,
+            new DateOnly(2026, 7, 7),
+            Now.AddDays(-100));
+        DateTimeOffset paidAt = Now.AddDays(-50);
+        plan.Installments.Single(item => item.SequenceNumber == 2).MarkPaid(paidAt);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user, [organization], [membership], [relatedClient]);
+        await SeedFinanceAsync(plan);
+
+        using HttpResponseMessage list = await SendReadAsync(
+            GetPaymentPlansPath(organization.Id), rawHandle);
+        using HttpResponseMessage detail = await SendReadAsync(
+            $"{GetPaymentPlansPath(organization.Id)}/{plan.Id:D}", rawHandle);
+
+        Assert.Equal(expectedStatus, list.StatusCode);
+        Assert.Equal(expectedStatus, detail.StatusCode);
+        Assert.True(list.Headers.CacheControl?.NoStore);
+        Assert.True(detail.Headers.CacheControl?.NoStore);
+
+        if (expectedStatus == HttpStatusCode.OK)
+        {
+            ListPaymentPlansResponse? listBody = await list.Content
+                .ReadFromJsonAsync<ListPaymentPlansResponse>();
+            Assert.NotNull(listBody);
+            PaymentPlanSummaryResponse summary = Assert.Single(listBody.Items);
+            Assert.Equal(plan.Id, summary.Id);
+            Assert.Equal(1, listBody.PageNumber);
+            Assert.Equal(20, listBody.PageSize);
+            Assert.Equal(30m, summary.OutstandingAmount);
+            Assert.Equal(1, summary.OverdueInstallmentCount);
+            Assert.Equal(new DateOnly(2026, 7, 7), summary.NextDueDate);
+            Assert.False(listBody.HasNext);
+
+            PaymentPlanResponse? detailBody = await detail.Content
+                .ReadFromJsonAsync<PaymentPlanResponse>();
+            Assert.NotNull(detailBody);
+            Assert.Equal(relatedClient.Name, detailBody.ClientName);
+            Assert.Equal(new DateOnly(2026, 9, 7), detailBody.ReferenceDate);
+            Assert.Equal([1, 2, 3, 4],
+                detailBody.Installments.Select(item => item.SequenceNumber));
+            Assert.Equal(
+                [
+                    PaymentInstallmentStatusResponse.Overdue,
+                    PaymentInstallmentStatusResponse.Paid,
+                    PaymentInstallmentStatusResponse.DueToday,
+                    PaymentInstallmentStatusResponse.Upcoming
+                ],
+                detailBody.Installments.Select(item => item.Status));
+            Assert.Equal(paidAt, detailBody.Installments[1].PaidAt);
+            Assert.Contains("\"status\":\"Overdue\"",
+                await detail.Content.ReadAsStringAsync());
+        }
+        else
+        {
+            await AssertEmptyResponseAsync(list, HttpStatusCode.Forbidden);
+            await AssertEmptyResponseAsync(detail, HttpStatusCode.Forbidden);
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+        Assert.Equal(paidAt, await dbContext.PaymentInstallments
+            .Where(item => item.Id == plan.Installments[1].Id)
+            .Select(item => item.PaidAt)
+            .SingleAsync());
+        Assert.Equal(relatedClient.Name, await dbContext.Clients
+            .Where(item => item.Id == relatedClient.Id)
+            .Select(item => item.Name)
+            .SingleAsync());
+    }
+
+    [Fact]
+    public async Task List_PagingFilterAndValidation_ReturnExpectedContracts()
+    {
+        User user = CreateUser("read-list");
+        Organization organization = CreateOrganization("Read List");
+        Organization foreignOrganization = CreateOrganization("Read List Foreign");
+        OrganizationMembership membership = CreateMembership(
+            user, organization, OrganizationRole.Owner);
+        var clientA = new Client(organization.Id, "Client A", Now.AddDays(-3));
+        var clientB = new Client(organization.Id, "Client B", Now.AddDays(-3));
+        var foreignClient = new Client(
+            foreignOrganization.Id, "Foreign", Now.AddDays(-3));
+        var first = new ClientPaymentPlan(
+            organization.Id, clientA.Id, 10m, 1, new DateOnly(2026, 9, 7), Now.AddDays(-2));
+        var second = new ClientPaymentPlan(
+            organization.Id, clientB.Id, 20m, 1, new DateOnly(2026, 9, 8), Now.AddDays(-1));
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization, foreignOrganization],
+            [membership],
+            [clientA, clientB, foreignClient]);
+        await SeedFinanceAsync(first, second);
+
+        using HttpResponseMessage page = await SendReadAsync(
+            $"{GetPaymentPlansPath(organization.Id)}?pageNumber=1&pageSize=1",
+            rawHandle);
+        using HttpResponseMessage filtered = await SendReadAsync(
+            $"{GetPaymentPlansPath(organization.Id)}?clientId={clientA.Id:D}",
+            rawHandle);
+        using HttpResponseMessage foreignFiltered = await SendReadAsync(
+            $"{GetPaymentPlansPath(organization.Id)}?clientId={foreignClient.Id:D}",
+            rawHandle);
+        using HttpResponseMessage invalidPage = await SendReadAsync(
+            $"{GetPaymentPlansPath(organization.Id)}?pageSize=101",
+            rawHandle);
+        using HttpResponseMessage emptyClient = await SendReadAsync(
+            $"{GetPaymentPlansPath(organization.Id)}?clientId={Guid.Empty:D}",
+            rawHandle);
+
+        ListPaymentPlansResponse? pageBody = await page.Content
+            .ReadFromJsonAsync<ListPaymentPlansResponse>();
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.NotNull(pageBody);
+        Assert.Equal(second.Id, Assert.Single(pageBody.Items).Id);
+        Assert.True(pageBody.HasNext);
+        Assert.Equal(clientA.Id, Assert.Single((await filtered.Content
+            .ReadFromJsonAsync<ListPaymentPlansResponse>())!.Items).ClientId);
+        Assert.Empty((await foreignFiltered.Content
+            .ReadFromJsonAsync<ListPaymentPlansResponse>())!.Items);
+        await AssertSafeBadRequestAsync(invalidPage);
+        await AssertSafeBadRequestAsync(emptyClient);
+    }
+
+    [Fact]
+    public async Task Detail_MissingAndForeignPlans_ReturnSameNotFound()
+    {
+        User user = CreateUser("read-detail-missing");
+        Organization tenant = CreateOrganization("Read Detail Tenant");
+        Organization foreignTenant = CreateOrganization("Read Detail Foreign");
+        OrganizationMembership membership = CreateMembership(
+            user, tenant, OrganizationRole.Owner);
+        var tenantClient = new Client(tenant.Id, "Tenant Client", Now.AddDays(-2));
+        var foreignClient = new Client(foreignTenant.Id, "Foreign Client", Now.AddDays(-2));
+        var foreignPlan = new ClientPaymentPlan(
+            foreignTenant.Id, foreignClient.Id, 10m, 1,
+            new DateOnly(2026, 9, 7), Now.AddDays(-1));
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user, [tenant, foreignTenant], [membership], [tenantClient, foreignClient]);
+        await SeedFinanceAsync(foreignPlan);
+
+        using HttpResponseMessage missing = await SendReadAsync(
+            $"{GetPaymentPlansPath(tenant.Id)}/{Guid.NewGuid():D}", rawHandle);
+        using HttpResponseMessage foreign = await SendReadAsync(
+            $"{GetPaymentPlansPath(tenant.Id)}/{foreignPlan.Id:D}", rawHandle);
+
+        await AssertEmptyResponseAsync(missing, HttpStatusCode.NotFound);
+        await AssertEmptyResponseAsync(foreign, HttpStatusCode.NotFound);
+        Assert.Equal(
+            await missing.Content.ReadAsStringAsync(),
+            await foreign.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -437,6 +621,24 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
         AddCookiesAndCsrf(request, rawHandle, csrf);
         request.Content = JsonContent.Create(body);
         return await client.SendAsync(request);
+    }
+
+    private async Task<HttpResponseMessage> SendReadAsync(
+        string path,
+        string rawHandle)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Add(
+            HeaderNames.Cookie,
+            $"{SessionCookieName}={rawHandle}");
+        return await client.SendAsync(request);
+    }
+
+    private async Task SeedFinanceAsync(params ClientPaymentPlan[] paymentPlans)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        dbContext.ClientPaymentPlans.AddRange(paymentPlans);
+        await dbContext.SaveChangesAsync();
     }
 
     private async Task<HttpResponseMessage> SendMalformedJsonAsync(
