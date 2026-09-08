@@ -4,6 +4,7 @@ import { BriefcaseBusinessIcon } from '../../components/icons/navigation/Briefca
 import { CalendarDaysIcon } from '../../components/icons/navigation/CalendarDaysIcon'
 import { ClipboardCheckIcon } from '../../components/icons/navigation/ClipboardCheckIcon'
 import { ClockIcon } from '../../components/icons/navigation/ClockIcon'
+import { DollarSignIcon } from '../../components/icons/navigation/DollarSignIcon'
 import { FileTextIcon } from '../../components/icons/navigation/FileTextIcon'
 import { LayoutPanelTopIcon } from '../../components/icons/navigation/LayoutPanelTopIcon'
 import { SendIcon } from '../../components/icons/navigation/SendIcon'
@@ -25,6 +26,7 @@ export function OrganizationWorkspace() {
   const overviewIconRef = useRef<NavigationIconHandle>(null)
   const agendaIconRef = useRef<NavigationIconHandle>(null)
   const clientsIconRef = useRef<NavigationIconHandle>(null)
+  const financeIconRef = useRef<NavigationIconHandle>(null)
   const processesIconRef = useRef<NavigationIconHandle>(null)
   const deadlinesIconRef = useRef<NavigationIconHandle>(null)
   const tasksIconRef = useRef<NavigationIconHandle>(null)
@@ -105,6 +107,26 @@ export function OrganizationWorkspace() {
           />
           <span>Clientes</span>
         </NavLink>
+
+        {currentOrganization.role !== 'Member' ? (
+          <NavLink
+            className={({ isActive }) =>
+              `workspace-navigation-link${isActive ? ' is-active' : ''}`
+            }
+            to="finance"
+            onMouseEnter={() => financeIconRef.current?.startAnimation()}
+            onMouseLeave={() => financeIconRef.current?.stopAnimation()}
+            onFocus={() => financeIconRef.current?.startAnimation()}
+            onBlur={() => financeIconRef.current?.stopAnimation()}
+          >
+            <DollarSignIcon
+              ref={financeIconRef}
+              className="workspace-navigation-icon"
+              size={17}
+            />
+            <span>Financeiro</span>
+          </NavLink>
+        ) : null}
 
         <NavLink
           className={({ isActive }) =>

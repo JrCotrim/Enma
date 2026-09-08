@@ -13,6 +13,8 @@ import { DocumentDetailsPage } from '../features/documents/DocumentDetailsPage'
 import { DocumentsPage } from '../features/documents/DocumentsPage'
 import type { EmailVerificationFlow } from '../features/email-verification/emailVerificationService'
 import { VerifyEmailPage } from '../features/email-verification/VerifyEmailPage'
+import { FinancePage } from '../features/finance/FinancePage'
+import { PaymentPlanDetailsPage } from '../features/finance/PaymentPlanDetailsPage'
 import { AcceptInvitationPage } from '../features/invitations/AcceptInvitationPage'
 import { InvitationsPage } from '../features/invitations/InvitationsPage'
 import { RegisterPage } from '../features/onboarding/RegisterPage'
@@ -89,6 +91,14 @@ export function createAppRoutes(
                         {
                           path: 'clients/:clientId',
                           element: <ClientDetailsPage />,
+                        },
+                        {
+                          path: 'finance',
+                          element: <FinancePage />,
+                        },
+                        {
+                          path: 'finance/payment-plans/:paymentPlanId',
+                          element: <PaymentPlanDetailsPage />,
                         },
                         {
                           path: 'processes',
