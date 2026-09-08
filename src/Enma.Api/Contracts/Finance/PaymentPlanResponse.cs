@@ -6,6 +6,9 @@ public sealed record PaymentPlanResponse(
     Guid Id,
     Guid ClientId,
     string ClientName,
+    [property: JsonNumberHandling(
+        JsonNumberHandling.WriteAsString |
+        JsonNumberHandling.AllowReadingFromString)]
     decimal TotalAmount,
     int InstallmentCount,
     DateOnly FirstDueDate,
@@ -16,6 +19,9 @@ public sealed record PaymentPlanResponse(
 public sealed record PaymentInstallmentResponse(
     Guid Id,
     int SequenceNumber,
+    [property: JsonNumberHandling(
+        JsonNumberHandling.WriteAsString |
+        JsonNumberHandling.AllowReadingFromString)]
     decimal Amount,
     DateOnly DueDate,
     DateTimeOffset? PaidAt,

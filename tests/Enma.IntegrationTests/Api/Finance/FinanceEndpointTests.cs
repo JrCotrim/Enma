@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -11,6 +12,7 @@ using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Enma.IntegrationTests.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -117,6 +119,165 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
                 nameof(FinanceOverviewResponse.UpcomingInstallmentCount)
             ],
             GetPropertyNames<FinanceOverviewResponse>());
+    }
+
+    [Theory]
+    [InlineData("1234.56")]
+    [InlineData("90071992547409.93")]
+    [InlineData("9999999999999999.99")]
+    public async Task MoneyResponses_PreserveExactInvariantStrings(
+        string expectedAmount)
+    {
+        decimal amount = decimal.Parse(
+            expectedAmount,
+            CultureInfo.InvariantCulture);
+        User user = CreateUser($"money-{expectedAmount}");
+        Organization organization = CreateOrganization("Money Contract");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        var relatedClient = new Client(
+            organization.Id,
+            "Money Contract Client",
+            Now.AddDays(-2));
+        var plan = new ClientPaymentPlan(
+            organization.Id,
+            relatedClient.Id,
+            amount,
+            1,
+            new DateOnly(2026, 9, 7),
+            Now.AddDays(-1));
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient]);
+        await SeedFinanceAsync(plan);
+
+        using HttpResponseMessage list = await SendReadAsync(
+            GetPaymentPlansPath(organization.Id),
+            rawHandle);
+        using HttpResponseMessage detail = await SendReadAsync(
+            $"{GetPaymentPlansPath(organization.Id)}/{plan.Id:D}",
+            rawHandle);
+        using HttpResponseMessage overview = await SendReadAsync(
+            GetFinanceOverviewPath(organization.Id),
+            rawHandle);
+
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, overview.StatusCode);
+
+        using JsonDocument listJson = JsonDocument.Parse(
+            await list.Content.ReadAsStringAsync());
+        JsonElement summary = Assert.Single(
+            listJson.RootElement.GetProperty("items").EnumerateArray());
+        AssertExactMoneyString(summary, "totalAmount", expectedAmount);
+        AssertExactMoneyString(summary, "outstandingAmount", expectedAmount);
+
+        using JsonDocument detailJson = JsonDocument.Parse(
+            await detail.Content.ReadAsStringAsync());
+        AssertExactMoneyString(
+            detailJson.RootElement,
+            "totalAmount",
+            expectedAmount);
+        JsonElement installment = Assert.Single(
+            detailJson.RootElement
+                .GetProperty("installments")
+                .EnumerateArray());
+        AssertExactMoneyString(installment, "amount", expectedAmount);
+
+        using JsonDocument overviewJson = JsonDocument.Parse(
+            await overview.Content.ReadAsStringAsync());
+        foreach (string propertyName in new[]
+        {
+            "totalContractedAmount",
+            "totalReceivedAmount",
+            "totalOutstandingAmount",
+            "overdueAmount",
+            "dueTodayAmount",
+            "upcomingAmount"
+        })
+        {
+            Assert.Equal(
+                JsonValueKind.String,
+                overviewJson.RootElement.GetProperty(propertyName).ValueKind);
+        }
+
+        AssertExactMoneyString(
+            overviewJson.RootElement,
+            "totalContractedAmount",
+            expectedAmount);
+        AssertExactMoneyString(
+            overviewJson.RootElement,
+            "totalOutstandingAmount",
+            expectedAmount);
+        AssertExactMoneyString(
+            overviewJson.RootElement,
+            "dueTodayAmount",
+            expectedAmount);
+    }
+
+    [Fact]
+    public async Task OpenApi_FinanceMoneyContracts_ExposeExactStringSchemas()
+    {
+        await using WebApplicationFactory<Program> openApiFactory =
+            factory.WithWebHostBuilder(builder =>
+                builder.UseEnvironment("Development"));
+        using HttpClient openApiClient = openApiFactory.CreateClient();
+
+        using HttpResponseMessage response = await openApiClient.GetAsync(
+            "/openapi/v1.json");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using JsonDocument document = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        JsonElement schemas = document.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas");
+        AssertOpenApiStringMoneyProperties(
+            schemas,
+            "FinanceOverviewResponse",
+            "totalContractedAmount",
+            "totalReceivedAmount",
+            "totalOutstandingAmount",
+            "overdueAmount",
+            "dueTodayAmount",
+            "upcomingAmount");
+        AssertOpenApiStringMoneyProperties(
+            schemas,
+            "PaymentPlanSummaryResponse",
+            "totalAmount",
+            "outstandingAmount");
+        AssertOpenApiStringMoneyProperties(
+            schemas,
+            "PaymentPlanResponse",
+            "totalAmount");
+        AssertOpenApiStringMoneyProperties(
+            schemas,
+            "PaymentInstallmentResponse",
+            "amount");
+
+        JsonElement createAmount = schemas
+            .GetProperty("CreatePaymentPlanRequest")
+            .GetProperty("properties")
+            .GetProperty("totalAmount");
+        string?[] acceptedTypes = createAmount
+            .GetProperty("type")
+            .EnumerateArray()
+            .Select(type => type.GetString())
+            .ToArray();
+        Assert.Equal(2, acceptedTypes.Length);
+        Assert.Contains("number", acceptedTypes);
+        Assert.Contains("string", acceptedTypes);
+        Assert.False(createAmount.TryGetProperty("format", out _));
+        Assert.Equal(
+            @"^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$",
+            createAmount.GetProperty("pattern").GetString());
+        Assert.Contains(
+            "invariant-culture decimal string",
+            createAmount.GetProperty("description").GetString());
     }
 
     [Fact]
@@ -488,6 +649,7 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
                         candidate.Id == created.PaymentPlanId);
             Assert.Equal(organization.Id, persisted.OrganizationId);
             Assert.Equal(relatedClient.Id, persisted.ClientId);
+            Assert.Equal(100.01m, persisted.TotalAmount);
             Assert.Equal(Now, persisted.CreatedAt);
             Assert.Equal(
                 3,
@@ -499,6 +661,62 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
             await AssertEmptyResponseAsync(response, HttpStatusCode.Forbidden);
             await AssertNoWritesAsync(dbContext);
         }
+    }
+
+    [Fact]
+    public async Task Create_StringMaximumAmount_PersistsExactDecimal()
+    {
+        const string maximumAmountText = "9999999999999999.99";
+        const decimal maximumAmount = 9_999_999_999_999_999.99m;
+        User user = CreateUser("create-string-maximum");
+        Organization organization = CreateOrganization("Create String Maximum");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        var relatedClient = new Client(
+            organization.Id,
+            "Create String Maximum Client",
+            Now.AddDays(-1));
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage response = await SendMutationAsync(
+            GetPaymentPlansPath(organization.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                clientId = relatedClient.Id,
+                totalAmount = maximumAmountText,
+                installmentCount = 1,
+                firstDueDate = new DateOnly(2027, 1, 31)
+            });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        CreatePaymentPlanResponse? created = await response.Content
+            .ReadFromJsonAsync<CreatePaymentPlanResponse>();
+        Assert.NotNull(created);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Enma.Domain.Finance.ClientPaymentPlan persisted =
+            await dbContext.ClientPaymentPlans
+                .AsNoTracking()
+                .SingleAsync(candidate =>
+                    candidate.Id == created.PaymentPlanId);
+        Assert.Equal(maximumAmount, persisted.TotalAmount);
+        Assert.Equal(
+            maximumAmount,
+            await dbContext.PaymentInstallments
+                .AsNoTracking()
+                .Where(candidate =>
+                    candidate.PaymentPlanId == created.PaymentPlanId)
+                .Select(candidate => candidate.Amount)
+                .SingleAsync());
     }
 
     [Fact]
@@ -1106,6 +1324,39 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
     private static string[] GetPropertyNames<T>()
     {
         return typeof(T).GetProperties().Select(property => property.Name).ToArray();
+    }
+
+    private static void AssertExactMoneyString(
+        JsonElement container,
+        string propertyName,
+        string expected)
+    {
+        JsonElement value = container.GetProperty(propertyName);
+        Assert.Equal(JsonValueKind.String, value.ValueKind);
+        Assert.Equal(expected, value.GetString());
+    }
+
+    private static void AssertOpenApiStringMoneyProperties(
+        JsonElement schemas,
+        string schemaName,
+        params string[] propertyNames)
+    {
+        JsonElement properties = schemas
+            .GetProperty(schemaName)
+            .GetProperty("properties");
+
+        foreach (string propertyName in propertyNames)
+        {
+            JsonElement property = properties.GetProperty(propertyName);
+            Assert.Equal(
+                JsonValueKind.String,
+                property.GetProperty("type").ValueKind);
+            Assert.Equal("string", property.GetProperty("type").GetString());
+            Assert.False(property.TryGetProperty("format", out _));
+            Assert.Equal(
+                @"^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$",
+                property.GetProperty("pattern").GetString());
+        }
     }
 
     private static object ValidBody(Guid clientId)

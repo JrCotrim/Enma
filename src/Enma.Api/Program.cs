@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using System.Text.Json.Serialization;
 using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Deployment;
@@ -26,6 +27,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -39,7 +41,35 @@ if (string.IsNullOrWhiteSpace(connectionString))
         "The database connection string 'Database' is required.");
 }
 
-builder.Services.AddOpenApi();
+const string exactMoneyPattern = @"^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$";
+builder.Services.AddOpenApi(options =>
+{
+    options.AddSchemaTransformer((schema, context, _) =>
+    {
+        if (context.JsonPropertyInfo?.PropertyType == typeof(decimal) &&
+            context.JsonPropertyInfo.NumberHandling is
+                JsonNumberHandling handling &&
+            (handling & JsonNumberHandling.WriteAsString) != 0)
+        {
+            schema.Type = JsonSchemaType.String;
+            schema.Format = null;
+            schema.Pattern = exactMoneyPattern;
+        }
+        else if (context.JsonPropertyInfo?.PropertyType == typeof(decimal) &&
+            context.JsonPropertyInfo.NumberHandling is
+                JsonNumberHandling requestHandling &&
+            (requestHandling & JsonNumberHandling.AllowReadingFromString) != 0)
+        {
+            schema.Format = null;
+            schema.Pattern = exactMoneyPattern;
+            schema.Description =
+                "Use an invariant-culture decimal string for exact monetary " +
+                "values; JSON numbers remain accepted for compatibility.";
+        }
+
+        return Task.CompletedTask;
+    });
+});
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddAntiforgery(options =>
