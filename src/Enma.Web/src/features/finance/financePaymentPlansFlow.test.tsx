@@ -277,6 +277,46 @@ function renderDetail(
   return { ...view, refreshOrganizations, handleUnauthorized }
 }
 
+function paymentPlanWithSecondInstallmentPaid(
+  overrides: Partial<PaymentPlan> = {},
+): PaymentPlan {
+  const original = paymentPlan(overrides)
+  return {
+    ...original,
+    installments: original.installments.map((installment) =>
+      installment.sequenceNumber === 2
+        ? {
+            ...installment,
+            status: 'Paid',
+            paidAt: '2026-09-09T14:20:00-03:00',
+          }
+        : installment,
+    ),
+  }
+}
+
+function markPaidSuccessFetch(
+  authoritativePlan: PaymentPlan = paymentPlanWithSecondInstallmentPaid(),
+) {
+  let detailRequestCount = 0
+  return vi.fn((input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input)
+    if (url === '/api/auth/csrf') {
+      return Promise.resolve(response(200, { requestToken: 'csrf-mark-paid' }))
+    }
+    if (init.method === 'POST' && url.endsWith('/mark-paid')) {
+      return Promise.resolve(response(204))
+    }
+    if (url.endsWith(`/finance/payment-plans/${paymentPlanAId}`)) {
+      detailRequestCount += 1
+      return Promise.resolve(
+        response(200, detailRequestCount === 1 ? paymentPlan() : authoritativePlan),
+      )
+    }
+    throw new Error(`Unexpected request: ${init.method ?? 'GET'} ${url}`)
+  })
+}
+
 function financeFetch(
   getList: (url: string) => Response | Promise<Response> = () =>
     response(200, listResponse()),
@@ -1153,5 +1193,453 @@ describe('Payment plan detail', () => {
 
     expect(screen.getByRole('heading', { name: 'Acesso negado' })).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  describe('Mark paid', () => {
+    it('RendersOnlyForUnpaidInstallments_AndHasNoUnpayAction', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, paymentPlan())))
+      renderDetail()
+
+      const table = await screen.findByRole('table')
+      expect(
+        within(table).getAllByRole('button', { name: 'Marcar como paga' }),
+      ).toHaveLength(3)
+      const paidRow = within(table).getByText('Paga').closest('tr')!
+      expect(within(paidRow).queryByRole('button')).not.toBeInTheDocument()
+      expect(table).not.toHaveTextContent(/desfazer|reabrir|não paga/i)
+    })
+
+    it('RequiresExactAccessibleConfirmation_AndCancelRestoresFocus', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, paymentPlan())))
+      renderDetail()
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      const trigger = within(overdueRow).getByRole('button', {
+        name: 'Marcar como paga',
+      })
+
+      fireEvent.click(trigger)
+      const dialog = screen.getByRole('alertdialog')
+      expect(dialog).toHaveAccessibleName('Marcar a parcela 2 como paga?')
+      expect(dialog).toHaveTextContent('R$ 200,02')
+      expect(dialog).toHaveTextContent('Vencimento 01/09/2026')
+      expect(dialog).toHaveTextContent(
+        'Esta ação não pode ser desfeita no ENMA nesta versão.',
+      )
+      const cancel = within(dialog).getByRole('button', { name: 'Cancelar' })
+      const confirm = within(dialog).getByRole('button', {
+        name: 'Confirmar pagamento',
+      })
+      expect(cancel).toHaveFocus()
+      confirm.focus()
+      fireEvent.keyDown(dialog, { key: 'Tab' })
+      expect(cancel).toHaveFocus()
+
+      fireEvent.click(cancel)
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(
+          within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+        ).toHaveFocus(),
+      )
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('EscapeCancelsWithoutCallingTheApi_AndRestoresFocus', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, paymentPlan())))
+      renderDetail()
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      const trigger = within(overdueRow).getByRole('button', {
+        name: 'Marcar como paga',
+      })
+
+      fireEvent.click(trigger)
+      fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' })
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(
+          within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+        ).toHaveFocus(),
+      )
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('PostsExactContract_BlocksDoubleSubmit_AndWaitsForCanonicalRefetch', async () => {
+      const refetch = deferred<Response>()
+      let detailRequestCount = 0
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init: RequestInit = {}) => {
+          const url = String(input)
+          if (url === '/api/auth/csrf') {
+            return Promise.resolve(
+              response(200, { requestToken: 'csrf-mark-paid' }),
+            )
+          }
+          if (init.method === 'POST' && url.endsWith('/mark-paid')) {
+            return Promise.resolve(response(204))
+          }
+          if (url.endsWith(`/finance/payment-plans/${paymentPlanAId}`)) {
+            detailRequestCount += 1
+            return detailRequestCount === 1
+              ? Promise.resolve(response(200, paymentPlan()))
+              : refetch.promise
+          }
+          throw new Error(`Unexpected request: ${init.method ?? 'GET'} ${url}`)
+        },
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      renderDetail()
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      fireEvent.click(
+        within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+      )
+      const confirm = screen.getByRole('button', {
+        name: 'Confirmar pagamento',
+      })
+
+      fireEvent.click(confirm)
+      fireEvent.click(confirm)
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter(
+            ([input, init]) =>
+              String(input).endsWith('/mark-paid') && init?.method === 'POST',
+          ),
+        ).toHaveLength(1),
+      )
+      const postCall = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input).endsWith('/mark-paid') && init?.method === 'POST',
+      )!
+      expect(postCall[0]).toBe(
+        `/api/organizations/${organizationAId}/finance/payment-plans/${paymentPlanAId}/installments/77777777-7777-4777-8777-777777777772/mark-paid`,
+      )
+      expect(postCall[1]).toEqual(
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'X-CSRF-TOKEN': 'csrf-mark-paid' },
+        }),
+      )
+      expect(postCall[1]).not.toHaveProperty('body')
+      expect(screen.getByRole('alertdialog')).toHaveAttribute(
+        'aria-busy',
+        'true',
+      )
+      expect(
+        screen.getByRole('button', { name: 'Marcando…' }),
+      ).toBeDisabled()
+      expect(within(overdueRow).getByText('Em atraso')).toBeInTheDocument()
+      expect(screen.queryByText('Parcela marcada como paga.')).not.toBeInTheDocument()
+
+      await act(async () => {
+        refetch.resolve(response(200, paymentPlanWithSecondInstallmentPaid()))
+        await refetch.promise
+      })
+      const success = await screen.findByText('Parcela marcada como paga.')
+      expect(success).toHaveAttribute('role', 'status')
+      expect(success).toHaveFocus()
+      const paidRows = screen.getAllByText('Paga').map((label) => label.closest('tr')!)
+      const newlyPaidRow = paidRows.find((row) =>
+        within(row).queryByText('R$ 200,02'),
+      )!
+      expect(within(newlyPaidRow).queryByRole('button')).not.toBeInTheDocument()
+      expect(
+        newlyPaidRow.querySelector(
+          'time[datetime="2026-09-09T14:20:00-03:00"]',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    it('TreatsAnIdempotent204AsSuccessAfterAuthoritativeRefetch', async () => {
+      const fetchMock = markPaidSuccessFetch()
+      vi.stubGlobal('fetch', fetchMock)
+      renderDetail()
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      fireEvent.click(
+        within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+      )
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Confirmar pagamento' }),
+      )
+
+      expect(await screen.findByText('Parcela marcada como paga.')).toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledTimes(4)
+      expect(screen.getAllByText('Paga')).toHaveLength(2)
+    })
+
+    it('NotFoundShowsSafeMessageAndRefetchesTheDetail', async () => {
+      const withoutSecondInstallment = paymentPlan({
+        installments: paymentPlan().installments.filter(
+          (installment) => installment.sequenceNumber !== 2,
+        ),
+      })
+      let detailRequestCount = 0
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init: RequestInit = {}) => {
+          const url = String(input)
+          if (url === '/api/auth/csrf') {
+            return Promise.resolve(response(200, { requestToken: 'csrf-token' }))
+          }
+          if (init.method === 'POST') return Promise.resolve(response(404))
+          detailRequestCount += 1
+          return Promise.resolve(
+            response(
+              200,
+              detailRequestCount === 1 ? paymentPlan() : withoutSecondInstallment,
+            ),
+          )
+        },
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      renderDetail()
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      fireEvent.click(
+        within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+      )
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Confirmar pagamento' }),
+      )
+
+      expect(
+        await screen.findByText('Esta parcela não está mais disponível.'),
+      ).toHaveAttribute('role', 'alert')
+      expect(detailRequestCount).toBe(2)
+      expect(screen.queryByText('Em atraso')).not.toBeInTheDocument()
+    })
+
+    it('ForbiddenRefreshesOrganizationsAndReportsChangedAccess', async () => {
+      const refreshOrganizations = vi.fn()
+      let detailLoaded = false
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init: RequestInit = {}) => {
+          if (String(input) === '/api/auth/csrf') {
+            return Promise.resolve(response(200, { requestToken: 'csrf-token' }))
+          }
+          if (init.method === 'POST') return Promise.resolve(response(403))
+          if (!detailLoaded) detailLoaded = true
+          return Promise.resolve(response(200, paymentPlan()))
+        },
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      renderDetail({ refreshOrganizations })
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      fireEvent.click(
+        within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+      )
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Confirmar pagamento' }),
+      )
+
+      expect(
+        await screen.findByText('Seu acesso à organização pode ter mudado.'),
+      ).toHaveAttribute('role', 'alert')
+      expect(refreshOrganizations).toHaveBeenCalledTimes(1)
+      expect(screen.getByText('Em atraso')).toBeInTheDocument()
+    })
+
+    it('NetworkFailureIsSafeAndCanRetry', async () => {
+      let detailRequestCount = 0
+      let postCount = 0
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init: RequestInit = {}) => {
+          const url = String(input)
+          if (url === '/api/auth/csrf') {
+            return Promise.resolve(response(200, { requestToken: 'csrf-token' }))
+          }
+          if (init.method === 'POST') {
+            postCount += 1
+            return postCount === 1
+              ? Promise.reject(new TypeError('private network detail'))
+              : Promise.resolve(response(204))
+          }
+          detailRequestCount += 1
+          return Promise.resolve(
+            response(
+              200,
+              detailRequestCount === 1
+                ? paymentPlan()
+                : paymentPlanWithSecondInstallmentPaid(),
+            ),
+          )
+        },
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      renderDetail()
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      fireEvent.click(
+        within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+      )
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Confirmar pagamento' }),
+      )
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(
+        'Não foi possível marcar a parcela como paga. Tente novamente.',
+      )
+      expect(alert).not.toHaveTextContent('private network detail')
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Confirmar pagamento' }),
+      )
+      expect(await screen.findByText('Parcela marcada como paga.')).toBeInTheDocument()
+      expect(postCount).toBe(2)
+    })
+
+    it('UnauthorizedDelegatesToExistingSessionHandling', async () => {
+      const handleUnauthorized = vi.fn()
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init: RequestInit = {}) => {
+          if (String(input) === '/api/auth/csrf') {
+            return Promise.resolve(response(200, { requestToken: 'csrf-token' }))
+          }
+          if (init.method === 'POST') return Promise.resolve(response(401))
+          return Promise.resolve(response(200, paymentPlan()))
+        },
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      renderDetail({ handleUnauthorized })
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      fireEvent.click(
+        within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+      )
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Confirmar pagamento' }),
+      )
+
+      await waitFor(() => expect(handleUnauthorized).toHaveBeenCalledTimes(1))
+      expect(
+        screen.queryByText('Não foi possível marcar a parcela como paga.'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('OrganizationChangeAbortsAndIgnoresTheOldMutation', async () => {
+      const stalePost = deferred<Response>()
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init: RequestInit = {}) => {
+          const url = String(input)
+          if (url === '/api/auth/csrf') {
+            return Promise.resolve(response(200, { requestToken: 'csrf-token' }))
+          }
+          if (init.method === 'POST') return stalePost.promise
+          if (url.includes(organizationBId)) {
+            return Promise.resolve(
+              response(200, paymentPlan({ clientName: 'Cliente Atual' })),
+            )
+          }
+          return Promise.resolve(response(200, paymentPlan()))
+        },
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      const refreshOrganizations = vi.fn()
+      const handleUnauthorized = vi.fn()
+      const view = renderDetail({ refreshOrganizations, handleUnauthorized })
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      fireEvent.click(
+        within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+      )
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Confirmar pagamento' }),
+      )
+
+      view.rerender(
+        <ContextProviders
+          currentOrganization={organization('Owner', organizationBId)}
+          refreshOrganizations={refreshOrganizations}
+          handleUnauthorized={handleUnauthorized}
+        >
+          <MemoryRouter
+            initialEntries={[
+              `/organizations/${organizationBId}/finance/payment-plans/${paymentPlanAId}`,
+            ]}
+          >
+            <Routes>
+              <Route
+                path="/organizations/:organizationId/finance/payment-plans/:paymentPlanId"
+                element={<PaymentPlanDetailsPage />}
+              />
+            </Routes>
+          </MemoryRouter>
+        </ContextProviders>,
+      )
+      expect(await screen.findByText('Cliente Atual')).toBeInTheDocument()
+      await act(async () => {
+        stalePost.resolve(response(204))
+        await stalePost.promise
+      })
+      expect(screen.queryByText('Parcela marcada como paga.')).not.toBeInTheDocument()
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input]) =>
+            String(input).includes(organizationAId) &&
+            String(input).endsWith(paymentPlanAId),
+        ),
+      ).toHaveLength(1)
+    })
+
+    it('PaymentPlanIdChangeAbortsAndIgnoresTheOldMutationAndRefetch', async () => {
+      const stalePost = deferred<Response>()
+      const fetchMock = vi.fn(
+        (input: RequestInfo | URL, init: RequestInit = {}) => {
+          const url = String(input)
+          if (url === '/api/auth/csrf') {
+            return Promise.resolve(response(200, { requestToken: 'csrf-token' }))
+          }
+          if (init.method === 'POST') return stalePost.promise
+          if (url.endsWith(paymentPlanBId)) {
+            return Promise.resolve(
+              response(
+                200,
+                paymentPlan({ id: paymentPlanBId, clientName: 'Cliente Atual' }),
+              ),
+            )
+          }
+          return Promise.resolve(response(200, paymentPlan()))
+        },
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      const routePath =
+        '/organizations/:organizationId/finance/payment-plans/:paymentPlanId'
+      const router = createMemoryRouter(
+        [{ path: routePath, element: <PaymentPlanDetailsPage /> }],
+        {
+          initialEntries: [
+            `/organizations/${organizationAId}/finance/payment-plans/${paymentPlanAId}`,
+          ],
+        },
+      )
+      render(
+        <ContextProviders
+          currentOrganization={organization('Owner')}
+          refreshOrganizations={vi.fn()}
+          handleUnauthorized={vi.fn()}
+        >
+          <RouterProvider router={router} />
+        </ContextProviders>,
+      )
+      const overdueRow = (await screen.findByText('Em atraso')).closest('tr')!
+      fireEvent.click(
+        within(overdueRow).getByRole('button', { name: 'Marcar como paga' }),
+      )
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Confirmar pagamento' }),
+      )
+
+      await act(async () => {
+        await router.navigate(
+          `/organizations/${organizationAId}/finance/payment-plans/${paymentPlanBId}`,
+        )
+      })
+      expect(await screen.findByText('Cliente Atual')).toBeInTheDocument()
+      await act(async () => {
+        stalePost.resolve(response(204))
+        await stalePost.promise
+      })
+      expect(screen.queryByText('Parcela marcada como paga.')).not.toBeInTheDocument()
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).endsWith(paymentPlanAId),
+        ),
+      ).toHaveLength(1)
+    })
   })
 })

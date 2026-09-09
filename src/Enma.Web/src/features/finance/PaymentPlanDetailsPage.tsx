@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../authentication/AuthContext'
 import {
@@ -10,8 +16,16 @@ import {
   useOrganizationDiscovery,
 } from '../organizations/OrganizationContext'
 import { formatFinanceDate, formatFinanceMoney } from './financeFormatting'
-import { FinanceRequestError, getPaymentPlan } from './financeService'
-import type { PaymentInstallmentStatus, PaymentPlan } from './financeTypes'
+import {
+  FinanceRequestError,
+  getPaymentPlan,
+  markPaymentInstallmentPaid,
+} from './financeService'
+import type {
+  PaymentInstallment,
+  PaymentInstallmentStatus,
+  PaymentPlan,
+} from './financeTypes'
 
 type PaymentPlanState =
   | { readonly status: 'loading'; readonly scope: string }
@@ -23,6 +37,18 @@ type PaymentPlanState =
   | { readonly status: 'not-found'; readonly scope: string }
   | { readonly status: 'forbidden'; readonly scope: string }
   | { readonly status: 'error'; readonly scope: string }
+
+type InstallmentMutationState = {
+  readonly scope: string
+  readonly installmentId: string
+  readonly status: 'pending' | 'error'
+}
+
+type InstallmentNotice = {
+  readonly scope: string
+  readonly kind: 'success' | 'error'
+  readonly message: string
+}
 
 const paymentPlanErrorMessage =
   'Não foi possível carregar o plano de pagamento. Tente novamente.'
@@ -90,11 +116,30 @@ function PaymentPlanDetailsContent({ financePath }: { readonly financePath: stri
       ? paymentPlanId
       : undefined
   const detailScope = `${currentOrganization.id}:${paymentPlanId ?? ''}:${refreshVersion}`
+  const routeScope = `${currentOrganization.id}:${paymentPlanId ?? ''}`
   const [detailState, setDetailState] = useState<PaymentPlanState>({
     status: validPaymentPlanId ? 'loading' : 'not-found',
     scope: detailScope,
   })
   const requestVersionRef = useRef(0)
+  const mutationVersionRef = useRef(0)
+  const mutationControllerRef = useRef<AbortController | null>(null)
+  const routeScopeRef = useRef(routeScope)
+  const successNoticeRef = useRef<HTMLParagraphElement | null>(null)
+  const [mutationState, setMutationState] =
+    useState<InstallmentMutationState>()
+  const [installmentNotice, setInstallmentNotice] =
+    useState<InstallmentNotice>()
+
+  useEffect(() => {
+    routeScopeRef.current = routeScope
+
+    return () => {
+      mutationVersionRef.current += 1
+      mutationControllerRef.current?.abort()
+      mutationControllerRef.current = null
+    }
+  }, [routeScope])
 
   useEffect(() => {
     if (!validPaymentPlanId) return
@@ -158,6 +203,180 @@ function PaymentPlanDetailsContent({ financePath }: { readonly financePath: stri
           scope: detailScope,
         }
   const isLoading = currentState.status === 'loading'
+  const currentMutationState =
+    mutationState?.scope === routeScope ? mutationState : undefined
+  const currentInstallmentNotice =
+    installmentNotice?.scope === routeScope ? installmentNotice : undefined
+
+  useEffect(() => {
+    if (currentInstallmentNotice?.kind === 'success') {
+      successNoticeRef.current?.focus()
+    }
+  }, [currentInstallmentNotice])
+
+  async function refetchAuthoritativeDetail(
+    controller: AbortController,
+    mutationVersion: number,
+    mutationScope: string,
+  ): Promise<boolean> {
+    const requestVersion = ++requestVersionRef.current
+
+    try {
+      const paymentPlan = await getPaymentPlan(
+        currentOrganization.id,
+        validPaymentPlanId!,
+        handleUnauthorized,
+        controller.signal,
+      )
+      if (
+        controller.signal.aborted ||
+        mutationVersion !== mutationVersionRef.current ||
+        mutationScope !== routeScopeRef.current ||
+        requestVersion !== requestVersionRef.current
+      ) {
+        return false
+      }
+
+      setDetailState({
+        status: 'success',
+        scope: detailScope,
+        paymentPlan,
+      })
+      return true
+    } catch (error: unknown) {
+      if (
+        controller.signal.aborted ||
+        mutationVersion !== mutationVersionRef.current ||
+        mutationScope !== routeScopeRef.current ||
+        requestVersion !== requestVersionRef.current ||
+        isAbortError(error) ||
+        (error instanceof FinanceRequestError &&
+          error.failure === 'unauthorized')
+      ) {
+        return false
+      }
+
+      let status: PaymentPlanState['status'] = 'error'
+      if (error instanceof FinanceRequestError) {
+        if (error.failure === 'not-found') status = 'not-found'
+        if (error.failure === 'forbidden') status = 'forbidden'
+      }
+      if (status === 'forbidden') refreshOrganizations()
+      setDetailState({ status, scope: detailScope })
+      return false
+    }
+  }
+
+  async function markInstallmentPaid(
+    installment: PaymentInstallment,
+  ): Promise<boolean> {
+    if (!validPaymentPlanId || mutationControllerRef.current) return false
+
+    const controller = new AbortController()
+    const mutationVersion = ++mutationVersionRef.current
+    const mutationScope = routeScope
+    mutationControllerRef.current = controller
+    setMutationState({
+      scope: mutationScope,
+      installmentId: installment.id,
+      status: 'pending',
+    })
+    setInstallmentNotice(undefined)
+
+    try {
+      await markPaymentInstallmentPaid(
+        currentOrganization.id,
+        validPaymentPlanId,
+        installment.id,
+        handleUnauthorized,
+        controller.signal,
+      )
+      if (
+        controller.signal.aborted ||
+        mutationVersion !== mutationVersionRef.current ||
+        mutationScope !== routeScopeRef.current
+      ) {
+        return false
+      }
+
+      const refetched = await refetchAuthoritativeDetail(
+        controller,
+        mutationVersion,
+        mutationScope,
+      )
+      if (!refetched) {
+        setMutationState(undefined)
+        return false
+      }
+
+      setMutationState(undefined)
+      setInstallmentNotice({
+        scope: mutationScope,
+        kind: 'success',
+        message: 'Parcela marcada como paga.',
+      })
+      return true
+    } catch (error: unknown) {
+      if (
+        controller.signal.aborted ||
+        mutationVersion !== mutationVersionRef.current ||
+        mutationScope !== routeScopeRef.current ||
+        isAbortError(error)
+      ) {
+        return false
+      }
+
+      if (
+        error instanceof FinanceRequestError &&
+        error.failure === 'unauthorized'
+      ) {
+        setMutationState(undefined)
+        return false
+      }
+
+      let message =
+        'Não foi possível marcar a parcela como paga. Tente novamente.'
+      if (
+        error instanceof FinanceRequestError &&
+        error.failure === 'not-found'
+      ) {
+        message = 'Esta parcela não está mais disponível.'
+        await refetchAuthoritativeDetail(
+          controller,
+          mutationVersion,
+          mutationScope,
+        )
+      } else if (
+        error instanceof FinanceRequestError &&
+        error.failure === 'forbidden'
+      ) {
+        message = 'Seu acesso à organização pode ter mudado.'
+        refreshOrganizations()
+      }
+
+      if (
+        !controller.signal.aborted &&
+        mutationVersion === mutationVersionRef.current &&
+        mutationScope === routeScopeRef.current
+      ) {
+        setMutationState({
+          scope: mutationScope,
+          installmentId: installment.id,
+          status: 'error',
+        })
+        setInstallmentNotice({
+          scope: mutationScope,
+          kind: 'error',
+          message,
+        })
+      }
+      return false
+    } finally {
+      if (mutationControllerRef.current === controller) {
+        mutationControllerRef.current = null
+      }
+    }
+  }
 
   return (
     <>
@@ -221,14 +440,34 @@ function PaymentPlanDetailsContent({ financePath }: { readonly financePath: stri
         ) : null}
 
         {currentState.status === 'success' ? (
-          <PaymentPlanDisplay paymentPlan={currentState.paymentPlan} />
+          <PaymentPlanDisplay
+            paymentPlan={currentState.paymentPlan}
+            mutationState={currentMutationState}
+            installmentNotice={currentInstallmentNotice}
+            successNoticeRef={successNoticeRef}
+            markInstallmentPaid={markInstallmentPaid}
+          />
         ) : null}
       </section>
     </>
   )
 }
 
-function PaymentPlanDisplay({ paymentPlan }: { readonly paymentPlan: PaymentPlan }) {
+interface PaymentPlanDisplayProps {
+  readonly paymentPlan: PaymentPlan
+  readonly mutationState?: InstallmentMutationState
+  readonly installmentNotice?: InstallmentNotice
+  readonly successNoticeRef: React.RefObject<HTMLParagraphElement | null>
+  markInstallmentPaid(installment: PaymentInstallment): Promise<boolean>
+}
+
+function PaymentPlanDisplay({
+  paymentPlan,
+  mutationState,
+  installmentNotice,
+  successNoticeRef,
+  markInstallmentPaid,
+}: PaymentPlanDisplayProps) {
   return (
     <>
       <dl className="finance-plan-summary">
@@ -258,6 +497,17 @@ function PaymentPlanDisplay({ paymentPlan }: { readonly paymentPlan: PaymentPlan
         </div>
       </dl>
 
+      {installmentNotice ? (
+        <p
+          className={`finance-installment-notice is-${installmentNotice.kind}`}
+          role={installmentNotice.kind === 'success' ? 'status' : 'alert'}
+          ref={installmentNotice.kind === 'success' ? successNoticeRef : undefined}
+          tabIndex={installmentNotice.kind === 'success' ? -1 : undefined}
+        >
+          {installmentNotice.message}
+        </p>
+      ) : null}
+
       <div className="finance-installments-heading">
         <h3>Parcelas</h3>
         <p>{paymentPlan.installmentCount} no total</p>
@@ -271,35 +521,158 @@ function PaymentPlanDisplay({ paymentPlan }: { readonly paymentPlan: PaymentPlan
               <th scope="col">Valor</th>
               <th scope="col">Status</th>
               <th scope="col">Pagamento</th>
+              <th scope="col">Ações</th>
             </tr>
           </thead>
           <tbody>
             {paymentPlan.installments.map((installment) => (
-              <tr key={installment.id}>
-                <td>{installment.sequenceNumber}</td>
-                <td>{formatFinanceDate(installment.dueDate)}</td>
-                <td>{formatFinanceMoney(installment.amount)}</td>
-                <td>
-                  <span
-                    className={`finance-status finance-status-${getInstallmentStatusClass(installment.status)}`}
-                  >
-                    {getInstallmentStatusLabel(installment.status)}
-                  </span>
-                </td>
-                <td>
-                  {installment.status === 'Paid' && installment.paidAt ? (
-                    <time dateTime={installment.paidAt}>
-                      {formatLegalDeadlineTimestamp(installment.paidAt)}
-                    </time>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-              </tr>
+              <PaymentInstallmentRow
+                key={installment.id}
+                installment={installment}
+                mutationState={mutationState}
+                markInstallmentPaid={markInstallmentPaid}
+              />
             ))}
           </tbody>
         </table>
       </div>
     </>
+  )
+}
+
+interface PaymentInstallmentRowProps {
+  readonly installment: PaymentInstallment
+  readonly mutationState?: InstallmentMutationState
+  markInstallmentPaid(installment: PaymentInstallment): Promise<boolean>
+}
+
+function PaymentInstallmentRow({
+  installment,
+  mutationState,
+  markInstallmentPaid,
+}: PaymentInstallmentRowProps) {
+  const [isConfirming, setIsConfirming] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const isPending =
+    mutationState?.installmentId === installment.id &&
+    mutationState.status === 'pending'
+  const anyMutationPending = mutationState?.status === 'pending'
+
+  function openConfirmation(event: MouseEvent<HTMLButtonElement>) {
+    triggerRef.current = event.currentTarget
+    setIsConfirming(true)
+  }
+
+  function closeConfirmation() {
+    if (isPending) return
+    setIsConfirming(false)
+    window.setTimeout(() => triggerRef.current?.focus())
+  }
+
+  function handleConfirmationKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeConfirmation()
+      return
+    }
+
+    if (event.key !== 'Tab') return
+    const buttons = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        'button:not([disabled])',
+      ),
+    )
+    const firstButton = buttons.at(0)
+    const lastButton = buttons.at(-1)
+    if (event.shiftKey && document.activeElement === firstButton) {
+      event.preventDefault()
+      lastButton?.focus()
+    } else if (!event.shiftKey && document.activeElement === lastButton) {
+      event.preventDefault()
+      firstButton?.focus()
+    }
+  }
+
+  async function confirmPaid() {
+    if (await markInstallmentPaid(installment)) setIsConfirming(false)
+  }
+
+  return (
+    <tr>
+      <td>{installment.sequenceNumber}</td>
+      <td>{formatFinanceDate(installment.dueDate)}</td>
+      <td>{formatFinanceMoney(installment.amount)}</td>
+      <td>
+        <span
+          className={`finance-status finance-status-${getInstallmentStatusClass(installment.status)}`}
+        >
+          {getInstallmentStatusLabel(installment.status)}
+        </span>
+      </td>
+      <td>
+        {installment.status === 'Paid' && installment.paidAt ? (
+          <time dateTime={installment.paidAt}>
+            {formatLegalDeadlineTimestamp(installment.paidAt)}
+          </time>
+        ) : (
+          '—'
+        )}
+      </td>
+      <td className="finance-installment-actions-cell">
+        {installment.status !== 'Paid' ? (
+          isConfirming ? (
+            <div
+              className="finance-installment-confirmation"
+              role="alertdialog"
+              aria-labelledby={`mark-paid-title-${installment.id}`}
+              aria-describedby={`mark-paid-description-${installment.id}`}
+              aria-busy={isPending}
+              onKeyDown={handleConfirmationKeyDown}
+            >
+              <p id={`mark-paid-title-${installment.id}`}>
+                Marcar a parcela {installment.sequenceNumber} como paga?
+              </p>
+              <p
+                id={`mark-paid-description-${installment.id}`}
+                className="finance-installment-confirmation-detail"
+              >
+                {formatFinanceMoney(installment.amount)} · Vencimento{' '}
+                {formatFinanceDate(installment.dueDate)}. Esta ação não pode ser
+                desfeita no ENMA nesta versão.
+              </p>
+              <div className="finance-installment-confirmation-actions">
+                <button
+                  className="secondary-button finance-installment-button"
+                  type="button"
+                  onClick={closeConfirmation}
+                  disabled={isPending}
+                  autoFocus
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="primary-button finance-installment-button"
+                  type="button"
+                  onClick={() => void confirmPaid()}
+                  disabled={isPending}
+                >
+                  {isPending ? 'Marcando…' : 'Confirmar pagamento'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              ref={triggerRef}
+              className="secondary-button finance-installment-button"
+              type="button"
+              onClick={openConfirmation}
+              disabled={anyMutationPending}
+            >
+              Marcar como paga
+            </button>
+          )
+        ) : null}
+      </td>
+    </tr>
   )
 }
