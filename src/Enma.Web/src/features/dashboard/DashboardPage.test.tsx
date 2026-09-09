@@ -404,7 +404,7 @@ describe('DashboardPage', () => {
       'href',
       `/organizations/${organizationA.id}/tasks`,
     )
-    expect(screen.getByRole('link', { name: 'Ver todos os processos' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Ver todos os processos' })).toHaveAttribute(
       'href',
       `/organizations/${organizationA.id}/processes`,
     )
