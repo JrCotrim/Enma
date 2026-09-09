@@ -10,6 +10,10 @@
   --finance-status-today-text: #ffe2a3;
 }
 
+.finance-page :where(.task-lookup, .task-lookup-search-row, .task-lookup-results) {
+  min-width: 0;
+}
+
 .finance-overview {
   display: grid;
   min-width: 0;
@@ -426,7 +430,20 @@
 }
 
 .finance-table td {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 0.875rem;
+}
+
+.finance-table td:is(
+  [data-label='Parcelas'],
+  [data-label='Parcela'],
+  [data-label='Próximo vencimento'],
+  [data-label='Vencimento'],
+  [data-label='Pagamento']
+) {
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 
 .finance-table tr:last-child td {
@@ -554,7 +571,9 @@
 
 .finance-installment-confirmation {
   display: grid;
-  min-width: 16rem;
+  min-width: 0;
+  max-width: 100%;
+  overscroll-behavior: contain;
   gap: 0.55rem;
 }
 
@@ -603,6 +622,11 @@
   background: var(--finance-status-overdue-bg);
 }
 
+.finance-installment-notice:focus-visible {
+  outline: 2px solid var(--enma-v2-primary-pressed);
+  outline-offset: 2px;
+}
+
 @media (max-width: 64rem) {
   .finance-primary-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -611,9 +635,27 @@
   .finance-plan-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .finance-create-fields,
+  .finance-create-summary dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 40rem) {
+  .finance-page .workspace-page-header {
+    align-items: stretch;
+  }
+
+  .finance-page .workspace-page-header .primary-button,
+  .finance-list-heading > .secondary-button,
+  .finance-active-filter .secondary-button,
+  .finance-pagination .secondary-button,
+  .finance-create-actions .primary-button,
+  .finance-create-actions .secondary-button {
+    width: 100%;
+  }
+
   .finance-overview-heading {
     align-items: flex-start;
     flex-direction: column;
@@ -643,5 +685,106 @@
 
   .finance-plan-summary {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .finance-create-panel,
+  .finance-client-filter {
+    padding: 1rem;
+  }
+
+  .finance-page .task-lookup {
+    overflow: hidden;
+    padding: 0.7rem;
+  }
+
+  .finance-table-wrapper {
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .finance-table {
+    display: block;
+    min-width: 0;
+    background: transparent;
+  }
+
+  .finance-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .finance-table tbody {
+    display: grid;
+    width: 100%;
+    gap: 0.75rem;
+  }
+
+  .finance-table tr {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--enma-v3-border);
+    border-radius: var(--enma-ui-radius-panel);
+    background: var(--enma-v3-surface-strong);
+  }
+
+  .finance-table td {
+    display: grid;
+    grid-template-columns: minmax(6.5rem, 0.42fr) minmax(0, 1fr);
+    width: 100%;
+    padding: 0.7rem 0.85rem;
+    border-bottom: 1px solid var(--enma-v3-border);
+    gap: 0.75rem;
+  }
+
+  .finance-table td::before {
+    color: var(--enma-v3-muted);
+    content: attr(data-label);
+    font-size: 0.75rem;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .finance-table td:empty {
+    display: none;
+  }
+
+  .finance-detail-link,
+  .finance-installment-button {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+  }
+
+  .finance-installment-actions-cell {
+    width: 100%;
+  }
+
+  .finance-installment-confirmation,
+  .finance-installment-confirmation-actions,
+  .finance-installment-confirmation-actions .finance-installment-button {
+    width: 100%;
+  }
+
+  .finance-installment-confirmation {
+    grid-column: 1 / -1;
+  }
+
+  .finance-installment-confirmation-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .finance-table tbody tr {
+    transition: none;
   }
 }

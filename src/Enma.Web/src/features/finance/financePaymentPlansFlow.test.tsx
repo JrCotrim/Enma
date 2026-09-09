@@ -656,6 +656,7 @@ describe('Finance payment plans list', () => {
     renderFinance()
 
     const table = await screen.findByRole('table')
+    expect(table).toHaveAccessibleName('Planos de pagamento')
     expect(within(table).getAllByText('Em atraso')).toHaveLength(1)
     expect(within(table).getByText('Quitado')).toBeInTheDocument()
     expect(
@@ -667,6 +668,18 @@ describe('Finance payment plans list', () => {
       'href',
       `/organizations/${organizationAId}/finance/payment-plans/${paymentPlanAId}`,
     )
+    const firstRow = within(table).getAllByRole('row')[1]
+    expect(
+      Array.from(firstRow.querySelectorAll('td'), (cell) => cell.dataset.label),
+    ).toEqual([
+      'Cliente',
+      'Total',
+      'Em aberto',
+      'Parcelas',
+      'Próximo vencimento',
+      'Situação',
+      'Ação',
+    ])
   })
 })
 
@@ -793,6 +806,7 @@ describe('Finance payment plan creation', () => {
           String(input).includes('/finance/payment-plans?') && init?.method === 'GET'),
       ).toHaveLength(2)
     })
+    expect(screen.getByRole('button', { name: 'Novo plano' })).toHaveFocus()
     expect(screen.getByTestId('location')).not.toHaveTextContent('page=')
 
     fireEvent.click(screen.getByRole('button', { name: 'Novo plano' }))
@@ -984,6 +998,9 @@ describe('Finance payment plan creation', () => {
 
     expect(within(panel).getByRole('button', { name: 'Criando…' })).toBeDisabled()
     expect(within(panel).getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(
+      within(panel).getByRole('button', { name: 'Criando…' }).closest('form'),
+    ).toHaveAttribute('aria-busy', 'true')
     expect(within(panel).getByText('Criando plano de pagamento…')).toHaveAttribute(
       'role',
       'status',
@@ -1201,9 +1218,14 @@ describe('Payment plan detail', () => {
       renderDetail()
 
       const table = await screen.findByRole('table')
+      expect(table).toHaveAccessibleName('Parcelas do plano de pagamento')
       expect(
         within(table).getAllByRole('button', { name: 'Marcar como paga' }),
       ).toHaveLength(3)
+      const firstRow = within(table).getAllByRole('row')[1]
+      expect(
+        Array.from(firstRow.querySelectorAll('td'), (cell) => cell.dataset.label),
+      ).toEqual(['Parcela', 'Vencimento', 'Valor', 'Status', 'Pagamento', 'Ação'])
       const paidRow = within(table).getByText('Paga').closest('tr')!
       expect(within(paidRow).queryByRole('button')).not.toBeInTheDocument()
       expect(table).not.toHaveTextContent(/desfazer|reabrir|não paga/i)
@@ -1230,6 +1252,8 @@ describe('Payment plan detail', () => {
         name: 'Confirmar pagamento',
       })
       expect(cancel).toHaveFocus()
+      fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
+      expect(confirm).toHaveFocus()
       confirm.focus()
       fireEvent.keyDown(dialog, { key: 'Tab' })
       expect(cancel).toHaveFocus()

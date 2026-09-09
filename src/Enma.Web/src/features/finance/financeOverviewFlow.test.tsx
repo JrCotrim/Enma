@@ -193,7 +193,7 @@ describe('Finance overview access and states', () => {
 
     renderFinance()
 
-    expect(screen.getByText('Carregando resumo financeiro...')).toHaveAttribute(
+    expect(screen.getByText('Carregando resumo financeiro…')).toHaveAttribute(
       'role',
       'status',
     )

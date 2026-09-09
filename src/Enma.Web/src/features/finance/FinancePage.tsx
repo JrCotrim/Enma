@@ -158,10 +158,18 @@ export function FinancePage() {
     readonly paymentPlanId: string
   } | null>(null)
   const createTriggerRef = useRef<HTMLButtonElement>(null)
+  const shouldRestoreCreateTriggerFocusRef = useRef(false)
 
   function restoreCreateTriggerFocus() {
-    window.setTimeout(() => createTriggerRef.current?.focus())
+    shouldRestoreCreateTriggerFocusRef.current = true
   }
+
+  useEffect(() => {
+    if (!isCreateOpen && shouldRestoreCreateTriggerFocusRef.current) {
+      shouldRestoreCreateTriggerFocusRef.current = false
+      createTriggerRef.current?.focus()
+    }
+  }, [isCreateOpen, searchParams])
 
   function closeCreate() {
     setIsCreateOpen(false)
@@ -408,7 +416,12 @@ function PaymentPlanCreateForm({
         <p>Defina os dados iniciais. As parcelas serão calculadas pelo servidor.</p>
       </div>
 
-      <form className="finance-create-form" onSubmit={handleSubmit} noValidate>
+      <form
+        className="finance-create-form"
+        onSubmit={handleSubmit}
+        aria-busy={isSubmitting}
+        noValidate
+      >
         <fieldset
           ref={clientFieldRef}
           className="finance-create-client"
@@ -758,7 +771,7 @@ function PaymentPlansContent({
             organizationId={currentOrganization.id}
             searchLabel="Buscar cliente ativo"
             resultsLabel="Clientes ativos"
-            loadingMessage="Carregando clientes..."
+            loadingMessage="Carregando clientes…"
             emptyMessage="Nenhum cliente ativo disponível."
             noResultsMessage="Nenhum cliente encontrado."
             errorMessage="Não foi possível carregar os clientes."
@@ -774,7 +787,7 @@ function PaymentPlansContent({
 
       {isLoading ? (
         <p className="finance-state" role="status">
-          Carregando planos de pagamento...
+          Carregando planos de pagamento…
         </p>
       ) : null}
 
@@ -817,7 +830,7 @@ function PaymentPlansContent({
       {response && response.items.length > 0 ? (
         <>
           <div className="finance-table-wrapper">
-            <table className="finance-table">
+            <table className="finance-table" aria-label="Planos de pagamento">
               <thead>
                 <tr>
                   <th scope="col">Cliente</th>
@@ -826,27 +839,29 @@ function PaymentPlansContent({
                   <th scope="col">Parcelas</th>
                   <th scope="col">Próximo vencimento</th>
                   <th scope="col">Situação</th>
-                  <th scope="col"><span className="visually-hidden">Ação</span></th>
+                  <th scope="col" aria-label="Ação" />
                 </tr>
               </thead>
               <tbody>
                 {response.items.map((plan) => (
                   <tr key={plan.id}>
-                    <td>{plan.clientName}</td>
-                    <td>{formatFinanceMoney(plan.totalAmount)}</td>
-                    <td>{formatFinanceMoney(plan.outstandingAmount)}</td>
-                    <td>{plan.installmentCount}</td>
-                    <td>
+                    <td data-label="Cliente">{plan.clientName}</td>
+                    <td data-label="Total">{formatFinanceMoney(plan.totalAmount)}</td>
+                    <td data-label="Em aberto">
+                      {formatFinanceMoney(plan.outstandingAmount)}
+                    </td>
+                    <td data-label="Parcelas">{plan.installmentCount}</td>
+                    <td data-label="Próximo vencimento">
                       {plan.nextDueDate ? formatFinanceDate(plan.nextDueDate) : '—'}
                     </td>
-                    <td>
+                    <td data-label="Situação">
                       <span
                         className={`finance-status finance-status-${getPaymentPlanStatusClass(plan)}`}
                       >
                         {getPaymentPlanStatus(plan)}
                       </span>
                     </td>
-                    <td>
+                    <td data-label="Ação">
                       <Link
                         className="finance-detail-link"
                         to={`/organizations/${currentOrganization.id}/finance/payment-plans/${plan.id}`}
@@ -868,7 +883,7 @@ function PaymentPlansContent({
             >
               Página anterior
             </button>
-            <span>Página {page}</span>
+            <span aria-current="page">Página {page}</span>
             <button
               className="secondary-button"
               type="button"
@@ -970,7 +985,7 @@ function FinanceOverviewContent({
             Resumo financeiro
           </h3>
           <p className="finance-state" role="status">
-            Carregando resumo financeiro...
+            Carregando resumo financeiro…
           </p>
         </>
       ) : null}

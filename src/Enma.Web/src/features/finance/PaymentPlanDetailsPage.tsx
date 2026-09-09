@@ -397,7 +397,7 @@ function PaymentPlanDetailsContent({ financePath }: { readonly financePath: stri
       <section className="finance-plan-detail" aria-busy={isLoading}>
         {isLoading ? (
           <p className="finance-state" role="status">
-            Carregando plano de pagamento...
+            Carregando plano de pagamento…
           </p>
         ) : null}
 
@@ -513,7 +513,10 @@ function PaymentPlanDisplay({
         <p>{paymentPlan.installmentCount} no total</p>
       </div>
       <div className="finance-table-wrapper">
-        <table className="finance-table finance-installments-table">
+        <table
+          className="finance-table finance-installments-table"
+          aria-label="Parcelas do plano de pagamento"
+        >
           <thead>
             <tr>
               <th scope="col">Parcela</th>
@@ -599,17 +602,17 @@ function PaymentInstallmentRow({
 
   return (
     <tr>
-      <td>{installment.sequenceNumber}</td>
-      <td>{formatFinanceDate(installment.dueDate)}</td>
-      <td>{formatFinanceMoney(installment.amount)}</td>
-      <td>
+      <td data-label="Parcela">{installment.sequenceNumber}</td>
+      <td data-label="Vencimento">{formatFinanceDate(installment.dueDate)}</td>
+      <td data-label="Valor">{formatFinanceMoney(installment.amount)}</td>
+      <td data-label="Status">
         <span
           className={`finance-status finance-status-${getInstallmentStatusClass(installment.status)}`}
         >
           {getInstallmentStatusLabel(installment.status)}
         </span>
       </td>
-      <td>
+      <td data-label="Pagamento">
         {installment.status === 'Paid' && installment.paidAt ? (
           <time dateTime={installment.paidAt}>
             {formatLegalDeadlineTimestamp(installment.paidAt)}
@@ -618,7 +621,7 @@ function PaymentInstallmentRow({
           '—'
         )}
       </td>
-      <td className="finance-installment-actions-cell">
+      <td data-label="Ação" className="finance-installment-actions-cell">
         {installment.status !== 'Paid' ? (
           isConfirming ? (
             <div
