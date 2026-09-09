@@ -301,6 +301,83 @@ function financeFetch(
   })
 }
 
+function createFlowFetch(
+  createResult: (
+    url: string,
+    init: RequestInit,
+  ) => Response | Promise<Response> = () =>
+    response(201, { paymentPlanId: paymentPlanBId }),
+) {
+  return vi.fn((input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input)
+    if (url === '/api/auth/csrf') {
+      return Promise.resolve(response(200, { requestToken: 'csrf-create-token' }))
+    }
+    if (url.endsWith('/finance/payment-plans') && init.method === 'POST') {
+      return Promise.resolve(createResult(url, init))
+    }
+    if (url.endsWith('/finance/overview')) {
+      return Promise.resolve(response(200, overview()))
+    }
+    if (url.includes('/clients/lookup?')) {
+      return Promise.resolve(
+        response(200, {
+          items: [
+            { id: clientAId, name: 'Cliente Alfa' },
+            { id: clientBId, name: 'Cliente Beta' },
+          ],
+          pageNumber: 1,
+          pageSize: 20,
+          hasNext: false,
+        }),
+      )
+    }
+    if (url.includes('/finance/payment-plans?')) {
+      return Promise.resolve(response(200, listResponse()))
+    }
+    throw new Error(`Unexpected request: ${init.method ?? 'GET'} ${url}`)
+  })
+}
+
+async function openCreateForm() {
+  fireEvent.click(screen.getByRole('button', { name: 'Novo plano' }))
+  const heading = await screen.findByRole('heading', {
+    name: 'Novo plano de pagamento',
+  })
+  return heading.closest('section')!
+}
+
+async function fillCreateForm(
+  panel: HTMLElement,
+  values: {
+    readonly total?: string
+    readonly installmentCount?: string
+    readonly firstDueDate?: string
+    readonly selectClient?: boolean
+  } = {},
+) {
+  if (values.selectClient !== false) {
+    fireEvent.click(
+      await within(panel).findByRole('button', { name: 'Cliente Alfa' }),
+    )
+  }
+  fireEvent.change(within(panel).getByLabelText('Total'), {
+    target: { value: values.total ?? '120.00' },
+  })
+  fireEvent.change(within(panel).getByLabelText('Número de parcelas'), {
+    target: { value: values.installmentCount ?? '12' },
+  })
+  fireEvent.change(within(panel).getByLabelText('Primeiro vencimento'), {
+    target: { value: values.firstDueDate ?? '2026-10-01' },
+  })
+}
+
+function submitCreateForm(panel: HTMLElement) {
+  fireEvent.submit(
+    within(panel).getByRole('button', { name: 'Criar plano' }).closest('form')!,
+  )
+}
+
 beforeEach(clearCsrfToken)
 
 afterEach(() => {
@@ -333,6 +410,7 @@ describe('Finance payment plans list', () => {
     renderFinance({ role: 'Member' })
 
     expect(screen.getByRole('heading', { name: 'Acesso negado' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Novo plano' })).not.toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -549,6 +627,398 @@ describe('Finance payment plans list', () => {
       'href',
       `/organizations/${organizationAId}/finance/payment-plans/${paymentPlanAId}`,
     )
+  })
+})
+
+describe('Finance payment plan creation', () => {
+  it('Form_OpensInlineCancelsAndRestoresTriggerFocus', async () => {
+    vi.stubGlobal('fetch', createFlowFetch())
+    renderFinance()
+
+    const trigger = await screen.findByRole('button', { name: 'Novo plano' })
+    expect(trigger).toBeInTheDocument()
+    const panel = await openCreateForm()
+
+    expect(panel).toHaveAttribute('id', 'finance-create-payment-plan')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Cancelar' }))
+    expect(
+      screen.queryByRole('heading', { name: 'Novo plano de pagamento' }),
+    ).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Novo plano' })).toHaveFocus()
+    })
+  })
+
+  it('Validation_RequiresAClientAndFocusesItsLookup', async () => {
+    const fetchMock = createFlowFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel, { selectClient: false })
+
+    submitCreateForm(panel)
+
+    const error = within(panel).getByText('Escolha um cliente ativo.')
+    const clientField = within(panel).getByRole('group', { name: 'Cliente' })
+    expect(clientField).toHaveAttribute('aria-invalid', 'true')
+    expect(clientField).toHaveAttribute('aria-describedby', error.id)
+    expect(within(panel).getByLabelText('Buscar cliente ativo')).toHaveFocus()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+
+  it('Validation_RequiresTotalAndFocusesTheField', async () => {
+    vi.stubGlobal('fetch', createFlowFetch())
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel, { total: '' })
+
+    submitCreateForm(panel)
+
+    const total = within(panel).getByLabelText('Total')
+    expect(total).toHaveAttribute('aria-invalid', 'true')
+    expect(total).toHaveAttribute('aria-describedby', 'finance-create-total-error')
+    expect(within(panel).getByText('Informe o total.')).toBeInTheDocument()
+    expect(total).toHaveFocus()
+  })
+
+  it.each([
+    ['abc', 'Informe um total decimal válido.'],
+    ['10.123', 'Use no máximo duas casas decimais.'],
+    ['0', 'O total deve ser maior que zero.'],
+  ])('Validation_RejectsInvalidTotal(%s)', async (value, message) => {
+    const fetchMock = createFlowFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel, { total: value })
+
+    submitCreateForm(panel)
+
+    expect(within(panel).getByText(message)).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+
+  it('MaximumTotal_StaysAnExactStringAndSuccessRefetchesAndFilters', async () => {
+    const fetchMock = createFlowFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    renderFinance({
+      initialEntry: `/organizations/${organizationAId}/finance?page=3`,
+    })
+    const panel = await openCreateForm()
+    await fillCreateForm(panel, {
+      total: '9999999999999999.99',
+      installmentCount: '120',
+    })
+
+    expect(within(panel).getByText('R$ 9.999.999.999.999.999,99')).toBeInTheDocument()
+    submitCreateForm(panel)
+
+    const success = await screen.findByText(/Plano criado com sucesso/)
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')!
+    const body = JSON.parse(postCall[1]?.body as string)
+    expect(postCall[0]).toBe(
+      `/api/organizations/${organizationAId}/finance/payment-plans`,
+    )
+    expect(postCall[1]).toEqual(
+      expect.objectContaining({
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': 'csrf-create-token',
+        },
+      }),
+    )
+    expect(body).toEqual({
+      clientId: clientAId,
+      totalAmount: '9999999999999999.99',
+      installmentCount: 120,
+      firstDueDate: '2026-10-01',
+    })
+    expect(typeof body.totalAmount).toBe('string')
+    expect(success).toHaveAttribute('role', 'status')
+    expect(within(success).getByRole('link', { name: 'Ver plano' })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationAId}/finance/payment-plans/${paymentPlanBId}`,
+    )
+    expect(
+      screen.queryByRole('heading', { name: 'Novo plano de pagamento' }),
+    ).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent(`?clientId=${clientAId}`)
+      expect(
+        fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/finance/overview')),
+      ).toHaveLength(2)
+      expect(
+        fetchMock.mock.calls.filter(([input, init]) =>
+          String(input).includes('/finance/payment-plans?') && init?.method === 'GET'),
+      ).toHaveLength(2)
+    })
+    expect(screen.getByTestId('location')).not.toHaveTextContent('page=')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Novo plano' }))
+    const resetPanel = await screen.findByRole('heading', {
+      name: 'Novo plano de pagamento',
+    }).then((heading) => heading.closest('section')!)
+    expect(within(resetPanel).getByLabelText('Total')).toHaveValue('')
+    expect(within(resetPanel).getByLabelText('Número de parcelas')).toHaveValue(null)
+    expect(within(resetPanel).getByLabelText('Primeiro vencimento')).toHaveValue('')
+    expect(within(resetPanel).queryByText(/Selecionado:/)).not.toBeInTheDocument()
+  })
+
+  it('Validation_RejectsTotalAboveTheExactMaximum', async () => {
+    const fetchMock = createFlowFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel, { total: '10000000000000000.00' })
+
+    submitCreateForm(panel)
+
+    expect(
+      within(panel).getByText('O total não pode exceder 9999999999999999,99.'),
+    ).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+
+  it.each(['0', '121', '1.5'])(
+    'Validation_RequiresAnIntegerInstallmentCountFromOneTo120(%s)',
+    async (value) => {
+      const fetchMock = createFlowFetch()
+      vi.stubGlobal('fetch', fetchMock)
+      renderFinance()
+      const panel = await openCreateForm()
+      await fillCreateForm(panel, { installmentCount: value })
+
+      submitCreateForm(panel)
+
+      expect(
+        within(panel).getByText('Informe um número inteiro entre 1 e 120.'),
+      ).toBeInTheDocument()
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+    },
+  )
+
+  it('Validation_RejectsMoreInstallmentsThanTotalCents', async () => {
+    const fetchMock = createFlowFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel, { total: '0.01', installmentCount: '2' })
+
+    submitCreateForm(panel)
+
+    expect(
+      within(panel).getByText(
+        'O número de parcelas não pode superar o total em centavos.',
+      ),
+    ).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+
+  it('Validation_RequiresTheFirstDueDate', async () => {
+    vi.stubGlobal('fetch', createFlowFetch())
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel, { firstDueDate: '' })
+
+    submitCreateForm(panel)
+
+    const dueDate = within(panel).getByLabelText('Primeiro vencimento')
+    expect(within(panel).getByText('Informe o primeiro vencimento.')).toBeInTheDocument()
+    expect(dueDate).toHaveAttribute('aria-invalid', 'true')
+    expect(dueDate).toHaveFocus()
+  })
+
+  it('PastDate_IsAllowedAndCommaMoneyIsNormalizedWithoutNumberConversion', async () => {
+    const fetchMock = createFlowFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel, {
+      total: '0,01',
+      installmentCount: '1',
+      firstDueDate: '2000-01-01',
+    })
+
+    submitCreateForm(panel)
+
+    await screen.findByText(/Plano criado com sucesso/)
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')!
+    expect(JSON.parse(postCall[1]?.body as string)).toEqual(
+      expect.objectContaining({ totalAmount: '0.01', firstDueDate: '2000-01-01' }),
+    )
+  })
+
+  it('BadRequest_ShowsOnlySafeFeedbackBesideTheForm', async () => {
+    vi.stubGlobal(
+      'fetch',
+      createFlowFetch(() => response(400, { detail: 'private validation detail' })),
+    )
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel)
+    submitCreateForm(panel)
+
+    const alert = await within(panel).findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Não foi possível criar o plano. Revise os dados e tente novamente.',
+    )
+    expect(alert).not.toHaveTextContent('private validation detail')
+  })
+
+  it('NotFound_ClearsTheUnavailableClientAndRequiresAnotherSelection', async () => {
+    vi.stubGlobal('fetch', createFlowFetch(() => response(404)))
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel)
+    submitCreateForm(panel)
+
+    expect(await within(panel).findByText(
+      'O cliente selecionado não está mais disponível. Escolha outro cliente.',
+    )).toBeInTheDocument()
+    expect(within(panel).queryByText(/Selecionado:/)).not.toBeInTheDocument()
+    expect(within(panel).getByLabelText('Buscar cliente ativo')).toHaveFocus()
+  })
+
+  it('Forbidden_RefreshesOrganizationsAndStopsTheAction', async () => {
+    const refreshOrganizations = vi.fn()
+    vi.stubGlobal('fetch', createFlowFetch(() => response(403)))
+    renderFinance({ refreshOrganizations })
+    const panel = await openCreateForm()
+    await fillCreateForm(panel)
+    submitCreateForm(panel)
+
+    expect(await within(panel).findByText(
+      'Seu acesso à organização mudou. Atualize o acesso antes de tentar novamente.',
+    )).toBeInTheDocument()
+    expect(refreshOrganizations).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/Plano criado com sucesso/)).not.toBeInTheDocument()
+  })
+
+  it('Unauthorized_DelegatesToSessionHandlingWithoutExposingAnError', async () => {
+    const handleUnauthorized = vi.fn()
+    vi.stubGlobal('fetch', createFlowFetch(() => response(401)))
+    renderFinance({ handleUnauthorized })
+    const panel = await openCreateForm()
+    await fillCreateForm(panel)
+    submitCreateForm(panel)
+
+    await waitFor(() => expect(handleUnauthorized).toHaveBeenCalledTimes(1))
+    expect(within(panel).queryByText(/Não foi possível criar/)).not.toBeInTheDocument()
+  })
+
+  it('NetworkFailure_IsSafeAndASecondSubmitRetries', async () => {
+    let postCalls = 0
+    const fetchMock = createFlowFetch(() => {
+      postCalls += 1
+      return postCalls === 1
+        ? Promise.reject(new TypeError('private network detail'))
+        : response(201, { paymentPlanId: paymentPlanBId })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel)
+    submitCreateForm(panel)
+
+    const alert = await within(panel).findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Não foi possível criar o plano de pagamento. Tente novamente.',
+    )
+    expect(alert).not.toHaveTextContent('private network detail')
+    submitCreateForm(panel)
+    expect(await screen.findByText(/Plano criado com sucesso/)).toBeInTheDocument()
+    expect(postCalls).toBe(2)
+  })
+
+  it('PendingSubmit_DisablesActionsAndPreventsDuplicatePosts', async () => {
+    const pending = deferred<Response>()
+    const fetchMock = createFlowFetch(() => pending.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel)
+
+    submitCreateForm(panel)
+    fireEvent.submit(within(panel).getByRole('button', { name: 'Criando…' }).closest('form')!)
+
+    expect(within(panel).getByRole('button', { name: 'Criando…' })).toBeDisabled()
+    expect(within(panel).getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(within(panel).getByText('Criando plano de pagamento…')).toHaveAttribute(
+      'role',
+      'status',
+    )
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1)
+    })
+    await act(async () => {
+      pending.resolve(response(201, { paymentPlanId: paymentPlanBId }))
+      await pending.promise
+    })
+    expect(await screen.findByText(/Plano criado com sucesso/)).toBeInTheDocument()
+  })
+
+  it.each([
+    ['server', () => response(500, { detail: 'private server detail' })],
+    ['malformed', () => response(201, { paymentPlanId: 'invalid' })],
+  ])('%sFailure_IsSafeAndRetryable', async (_name, failure) => {
+    let postCalls = 0
+    const fetchMock = createFlowFetch(() => {
+      postCalls += 1
+      return postCalls === 1
+        ? failure()
+        : response(201, { paymentPlanId: paymentPlanBId })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderFinance()
+    const panel = await openCreateForm()
+    await fillCreateForm(panel)
+    submitCreateForm(panel)
+
+    expect(await within(panel).findByText(
+      'Não foi possível criar o plano de pagamento. Tente novamente.',
+    )).toBeInTheDocument()
+    expect(panel).not.toHaveTextContent(/private server detail|invalid/)
+    submitCreateForm(panel)
+    expect(await screen.findByText(/Plano criado com sucesso/)).toBeInTheDocument()
+  })
+
+  it('OrganizationChange_AbortsAndIgnoresTheStaleCreateResponse', async () => {
+    const stale = deferred<Response>()
+    const fetchMock = createFlowFetch((_url, init) => {
+      expect(init.signal).toBeInstanceOf(AbortSignal)
+      return stale.promise
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const refreshOrganizations = vi.fn()
+    const handleUnauthorized = vi.fn()
+    const view = renderFinance({ refreshOrganizations, handleUnauthorized })
+    const panel = await openCreateForm()
+    await fillCreateForm(panel)
+    submitCreateForm(panel)
+
+    view.rerender(
+      <ContextProviders
+        currentOrganization={organization('Owner', organizationBId)}
+        refreshOrganizations={refreshOrganizations}
+        handleUnauthorized={handleUnauthorized}
+      >
+        <MemoryRouter initialEntries={[`/organizations/${organizationBId}/finance`]}>
+          <FinancePage />
+          <LocationProbe />
+        </MemoryRouter>
+      </ContextProviders>,
+    )
+
+    expect(await screen.findByRole('heading', {
+      name: 'Novo plano de pagamento',
+    })).toBeInTheDocument()
+    await act(async () => {
+      stale.resolve(response(201, { paymentPlanId: paymentPlanBId }))
+      await stale.promise
+    })
+    expect(screen.queryByText(/Plano criado com sucesso/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('location')).not.toHaveTextContent('clientId=')
   })
 })
 

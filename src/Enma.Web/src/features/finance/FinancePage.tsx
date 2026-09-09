@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../authentication/AuthContext'
 import { isValidGuid } from '../deadlines/legalDeadlineFormatting'
@@ -9,8 +9,13 @@ import {
 import { lookupActiveClients } from '../processes/activeClientLookupService'
 import type { ActiveClientLookupItem } from '../processes/legalProcessTypes'
 import { TaskLookupPicker } from '../tasks/TaskLookupPicker'
-import { formatFinanceDate, formatFinanceMoney } from './financeFormatting'
 import {
+  formatFinanceDate,
+  formatFinanceMoney,
+  isFinanceDate,
+} from './financeFormatting'
+import {
+  createPaymentPlan,
   FinanceRequestError,
   getFinanceOverview,
   listPaymentPlans,
@@ -26,9 +31,18 @@ const overviewErrorMessage =
   'Não foi possível carregar o resumo financeiro. Tente novamente.'
 const paymentPlansErrorMessage =
   'Não foi possível carregar os planos de pagamento. Tente novamente.'
+const createPaymentPlanErrorMessage =
+  'Não foi possível criar o plano de pagamento. Tente novamente.'
+const createPaymentPlanValidationMessage =
+  'Não foi possível criar o plano. Revise os dados e tente novamente.'
+const createPaymentPlanPermissionMessage =
+  'Seu acesso à organização mudou. Atualize o acesso antes de tentar novamente.'
+const unavailableClientMessage =
+  'O cliente selecionado não está mais disponível. Escolha outro cliente.'
 const paymentPlansPageSize = 20
 const maximumPaymentPlansPage =
   Math.floor(2_147_483_647 / paymentPlansPageSize) + 1
+const maximumTotalCents = 999_999_999_999_999_999n
 
 type OverviewState =
   | { readonly status: 'loading'; readonly scope: string }
@@ -49,6 +63,18 @@ type PaymentPlansState =
     }
   | { readonly status: 'forbidden'; readonly scope: string }
   | { readonly status: 'error'; readonly scope: string }
+
+interface ExactMoneyInput {
+  readonly normalized: FinanceMoney
+  readonly cents: bigint
+}
+
+interface CreateFormErrors {
+  client?: string
+  total?: string
+  installmentCount?: string
+  firstDueDate?: string
+}
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
@@ -98,9 +124,63 @@ function getPaymentPlanStatusClass(plan: PaymentPlanSummary): string {
   return 'open'
 }
 
+function parseExactMoneyInput(value: string): ExactMoneyInput | undefined {
+  const match = /^(0|[1-9]\d*)(?:[.,](\d{1,2}))?$/.exec(value.trim())
+  if (!match) return undefined
+
+  const [, integerPart, fractionPart = ''] = match
+  return {
+    normalized: fractionPart.length > 0
+      ? `${integerPart}.${fractionPart}`
+      : integerPart,
+    cents:
+      BigInt(integerPart) * 100n +
+      BigInt(fractionPart.padEnd(2, '0') || '0'),
+  }
+}
+
+function parseInstallmentCount(value: string): number | undefined {
+  if (!/^[1-9]\d*$/.test(value.trim())) return undefined
+  const count = Number(value)
+  return Number.isSafeInteger(count) ? count : undefined
+}
+
 export function FinancePage() {
   const { currentOrganization } = useCurrentOrganization()
+  const { refreshOrganizations } = useOrganizationDiscovery()
+  const { handleUnauthorized } = useAuth()
   const canAccess = currentOrganization.role !== 'Member'
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [dataRefreshVersion, setDataRefreshVersion] = useState(0)
+  const [createdPlan, setCreatedPlan] = useState<{
+    readonly organizationId: string
+    readonly paymentPlanId: string
+  } | null>(null)
+  const createTriggerRef = useRef<HTMLButtonElement>(null)
+
+  function restoreCreateTriggerFocus() {
+    window.setTimeout(() => createTriggerRef.current?.focus())
+  }
+
+  function closeCreate() {
+    setIsCreateOpen(false)
+    restoreCreateTriggerFocus()
+  }
+
+  function handleCreated(paymentPlanId: string, client: ActiveClientLookupItem) {
+    const next = new URLSearchParams(searchParams)
+    next.set('clientId', client.id)
+    next.delete('page')
+    setSearchParams(next)
+    setCreatedPlan({ organizationId: currentOrganization.id, paymentPlanId })
+    setDataRefreshVersion((version) => version + 1)
+    setIsCreateOpen(false)
+    restoreCreateTriggerFocus()
+  }
+
+  const currentCreatedPlan =
+    createdPlan?.organizationId === currentOrganization.id ? createdPlan : null
 
   return (
     <section className="finance-page" aria-labelledby="finance-title">
@@ -113,7 +193,43 @@ export function FinancePage() {
             Acompanhe os planos de pagamento desta organização.
           </p>
         </div>
+        {canAccess && !isCreateOpen ? (
+          <button
+            ref={createTriggerRef}
+            className="primary-button"
+            type="button"
+            aria-controls="finance-create-payment-plan"
+            onClick={() => {
+              setCreatedPlan(null)
+              setIsCreateOpen(true)
+            }}
+          >
+            Novo plano
+          </button>
+        ) : null}
       </header>
+
+      {canAccess && isCreateOpen ? (
+        <PaymentPlanCreateForm
+          key={currentOrganization.id}
+          organizationId={currentOrganization.id}
+          onUnauthorized={handleUnauthorized}
+          refreshOrganizations={refreshOrganizations}
+          onCancel={closeCreate}
+          onCreated={handleCreated}
+        />
+      ) : null}
+
+      {canAccess && currentCreatedPlan ? (
+        <p className="finance-create-success" role="status">
+          Plano criado com sucesso.{' '}
+          <Link
+            to={`/organizations/${currentOrganization.id}/finance/payment-plans/${currentCreatedPlan.paymentPlanId}`}
+          >
+            Ver plano
+          </Link>
+        </p>
+      ) : null}
 
       {!canAccess ? (
         <div className="finance-state" role="alert">
@@ -125,15 +241,358 @@ export function FinancePage() {
         </div>
       ) : (
         <>
-          <FinanceOverviewContent />
-          <PaymentPlansContent />
+          <FinanceOverviewContent dataRefreshVersion={dataRefreshVersion} />
+          <PaymentPlansContent dataRefreshVersion={dataRefreshVersion} />
         </>
       )}
     </section>
   )
 }
 
-function PaymentPlansContent() {
+interface PaymentPlanCreateFormProps {
+  readonly organizationId: string
+  readonly onUnauthorized: () => void
+  readonly refreshOrganizations: () => void
+  readonly onCancel: () => void
+  readonly onCreated: (
+    paymentPlanId: string,
+    client: ActiveClientLookupItem,
+  ) => void
+}
+
+function PaymentPlanCreateForm({
+  organizationId,
+  onUnauthorized,
+  refreshOrganizations,
+  onCancel,
+  onCreated,
+}: PaymentPlanCreateFormProps) {
+  const [selectedClient, setSelectedClient] = useState<ActiveClientLookupItem>()
+  const [total, setTotal] = useState('')
+  const [installmentCount, setInstallmentCount] = useState('')
+  const [firstDueDate, setFirstDueDate] = useState('')
+  const [errors, setErrors] = useState<CreateFormErrors>({})
+  const [submissionError, setSubmissionError] = useState<string>()
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const clientFieldRef = useRef<HTMLFieldSetElement>(null)
+  const totalInputRef = useRef<HTMLInputElement>(null)
+  const installmentInputRef = useRef<HTMLInputElement>(null)
+  const firstDueDateInputRef = useRef<HTMLInputElement>(null)
+  const submitControllerRef = useRef<AbortController | undefined>(undefined)
+  const submitVersionRef = useRef(0)
+  const isSubmittingRef = useRef(false)
+
+  useEffect(() => () => {
+    submitVersionRef.current += 1
+    submitControllerRef.current?.abort()
+  }, [])
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (isSubmittingRef.current) return
+
+    const nextErrors: CreateFormErrors = {}
+    const money = parseExactMoneyInput(total)
+    const installments = parseInstallmentCount(installmentCount)
+
+    if (!selectedClient) nextErrors.client = 'Escolha um cliente ativo.'
+    if (total.trim().length === 0) {
+      nextErrors.total = 'Informe o total.'
+    } else if (/^(?:0|[1-9]\d*)[.,]\d{3,}$/.test(total.trim())) {
+      nextErrors.total = 'Use no máximo duas casas decimais.'
+    } else if (!money) {
+      nextErrors.total = 'Informe um total decimal válido.'
+    } else if (money.cents === 0n) {
+      nextErrors.total = 'O total deve ser maior que zero.'
+    } else if (money.cents > maximumTotalCents) {
+      nextErrors.total = 'O total não pode exceder 9999999999999999,99.'
+    }
+
+    if (installmentCount.trim().length === 0) {
+      nextErrors.installmentCount = 'Informe o número de parcelas.'
+    } else if (!installments || installments > 120) {
+      nextErrors.installmentCount = 'Informe um número inteiro entre 1 e 120.'
+    } else if (money && money.cents > 0n && BigInt(installments) > money.cents) {
+      nextErrors.installmentCount =
+        'O número de parcelas não pode superar o total em centavos.'
+    }
+
+    if (firstDueDate.length === 0) {
+      nextErrors.firstDueDate = 'Informe o primeiro vencimento.'
+    } else if (!isFinanceDate(firstDueDate)) {
+      nextErrors.firstDueDate = 'Informe uma data válida.'
+    }
+
+    setErrors(nextErrors)
+    setSubmissionError(undefined)
+
+    const firstInvalidField = nextErrors.client
+      ? clientFieldRef.current?.querySelector('input')
+      : nextErrors.total
+        ? totalInputRef.current
+        : nextErrors.installmentCount
+          ? installmentInputRef.current
+          : nextErrors.firstDueDate
+            ? firstDueDateInputRef.current
+            : undefined
+    if (firstInvalidField) {
+      firstInvalidField.focus()
+      return
+    }
+    if (!selectedClient || !money || !installments) return
+
+    const controller = new AbortController()
+    const submitVersion = ++submitVersionRef.current
+    submitControllerRef.current = controller
+    isSubmittingRef.current = true
+    setIsSubmitting(true)
+
+    try {
+      const result = await createPaymentPlan(
+        organizationId,
+        {
+          clientId: selectedClient.id,
+          totalAmount: money.normalized,
+          installmentCount: installments,
+          firstDueDate,
+        },
+        onUnauthorized,
+        controller.signal,
+      )
+      if (!controller.signal.aborted && submitVersion === submitVersionRef.current) {
+        onCreated(result.paymentPlanId, selectedClient)
+      }
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        submitVersion !== submitVersionRef.current ||
+        isAbortError(error) ||
+        (error instanceof FinanceRequestError && error.failure === 'unauthorized')
+      ) {
+        return
+      }
+
+      if (error instanceof FinanceRequestError && error.failure === 'not-found') {
+        setSelectedClient(undefined)
+        setErrors({ client: unavailableClientMessage })
+        clientFieldRef.current?.querySelector('input')?.focus()
+      } else if (error instanceof FinanceRequestError && error.failure === 'forbidden') {
+        refreshOrganizations()
+        setSubmissionError(createPaymentPlanPermissionMessage)
+      } else {
+        setSubmissionError(
+          error instanceof FinanceRequestError && error.failure === 'bad-request'
+            ? createPaymentPlanValidationMessage
+            : createPaymentPlanErrorMessage,
+        )
+      }
+    } finally {
+      if (submitVersion === submitVersionRef.current) {
+        submitControllerRef.current = undefined
+        isSubmittingRef.current = false
+        setIsSubmitting(false)
+      }
+    }
+  }
+
+  const summaryMoney = parseExactMoneyInput(total)
+
+  return (
+    <section
+      className="finance-create-panel"
+      id="finance-create-payment-plan"
+      aria-labelledby="finance-create-title"
+    >
+      <div className="finance-create-heading">
+        <h3 id="finance-create-title">Novo plano de pagamento</h3>
+        <p>Defina os dados iniciais. As parcelas serão calculadas pelo servidor.</p>
+      </div>
+
+      <form className="finance-create-form" onSubmit={handleSubmit} noValidate>
+        <fieldset
+          ref={clientFieldRef}
+          className="finance-create-client"
+          aria-invalid={errors.client ? true : undefined}
+          aria-describedby={errors.client ? 'finance-create-client-error' : undefined}
+          disabled={isSubmitting}
+        >
+          <legend>Cliente</legend>
+          {selectedClient ? (
+            <p className="finance-create-selection" role="status">
+              Selecionado: <strong>{selectedClient.name}</strong>
+            </p>
+          ) : null}
+          <TaskLookupPicker
+            organizationId={organizationId}
+            searchLabel="Buscar cliente ativo"
+            resultsLabel="Clientes ativos"
+            loadingMessage="Carregando clientes…"
+            emptyMessage="Nenhum cliente ativo disponível."
+            noResultsMessage="Nenhum cliente encontrado."
+            errorMessage="Não foi possível carregar os clientes."
+            selectedId={selectedClient?.id}
+            disabled={isSubmitting}
+            autoFocus
+            load={lookupActiveClients}
+            onUnauthorized={onUnauthorized}
+            onSelect={(client) => {
+              setSelectedClient(client)
+              setErrors((current) => ({ ...current, client: undefined }))
+              setSubmissionError(undefined)
+            }}
+            renderItem={(client) => client.name}
+          />
+          {errors.client ? (
+            <p id="finance-create-client-error" className="form-error" role="alert">
+              {errors.client}
+            </p>
+          ) : null}
+        </fieldset>
+
+        <div className="finance-create-fields">
+          <div className="finance-create-field">
+            <label htmlFor="finance-create-total">Total</label>
+            <input
+              ref={totalInputRef}
+              id="finance-create-total"
+              name="totalAmount"
+              type="text"
+              autoComplete="off"
+              inputMode="decimal"
+              value={total}
+              onChange={(event) => {
+                setTotal(event.target.value)
+                setErrors((current) => ({ ...current, total: undefined }))
+                setSubmissionError(undefined)
+              }}
+              aria-invalid={errors.total ? true : undefined}
+              aria-describedby={errors.total ? 'finance-create-total-error' : undefined}
+              disabled={isSubmitting}
+              required
+            />
+            {errors.total ? (
+              <p id="finance-create-total-error" className="form-error" role="alert">
+                {errors.total}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="finance-create-field">
+            <label htmlFor="finance-create-installments">Número de parcelas</label>
+            <input
+              ref={installmentInputRef}
+              id="finance-create-installments"
+              name="installmentCount"
+              type="number"
+              autoComplete="off"
+              inputMode="numeric"
+              min="1"
+              max="120"
+              step="1"
+              value={installmentCount}
+              onChange={(event) => {
+                setInstallmentCount(event.target.value)
+                setErrors((current) => ({
+                  ...current,
+                  installmentCount: undefined,
+                }))
+                setSubmissionError(undefined)
+              }}
+              aria-invalid={errors.installmentCount ? true : undefined}
+              aria-describedby={errors.installmentCount
+                ? 'finance-create-installments-error'
+                : undefined}
+              disabled={isSubmitting}
+              required
+            />
+            {errors.installmentCount ? (
+              <p
+                id="finance-create-installments-error"
+                className="form-error"
+                role="alert"
+              >
+                {errors.installmentCount}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="finance-create-field">
+            <label htmlFor="finance-create-first-due-date">Primeiro vencimento</label>
+            <input
+              ref={firstDueDateInputRef}
+              id="finance-create-first-due-date"
+              name="firstDueDate"
+              type="date"
+              autoComplete="off"
+              value={firstDueDate}
+              onChange={(event) => {
+                setFirstDueDate(event.target.value)
+                setErrors((current) => ({ ...current, firstDueDate: undefined }))
+                setSubmissionError(undefined)
+              }}
+              aria-invalid={errors.firstDueDate ? true : undefined}
+              aria-describedby={errors.firstDueDate
+                ? 'finance-create-first-due-date-error'
+                : undefined}
+              disabled={isSubmitting}
+              required
+            />
+            {errors.firstDueDate ? (
+              <p
+                id="finance-create-first-due-date-error"
+                className="form-error"
+                role="alert"
+              >
+                {errors.firstDueDate}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <section className="finance-create-summary" aria-labelledby="finance-create-summary-title">
+          <h4 id="finance-create-summary-title">Resumo</h4>
+          <dl>
+            <div><dt>Cliente</dt><dd>{selectedClient?.name ?? '—'}</dd></div>
+            <div><dt>Total</dt><dd>{summaryMoney ? formatFinanceMoney(summaryMoney.normalized) : '—'}</dd></div>
+            <div><dt>Parcelas</dt><dd>{installmentCount || '—'}</dd></div>
+            <div><dt>Primeiro vencimento</dt><dd>{isFinanceDate(firstDueDate) ? formatFinanceDate(firstDueDate) : '—'}</dd></div>
+          </dl>
+        </section>
+
+        {submissionError ? (
+          <p className="finance-create-request-error" role="alert">
+            {submissionError}
+          </p>
+        ) : null}
+        {isSubmitting ? (
+          <p className="finance-create-submit-status" role="status">
+            Criando plano de pagamento…
+          </p>
+        ) : null}
+
+        <div className="finance-create-actions">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={onCancel}
+            disabled={isSubmitting}
+          >
+            Cancelar
+          </button>
+          <button className="primary-button" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Criando…' : 'Criar plano'}
+          </button>
+        </div>
+      </form>
+    </section>
+  )
+}
+
+function PaymentPlansContent({
+  dataRefreshVersion,
+}: {
+  readonly dataRefreshVersion: number
+}) {
   const { currentOrganization } = useCurrentOrganization()
   const { refreshOrganizations } = useOrganizationDiscovery()
   const { handleUnauthorized } = useAuth()
@@ -148,7 +607,7 @@ function PaymentPlansContent() {
   const clientId = rawClientId && isValidGuid(rawClientId) ? rawClientId : undefined
   const rawPage = searchParams.get('page')
   const page = getPageNumber(rawPage)
-  const listScope = `${currentOrganization.id}:${clientId ?? ''}:${page}:${refreshVersion}`
+  const listScope = `${currentOrganization.id}:${clientId ?? ''}:${page}:${refreshVersion}:${dataRefreshVersion}`
   const [listState, setListState] = useState<PaymentPlansState>({
     status: 'loading',
     scope: listScope,
@@ -425,12 +884,16 @@ function PaymentPlansContent() {
   )
 }
 
-function FinanceOverviewContent() {
+function FinanceOverviewContent({
+  dataRefreshVersion,
+}: {
+  readonly dataRefreshVersion: number
+}) {
   const { currentOrganization } = useCurrentOrganization()
   const { refreshOrganizations } = useOrganizationDiscovery()
   const { handleUnauthorized } = useAuth()
   const [refreshVersion, setRefreshVersion] = useState(0)
-  const overviewScope = `${currentOrganization.id}:${refreshVersion}`
+  const overviewScope = `${currentOrganization.id}:${refreshVersion}:${dataRefreshVersion}`
   const [overviewState, setOverviewState] = useState<OverviewState>({
     status: 'loading',
     scope: overviewScope,

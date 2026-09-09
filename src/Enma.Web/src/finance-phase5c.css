@@ -140,6 +140,185 @@
   margin-bottom: 0;
 }
 
+.finance-create-panel {
+  width: min(100%, 58rem);
+  padding: 1.25rem;
+  border: 1px solid var(--enma-v3-border);
+  border-radius: var(--enma-ui-radius-panel);
+  background: var(--enma-v3-surface-strong);
+  color: var(--enma-v3-text);
+}
+
+.finance-create-heading h3,
+.finance-create-summary h4 {
+  margin: 0;
+  color: var(--enma-v3-text-strong);
+  font-family: var(--enma-ui-font-display);
+  letter-spacing: -0.02em;
+}
+
+.finance-create-heading h3 {
+  font-size: 1.15rem;
+}
+
+.finance-create-heading p {
+  max-width: 68ch;
+  margin: 0.35rem 0 0;
+  color: var(--enma-v3-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.finance-create-form {
+  display: grid;
+  margin-top: 1.25rem;
+  gap: 1.1rem;
+}
+
+.finance-create-client {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.finance-create-client legend,
+.finance-create-field label {
+  color: var(--enma-v3-text-strong);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.finance-create-client legend {
+  margin-bottom: 0.55rem;
+}
+
+.finance-create-selection {
+  margin: 0 0 0.65rem;
+  overflow-wrap: anywhere;
+  color: var(--enma-v3-muted);
+  font-size: 0.875rem;
+}
+
+.finance-create-selection strong {
+  color: var(--enma-v3-text-strong);
+}
+
+.finance-create-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  gap: 1rem;
+}
+
+.finance-create-field {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 0.4rem;
+}
+
+.finance-create-field input,
+.finance-create-client .task-lookup input {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--enma-v3-border);
+  border-radius: var(--enma-ui-radius-control);
+  background: var(--enma-v3-surface);
+  color: var(--enma-v3-text-strong);
+  font: inherit;
+}
+
+.finance-create-field input:focus-visible,
+.finance-create-client .task-lookup input:focus-visible {
+  outline: 2px solid var(--enma-v2-primary-pressed);
+  outline-offset: 2px;
+}
+
+.finance-create-field input[aria-invalid='true'],
+.finance-create-client[aria-invalid='true'] .task-lookup input {
+  border-color: var(--finance-status-overdue-text);
+}
+
+.finance-create-form .form-error,
+.finance-create-request-error {
+  margin: 0;
+  color: var(--finance-status-overdue-text);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.finance-create-summary {
+  padding-top: 1rem;
+  border-top: 1px solid var(--enma-v3-border);
+}
+
+.finance-create-summary h4 {
+  font-size: 1rem;
+}
+
+.finance-create-summary dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-width: 0;
+  margin: 0.75rem 0 0;
+  gap: 0.75rem;
+}
+
+.finance-create-summary dl > div {
+  min-width: 0;
+}
+
+.finance-create-summary dt {
+  color: var(--enma-v3-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.finance-create-summary dd {
+  margin: 0.3rem 0 0;
+  overflow-wrap: anywhere;
+  color: var(--enma-v3-text-strong);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.finance-create-submit-status {
+  margin: 0;
+  color: var(--enma-v3-muted);
+  font-size: 0.875rem;
+}
+
+.finance-create-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.finance-create-success {
+  width: min(100%, 58rem);
+  margin-bottom: 0;
+  padding: 0.8rem 1rem;
+  border-radius: var(--enma-ui-radius-control);
+  background: var(--finance-status-paid-bg);
+  color: var(--finance-status-paid-text);
+}
+
+.finance-create-success a {
+  color: inherit;
+  font-weight: 750;
+  text-underline-offset: 0.2em;
+}
+
+.finance-create-panel + .finance-overview,
+.finance-create-success + .finance-overview {
+  margin-top: 1.5rem;
+}
+
 .finance-empty-message {
   margin: 0;
   padding: 0.75rem 0.9rem;
@@ -380,7 +559,9 @@
   }
 
   .finance-primary-metrics,
-  .finance-secondary-metrics {
+  .finance-secondary-metrics,
+  .finance-create-fields,
+  .finance-create-summary dl {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -392,7 +573,8 @@
   .finance-list-heading,
   .finance-installments-heading,
   .finance-active-filter,
-  .finance-pagination {
+  .finance-pagination,
+  .finance-create-actions {
     align-items: stretch;
     flex-direction: column;
   }
