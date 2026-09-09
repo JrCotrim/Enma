@@ -13,6 +13,7 @@ import type {
   OrganizationRole,
 } from '../organizations/organizationTypes'
 import { FinancePage } from './FinancePage'
+import * as financeService from './financeService'
 import type { FinanceOverview } from './financeTypes'
 
 const organizationAId = '11111111-1111-4111-8111-111111111111'
@@ -124,7 +125,15 @@ function renderFinance(
   return { ...view, refreshOrganizations, handleUnauthorized }
 }
 
-beforeEach(clearCsrfToken)
+beforeEach(() => {
+  clearCsrfToken()
+  vi.spyOn(financeService, 'listPaymentPlans').mockResolvedValue({
+    items: [],
+    pageNumber: 1,
+    pageSize: 20,
+    hasNext: false,
+  })
+})
 
 afterEach(() => {
   clearCsrfToken()
@@ -184,7 +193,10 @@ describe('Finance overview access and states', () => {
 
     renderFinance()
 
-    expect(screen.getByRole('status')).toHaveTextContent('Carregando resumo financeiro...')
+    expect(screen.getByText('Carregando resumo financeiro...')).toHaveAttribute(
+      'role',
+      'status',
+    )
     expect(screen.getByRole('region', { name: 'Resumo financeiro' })).toHaveAttribute(
       'aria-busy',
       'true',

@@ -28,11 +28,16 @@ function response(status: number, body?: unknown): Response {
   })
 }
 
-function renderRoute(path: string, role: OrganizationRole) {
+function renderRoute(
+  path: string,
+  role: OrganizationRole,
+  financeResponse = response(500),
+) {
   const fetchMock = vi
     .fn()
     .mockResolvedValueOnce(response(200))
     .mockResolvedValueOnce(response(200, { items: [organization(role)] }))
+    .mockResolvedValue(financeResponse)
   vi.stubGlobal('fetch', fetchMock)
   const router = createMemoryRouter(createAppRoutes(createEmailVerificationFlow(undefined)), {
     initialEntries: [path],
@@ -80,6 +85,17 @@ describe('Finance foundation routing and access', () => {
     const fetchMock = renderRoute(
       `/organizations/${organizationId}/finance/payment-plans/${paymentPlanId}`,
       'Owner',
+      response(200, {
+        id: paymentPlanId,
+        clientId: '44444444-4444-4444-8444-444444444444',
+        clientName: 'Cliente Alfa',
+        totalAmount: '100.00',
+        installmentCount: 1,
+        firstDueDate: '2026-09-10',
+        createdAt: '2026-09-08T12:00:00-03:00',
+        referenceDate: '2026-09-08',
+        installments: [],
+      }),
     )
 
     expect(await screen.findByRole('heading', { name: 'Plano de pagamento' })).toBeInTheDocument()
@@ -88,7 +104,10 @@ describe('Finance foundation routing and access', () => {
       'href',
       `/organizations/${organizationId}/finance`,
     )
-    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/finance'))).toBe(false)
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/organizations/${organizationId}/finance/payment-plans/${paymentPlanId}`,
+      expect.objectContaining({ method: 'GET', cache: 'no-store' }),
+    )
   })
 
   it.each([
