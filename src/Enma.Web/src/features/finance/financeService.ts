@@ -7,6 +7,7 @@ import { isFinanceDate } from './financeFormatting'
 import { isValidGuid } from '../deadlines/legalDeadlineFormatting'
 import {
   isFinanceMoney,
+  type ClientFinanceSummary,
   type CreatePaymentPlanRequest,
   type CreatePaymentPlanResponse,
   type FinanceOverview,
@@ -103,6 +104,24 @@ export function parseFinanceOverview(value: unknown): FinanceOverview {
   ) invalidResponse()
 
   return value as unknown as FinanceOverview
+}
+
+export function parseClientFinanceSummary(
+  value: unknown,
+): ClientFinanceSummary {
+  if (!isRecord(value)) invalidResponse()
+
+  if (
+    !isGuid(value.clientId) ||
+    !isFinanceDate(value.referenceDate) ||
+    !isFinanceMoney(value.totalContractedAmount) ||
+    !isFinanceMoney(value.totalReceivedAmount) ||
+    !isFinanceMoney(value.totalOutstandingAmount) ||
+    !isFinanceMoney(value.overdueAmount) ||
+    !isNonNegativeInteger(value.paymentPlanCount)
+  ) invalidResponse()
+
+  return value as unknown as ClientFinanceSummary
 }
 
 function parsePaymentPlanSummary(value: unknown): PaymentPlanSummary | undefined {
@@ -225,6 +244,24 @@ export async function getFinanceOverview(
   )
   if (response.status !== 200) throwForStatus(response.status)
   return parseFinanceOverview(await response.json())
+}
+
+export async function getClientFinanceSummary(
+  organizationId: string,
+  clientId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<ClientFinanceSummary> {
+  const response = await fetchWithSession(
+    `${getFinanceEndpoint(organizationId)}/clients/${encodeURIComponent(clientId)}/summary`,
+    { method: 'GET', cache: 'no-store', signal },
+    onUnauthorized,
+  )
+  if (response.status !== 200) throwForStatus(response.status)
+
+  const summary = parseClientFinanceSummary(await response.json())
+  if (summary.clientId.toLowerCase() !== clientId.toLowerCase()) invalidResponse()
+  return summary
 }
 
 export async function listPaymentPlans(

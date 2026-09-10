@@ -4,11 +4,13 @@ import { formatFinanceDate, formatFinanceMoney } from './financeFormatting'
 import {
   createPaymentPlan,
   FinanceRequestError,
+  getClientFinanceSummary,
   getFinanceOverview,
   getPaymentPlan,
   listPaymentPlans,
   markPaymentInstallmentPaid,
   parseFinanceOverview,
+  parseClientFinanceSummary,
   parseListPaymentPlansResponse,
   parsePaymentPlan,
 } from './financeService'
@@ -40,6 +42,20 @@ function overview(totalContractedAmount: unknown = '1234.56') {
     overdueInstallmentCount: 0,
     dueTodayInstallmentCount: 0,
     upcomingInstallmentCount: 1,
+  }
+}
+
+function clientFinanceSummary(
+  totalContractedAmount: unknown = '9999999999999999.99',
+) {
+  return {
+    clientId,
+    referenceDate: '2026-09-08',
+    totalContractedAmount,
+    totalReceivedAmount: '90071992547409.93',
+    totalOutstandingAmount: '1234.56',
+    overdueAmount: '0',
+    paymentPlanCount: 3,
   }
 }
 
@@ -94,12 +110,16 @@ describe('Finance money contract', () => {
     expect(parseFinanceOverview(overview()).totalContractedAmount).toBe('1234.56')
     expect(parseListPaymentPlansResponse({ items: [summary()], pageNumber: 1, pageSize: 20, hasNext: false }).items[0]?.totalAmount).toBe('90071992547409.93')
     expect(parsePaymentPlan(detail()).totalAmount).toBe('9999999999999999.99')
+    expect(
+      parseClientFinanceSummary(clientFinanceSummary()).totalContractedAmount,
+    ).toBe('9999999999999999.99')
   })
 
   it.each([
     () => parseFinanceOverview(overview(1234.56)),
     () => parseListPaymentPlansResponse({ items: [summary(JSON.parse('90071992547409.93'))], pageNumber: 1, pageSize: 20, hasNext: false }),
     () => parsePaymentPlan(detail(JSON.parse('9999999999999999.99'))),
+    () => parseClientFinanceSummary(clientFinanceSummary(1234.56)),
   ])('Parsers_JsonNumberMoney_RejectsWithoutCoercion', (parse) => {
     expect(parse).toThrow(FinanceRequestError)
   })
@@ -125,6 +145,7 @@ describe('financeService HTTP contract', () => {
       .mockResolvedValueOnce(response(200, overview()))
       .mockResolvedValueOnce(response(200, { items: [summary()], pageNumber: 2, pageSize: 10, hasNext: true }))
       .mockResolvedValueOnce(response(200, detail()))
+      .mockResolvedValueOnce(response(200, clientFinanceSummary()))
     vi.stubGlobal('fetch', fetchMock)
     const signal = new AbortController().signal
     const onUnauthorized = vi.fn()
@@ -132,10 +153,40 @@ describe('financeService HTTP contract', () => {
     await getFinanceOverview(organizationId, onUnauthorized, signal)
     await listPaymentPlans(organizationId, { clientId, pageNumber: 2, pageSize: 10 }, onUnauthorized, signal)
     await getPaymentPlan(organizationId, paymentPlanId, onUnauthorized, signal)
+    await getClientFinanceSummary(organizationId, clientId, onUnauthorized, signal)
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, `/api/organizations/${organizationId}/finance/overview`, { method: 'GET', cache: 'no-store', signal, credentials: 'same-origin' })
     expect(fetchMock).toHaveBeenNthCalledWith(2, `/api/organizations/${organizationId}/finance/payment-plans?clientId=${clientId}&pageNumber=2&pageSize=10`, { method: 'GET', cache: 'no-store', signal, credentials: 'same-origin' })
     expect(fetchMock).toHaveBeenNthCalledWith(3, `/api/organizations/${organizationId}/finance/payment-plans/${paymentPlanId}`, { method: 'GET', cache: 'no-store', signal, credentials: 'same-origin' })
+    expect(fetchMock).toHaveBeenNthCalledWith(4, `/api/organizations/${organizationId}/finance/clients/${clientId}/summary`, { method: 'GET', cache: 'no-store', signal, credentials: 'same-origin' })
+  })
+
+  it.each([
+    { ...clientFinanceSummary(), paymentPlanCount: -1 },
+    { ...clientFinanceSummary(), referenceDate: '2026-02-30' },
+    { ...clientFinanceSummary(), totalReceivedAmount: 10.25 },
+  ])('ClientSummary_MalformedContract_IsRejected', async (body) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, body)))
+
+    await expect(
+      getClientFinanceSummary(organizationId, clientId, vi.fn()),
+    ).rejects.toMatchObject({ failure: 'unexpected' })
+  })
+
+  it('ClientSummary_MismatchedClientId_IsRejected', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        response(200, {
+          ...clientFinanceSummary(),
+          clientId: paymentPlanId,
+        }),
+      ),
+    )
+
+    await expect(
+      getClientFinanceSummary(organizationId, clientId, vi.fn()),
+    ).rejects.toMatchObject({ failure: 'unexpected' })
   })
 
   it('Create_SendsExactMoneyStringWithCsrfAndNoStore', async () => {

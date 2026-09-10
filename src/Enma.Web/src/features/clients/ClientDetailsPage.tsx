@@ -14,6 +14,7 @@ import {
   updateClient,
 } from './clientService'
 import type { Client, ClientDetail } from './clientTypes'
+import { ClientFinanceSummarySection } from '../finance/ClientFinanceSummarySection'
 
 const clientIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -88,6 +89,7 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
   const canMutateClient =
     currentOrganization.role === 'Owner' ||
     currentOrganization.role === 'Administrator'
+  const canViewFinance = currentOrganization.role !== 'Member'
 
   useEffect(() => {
     if (!routeClientId) {
@@ -521,6 +523,10 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
         </div>
         <div><dt>Criado em</dt><dd>{formatClientCreatedAt(client.createdAt)}</dd></div>
       </dl>
+
+      {canViewFinance ? (
+        <ClientFinanceSummarySection clientId={client.id} />
+      ) : null}
     </section>
   )
 }

@@ -22,6 +22,16 @@ export interface FinanceOverview {
   readonly upcomingInstallmentCount: number
 }
 
+export interface ClientFinanceSummary {
+  readonly clientId: string
+  readonly referenceDate: string
+  readonly totalContractedAmount: FinanceMoney
+  readonly totalReceivedAmount: FinanceMoney
+  readonly totalOutstandingAmount: FinanceMoney
+  readonly overdueAmount: FinanceMoney
+  readonly paymentPlanCount: number
+}
+
 export interface PaymentPlanSummary {
   readonly id: string
   readonly clientId: string

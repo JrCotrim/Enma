@@ -9,6 +9,9 @@ import { createAppRoutes } from '../../app/router'
 import { clearCsrfToken } from '../authentication/csrfClient'
 import { createEmailVerificationFlow } from '../email-verification/emailVerificationService'
 import type { OrganizationNavigationItem } from '../organizations/organizationTypes'
+import { FinanceRequestError } from '../finance/financeService'
+import * as financeService from '../finance/financeService'
+import type { ClientFinanceSummary } from '../finance/financeTypes'
 import type { Client, ClientDetail } from './clientTypes'
 
 const organizationA: OrganizationNavigationItem = {
@@ -43,6 +46,29 @@ const clientB: ClientDetail = {
   cpf: null,
   isActive: false,
   createdAt: '2026-08-11T12:00:00Z',
+}
+
+function financeSummary(
+  overrides: Partial<ClientFinanceSummary> = {},
+): ClientFinanceSummary {
+  return {
+    clientId: clientA.id,
+    referenceDate: '2026-09-08',
+    totalContractedAmount: '1234.56',
+    totalReceivedAmount: '90071992547409.93',
+    totalOutstandingAmount: '9999999999999999.99',
+    overdueAmount: '321.09',
+    paymentPlanCount: 3,
+    ...overrides,
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((complete) => {
+    resolve = complete
+  })
+  return { promise, resolve }
 }
 
 function response(status: number, body?: unknown): Response {
@@ -115,6 +141,9 @@ beforeEach(() => {
   clearCsrfToken()
   window.localStorage.clear()
   window.sessionStorage.clear()
+  vi.spyOn(financeService, 'getClientFinanceSummary').mockResolvedValue(
+    financeSummary(),
+  )
 })
 
 afterEach(() => {
@@ -158,6 +187,9 @@ describe('Clients D2 flow', () => {
     expect(screen.queryByRole('button', { name: 'Editar cliente' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Desativar cliente' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reativar cliente' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Financeiro' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Ver planos financeiros' })).not.toBeInTheDocument()
+    expect(financeService.getClientFinanceSummary).not.toHaveBeenCalled()
     expect(localStorageSpy).not.toHaveBeenCalled()
     expect(sessionStorageSpy).not.toHaveBeenCalled()
   })
@@ -178,6 +210,16 @@ describe('Clients D2 flow', () => {
       ).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Desativar cliente' })).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Reativar cliente' })).not.toBeInTheDocument()
+      expect(
+        await screen.findByRole('heading', { name: 'Financeiro' }),
+      ).toBeInTheDocument()
+      expect(screen.getByText('3 planos de pagamento')).toBeInTheDocument()
+      expect(financeService.getClientFinanceSummary).toHaveBeenCalledWith(
+        organization.id,
+        clientA.id,
+        expect.any(Function),
+        expect.any(AbortSignal),
+      )
     },
   )
 
@@ -197,8 +239,189 @@ describe('Clients D2 flow', () => {
       expect(screen.queryByRole('button', { name: 'Editar cliente' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Desativar cliente' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Reativar cliente' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Financeiro' })).not.toBeInTheDocument()
+      expect(financeService.getClientFinanceSummary).not.toHaveBeenCalled()
     },
   )
+
+  it('ClientFinanceSummary_RendersExactMetricsDateSingularAndDeepLink', async () => {
+    vi.mocked(financeService.getClientFinanceSummary).mockResolvedValueOnce(
+      financeSummary({ paymentPlanCount: 1 }),
+    )
+    const fetchMock = authenticatedDetailFetch(
+      organizationA,
+      response(200, clientA),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, clientA))
+
+    expect(await screen.findByText('R$ 1.234,56')).toBeInTheDocument()
+    expect(screen.getByText('R$ 90.071.992.547.409,93')).toBeInTheDocument()
+    expect(screen.getByText('R$ 9.999.999.999.999.999,99')).toBeInTheDocument()
+    expect(screen.getByText('R$ 321,09')).toBeInTheDocument()
+    expect(screen.getByText('Posição em 08/09/2026')).toBeInTheDocument()
+    expect(screen.getByText('1 plano de pagamento')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Ver planos financeiros' })).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/finance?clientId=${clientA.id}&page=1`,
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `/api/organizations/${organizationA.id}/clients/${clientA.id}`,
+      expect.objectContaining({ method: 'GET', cache: 'no-store' }),
+    )
+  })
+
+  it('ClientFinanceSummary_ZeroPlans_RendersZerosPluralAndEmptyState', async () => {
+    vi.mocked(financeService.getClientFinanceSummary).mockResolvedValueOnce(
+      financeSummary({
+        totalContractedAmount: '0',
+        totalReceivedAmount: '0.0',
+        totalOutstandingAmount: '0.00',
+        overdueAmount: '0',
+        paymentPlanCount: 0,
+      }),
+    )
+    vi.stubGlobal(
+      'fetch',
+      authenticatedDetailFetch(organizationA, response(200, clientA)),
+    )
+
+    renderRoute(detailPath(organizationA, clientA))
+
+    expect(await screen.findByText('Nenhum plano financeiro cadastrado.')).toBeInTheDocument()
+    expect(screen.getAllByText('R$ 0,00')).toHaveLength(4)
+    expect(screen.getByText('0 planos de pagamento')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Ver planos financeiros' })).toBeInTheDocument()
+  })
+
+  it('ClientFinanceSummary_Loading_RemainsLocalToTheRenderedClientDetail', async () => {
+    const pending = deferred<ClientFinanceSummary>()
+    vi.mocked(financeService.getClientFinanceSummary).mockReturnValueOnce(
+      pending.promise,
+    )
+    vi.stubGlobal(
+      'fetch',
+      authenticatedDetailFetch(organizationA, response(200, clientA)),
+    )
+
+    renderRoute(detailPath(organizationA, clientA))
+
+    expect(
+      await screen.findByRole('heading', { name: clientA.name }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(clientA.email!)).toBeInTheDocument()
+    expect(screen.getByText('Carregando resumo financeiro…')).toHaveAttribute(
+      'role',
+      'status',
+    )
+    expect(screen.getByRole('region', { name: 'Financeiro' })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    )
+  })
+
+  it('ClientFinanceSummary_ErrorRetriesOnlyFinanceAndKeepsClientUsable', async () => {
+    vi.mocked(financeService.getClientFinanceSummary)
+      .mockRejectedValueOnce(new Error('private network detail'))
+      .mockResolvedValueOnce(financeSummary({ totalContractedAmount: '88.75' }))
+    const fetchMock = authenticatedDetailFetch(
+      organizationA,
+      response(200, clientA),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, clientA))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Não foi possível carregar as informações financeiras deste cliente.',
+    )
+    expect(alert).not.toHaveTextContent('private network detail')
+    expect(screen.getByRole('heading', { name: clientA.name })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+
+    expect(await screen.findByText('R$ 88,75')).toBeInTheDocument()
+    expect(financeService.getClientFinanceSummary).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('ClientFinanceSummary_NotFound_IsNeverRenderedAsZero', async () => {
+    vi.mocked(financeService.getClientFinanceSummary).mockRejectedValueOnce(
+      new FinanceRequestError('not-found'),
+    )
+    vi.stubGlobal(
+      'fetch',
+      authenticatedDetailFetch(organizationA, response(200, clientA)),
+    )
+
+    renderRoute(detailPath(organizationA, clientA))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Não foi possível carregar as informações financeiras deste cliente.',
+    )
+    expect(screen.queryByText('Nenhum plano financeiro cadastrado.')).not.toBeInTheDocument()
+    expect(screen.queryByText('R$ 0,00')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: clientA.name })).toBeInTheDocument()
+  })
+
+  it('ClientFinanceSummary_ForbiddenRefreshToMember_RemovesSectionAndData', async () => {
+    const refreshedOrganizations = deferred<Response>()
+    const fetchMock = authenticatedDetailFetch(
+      organizationA,
+      response(200, clientA),
+    ).mockReturnValueOnce(refreshedOrganizations.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    vi.mocked(financeService.getClientFinanceSummary).mockRejectedValueOnce(
+      new FinanceRequestError('forbidden'),
+    )
+
+    renderRoute(detailPath(organizationA, clientA))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'O acesso às informações financeiras pode ter mudado.',
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/api/me/organizations',
+      expect.objectContaining({ method: 'GET', cache: 'no-store' }),
+    )
+
+    await act(async () => {
+      refreshedOrganizations.resolve(
+        organizationResponse([{ ...organizationA, role: 'Member' }]),
+      )
+      await refreshedOrganizations.promise
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: 'Financeiro' })).not.toBeInTheDocument()
+    })
+    expect(screen.queryByRole('link', { name: 'Ver planos financeiros' })).not.toBeInTheDocument()
+    expect(financeService.getClientFinanceSummary).toHaveBeenCalledTimes(1)
+  })
+
+  it('ClientFinanceSummary_Unauthorized_UsesTheEstablishedSessionFlow', async () => {
+    vi.mocked(financeService.getClientFinanceSummary).mockImplementationOnce(
+      async (_organizationId, _clientId, onUnauthorized) => {
+        onUnauthorized()
+        throw new FinanceRequestError('unauthorized')
+      },
+    )
+    vi.stubGlobal(
+      'fetch',
+      authenticatedDetailFetch(organizationA, response(200, clientA)),
+    )
+
+    renderRoute(detailPath(organizationA, clientA))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Entrar no ENMA' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Não foi possível carregar as informações financeiras deste cliente.')).not.toBeInTheDocument()
+  })
 
   it('ClientList_NameLink_NavigatesToCurrentOrganizationDetail', async () => {
     const fetchMock = vi
@@ -543,6 +766,41 @@ describe('Clients D2 flow', () => {
     expect(screen.queryByRole('heading', { name: clientA.name })).not.toBeInTheDocument()
   })
 
+  it('ClientFinanceSummary_ClientChange_IgnoresTheStaleResponse', async () => {
+    const stale = deferred<ClientFinanceSummary>()
+    vi.mocked(financeService.getClientFinanceSummary)
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce(
+        financeSummary({
+          clientId: clientB.id,
+          totalContractedAmount: '222.22',
+        }),
+      )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(organizationResponse([organizationA]))
+      .mockResolvedValueOnce(response(200, clientA))
+      .mockResolvedValueOnce(response(200, clientB))
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute(detailPath(organizationA, clientA))
+
+    await screen.findByRole('heading', { name: clientA.name })
+    await waitFor(() => {
+      expect(financeService.getClientFinanceSummary).toHaveBeenCalledTimes(1)
+    })
+    await act(async () => router.navigate(detailPath(organizationA, clientB)))
+    expect(await screen.findByText('R$ 222,22')).toBeInTheDocument()
+
+    await act(async () => {
+      stale.resolve(financeSummary({ totalContractedAmount: '777.77' }))
+      await stale.promise
+    })
+
+    expect(screen.queryByText('R$ 777,77')).not.toBeInTheDocument()
+    expect(screen.getByText('R$ 222,22')).toBeInTheDocument()
+  })
+
   it('ClientDetail_OldOrganizationResponseCompletesLast_NeverRendersAcrossTenantContext', async () => {
     let resolveClientA: ((value: Response) => void) | undefined
     const pendingClientA = new Promise<Response>((resolve) => {
@@ -568,6 +826,43 @@ describe('Clients D2 flow', () => {
 
     expect(screen.getByRole('heading', { name: clientB.name })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: clientA.name })).not.toBeInTheDocument()
+  })
+
+  it('ClientFinanceSummary_OrganizationChange_IgnoresTheStaleResponse', async () => {
+    const stale = deferred<ClientFinanceSummary>()
+    vi.mocked(financeService.getClientFinanceSummary)
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce(
+        financeSummary({
+          clientId: clientB.id,
+          totalContractedAmount: '333.33',
+        }),
+      )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(
+        organizationResponse([organizationA, organizationB]),
+      )
+      .mockResolvedValueOnce(response(200, clientA))
+      .mockResolvedValueOnce(response(200, clientB))
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute(detailPath(organizationA, clientA))
+
+    await screen.findByRole('heading', { name: clientA.name })
+    await waitFor(() => {
+      expect(financeService.getClientFinanceSummary).toHaveBeenCalledTimes(1)
+    })
+    await act(async () => router.navigate(detailPath(organizationB, clientB)))
+    expect(await screen.findByText('R$ 333,33')).toBeInTheDocument()
+
+    await act(async () => {
+      stale.resolve(financeSummary({ totalContractedAmount: '777.77' }))
+      await stale.promise
+    })
+
+    expect(screen.queryByText('R$ 777,77')).not.toBeInTheDocument()
+    expect(screen.getByText('R$ 333,33')).toBeInTheDocument()
   })
 
   it('ClientEdit_LateSuccessAfterNavigation_DoesNotRefetchOrOverwriteCurrentResource', async () => {
