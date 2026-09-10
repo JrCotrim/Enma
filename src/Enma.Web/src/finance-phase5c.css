@@ -14,6 +14,18 @@
   min-width: 0;
 }
 
+.finance-page .secondary-button {
+  border-color: var(--enma-v3-border-strong);
+  color: #d0a8e5;
+  background: #251f2b;
+}
+
+.finance-page .secondary-button:hover:not(:disabled) {
+  border-color: rgba(210, 166, 235, 0.34);
+  color: var(--enma-v3-text-strong);
+  background: var(--enma-v3-surface-hover);
+}
+
 .finance-overview {
   display: grid;
   min-width: 0;
@@ -237,7 +249,7 @@
 
 .finance-create-field input:focus-visible,
 .finance-create-client .task-lookup input:focus-visible {
-  outline: 2px solid var(--enma-v2-primary-pressed);
+  outline: 2px solid var(--enma-v2-primary);
   outline-offset: 2px;
 }
 
@@ -517,6 +529,7 @@
 .finance-back-link {
   display: inline-block;
   margin-bottom: 0.75rem;
+  color: #d0a8e5;
 }
 
 .finance-plan-summary {
@@ -623,8 +636,19 @@
 }
 
 .finance-installment-notice:focus-visible {
-  outline: 2px solid var(--enma-v2-primary-pressed);
+  outline: 2px solid var(--enma-v2-primary);
   outline-offset: 2px;
+}
+
+body:has(.organization-workspace) .finance-page :where(
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  [tabindex]:not([tabindex='-1'])
+):focus-visible {
+  outline-color: var(--enma-v2-primary);
 }
 
 @media (max-width: 64rem) {
@@ -749,7 +773,9 @@
     font-size: 0.75rem;
     font-weight: 750;
     letter-spacing: 0.04em;
+    overflow-wrap: anywhere;
     text-transform: uppercase;
+    white-space: normal;
   }
 
   .finance-table td:empty {
