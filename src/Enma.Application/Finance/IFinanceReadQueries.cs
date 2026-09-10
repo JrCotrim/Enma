@@ -7,6 +7,12 @@ public interface IFinanceReadQueries
         DateOnly referenceDate,
         CancellationToken cancellationToken = default);
 
+    Task<ClientFinanceSummaryReadModel?> GetClientSummaryAsync(
+        Guid organizationId,
+        Guid clientId,
+        DateOnly referenceDate,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<PaymentPlanListItemReadModel>> ListAsync(
         Guid organizationId,
         Guid? clientId,

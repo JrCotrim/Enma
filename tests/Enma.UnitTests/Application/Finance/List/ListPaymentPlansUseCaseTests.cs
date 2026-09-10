@@ -124,6 +124,11 @@ public sealed class ListPaymentPlansUseCaseTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<ClientFinanceSummaryReadModel?> GetClientSummaryAsync(
+            Guid organizationId, Guid clientId, DateOnly referenceDate,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlyList<PaymentPlanListItemReadModel>> ListAsync(
             Guid organizationId, Guid? clientId, DateOnly referenceDate,
             int pageNumber, int pageSize, CancellationToken cancellationToken = default)

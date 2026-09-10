@@ -1,14 +1,15 @@
 using Enma.Application.Authorization;
 using Enma.Application.Finance;
-using Enma.Application.Finance.Overview;
+using Enma.Application.Finance.ClientSummary;
 using Enma.Domain.Organizations;
 
-namespace Enma.UnitTests.Application.Finance.Overview;
+namespace Enma.UnitTests.Application.Finance.ClientSummary;
 
-public sealed class GetFinanceOverviewUseCaseTests
+public sealed class GetClientFinanceSummaryUseCaseTests
 {
     private static readonly Guid UserId = Guid.NewGuid();
     private static readonly Guid OrganizationId = Guid.NewGuid();
+    private static readonly Guid ClientId = Guid.NewGuid();
     private static readonly Guid MembershipId = Guid.NewGuid();
     private static readonly DateTimeOffset Now = new(
         2026, 9, 7, 23, 30, 0, TimeSpan.Zero);
@@ -16,62 +17,100 @@ public sealed class GetFinanceOverviewUseCaseTests
     [Theory]
     [InlineData(OrganizationRole.Owner)]
     [InlineData(OrganizationRole.Administrator)]
-    public async Task ExecuteAsync_AuthorizedRole_ReturnsOverviewAndForwardsContext(
+    public async Task ExecuteAsync_AuthorizedRole_ReturnsSummaryAndForwardsContext(
         OrganizationRole role)
     {
-        FinanceOverviewReadModel overview = CreateOverview();
-        var queries = new StubFinanceReadQueries(overview);
+        ClientFinanceSummaryReadModel summary = CreateSummary();
+        var queries = new StubFinanceReadQueries(summary);
         var clock = new RecordingTimeProvider(Now);
-        GetFinanceOverviewUseCase useCase = CreateUseCase(role, queries, clock);
+        GetClientFinanceSummaryUseCase useCase = CreateUseCase(role, queries, clock);
         using var cancellationSource = new CancellationTokenSource();
 
-        GetFinanceOverviewResult result = await useCase.ExecuteAsync(
-            new GetFinanceOverviewQuery(UserId, OrganizationId),
+        GetClientFinanceSummaryResult result = await useCase.ExecuteAsync(
+            new GetClientFinanceSummaryQuery(UserId, OrganizationId, ClientId),
             cancellationSource.Token);
 
-        Assert.Equal(GetFinanceOverviewResultStatus.Succeeded, result.Status);
-        Assert.Same(overview, result.Overview);
+        Assert.Equal(GetClientFinanceSummaryResultStatus.Succeeded, result.Status);
+        Assert.Same(summary, result.Summary);
         Assert.Equal(OrganizationId, queries.OrganizationId);
+        Assert.Equal(ClientId, queries.ClientId);
         Assert.Equal(new DateOnly(2026, 9, 7), queries.ReferenceDate);
         Assert.Equal(cancellationSource.Token, queries.CancellationToken);
-        Assert.Equal(1, queries.GetOverviewCallCount);
+        Assert.Equal(1, queries.CallCount);
         Assert.Equal(1, clock.CallCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MissingClient_ReturnsNotFound()
+    {
+        var queries = new StubFinanceReadQueries(null);
+        var clock = new RecordingTimeProvider(Now);
+        GetClientFinanceSummaryUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            queries,
+            clock);
+
+        GetClientFinanceSummaryResult result = await useCase.ExecuteAsync(
+            new GetClientFinanceSummaryQuery(UserId, OrganizationId, ClientId));
+
+        Assert.Same(GetClientFinanceSummaryResult.NotFound, result);
+        Assert.Equal(1, queries.CallCount);
+        Assert.Equal(1, clock.CallCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ZeroSummary_IsReturnedUnchanged()
+    {
+        var summary = new ClientFinanceSummaryReadModel(
+            ClientId,
+            new DateOnly(2026, 9, 7),
+            0m,
+            0m,
+            0m,
+            0m,
+            0L);
+        var queries = new StubFinanceReadQueries(summary);
+        var clock = new RecordingTimeProvider(Now);
+        GetClientFinanceSummaryUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            queries,
+            clock);
+
+        GetClientFinanceSummaryResult result = await useCase.ExecuteAsync(
+            new GetClientFinanceSummaryQuery(UserId, OrganizationId, ClientId));
+
+        Assert.Equal(GetClientFinanceSummaryResultStatus.Succeeded, result.Status);
+        Assert.Same(summary, result.Summary);
     }
 
     [Fact]
     public async Task ExecuteAsync_Member_DeniesBeforeClockAndQuery()
     {
-        var queries = new StubFinanceReadQueries(CreateOverview());
+        var queries = new StubFinanceReadQueries(CreateSummary());
         var clock = new RecordingTimeProvider(Now);
-        GetFinanceOverviewUseCase useCase = CreateUseCase(
+        GetClientFinanceSummaryUseCase useCase = CreateUseCase(
             OrganizationRole.Member,
             queries,
             clock);
 
-        GetFinanceOverviewResult result = await useCase.ExecuteAsync(
-            new GetFinanceOverviewQuery(UserId, OrganizationId));
+        GetClientFinanceSummaryResult result = await useCase.ExecuteAsync(
+            new GetClientFinanceSummaryQuery(UserId, OrganizationId, ClientId));
 
-        Assert.Same(GetFinanceOverviewResult.AccessDenied, result);
-        Assert.Equal(0, queries.GetOverviewCallCount);
+        Assert.Same(GetClientFinanceSummaryResult.AccessDenied, result);
+        Assert.Equal(0, queries.CallCount);
         Assert.Equal(0, clock.CallCount);
     }
 
-    private static FinanceOverviewReadModel CreateOverview() => new(
+    private static ClientFinanceSummaryReadModel CreateSummary() => new(
+        ClientId,
         new DateOnly(2026, 9, 7),
-        100.01m,
-        25.01m,
+        120.01m,
+        45.01m,
         75m,
         25m,
-        25m,
-        25m,
-        2,
-        1,
-        1,
-        1,
-        1,
-        1);
+        2L);
 
-    private static GetFinanceOverviewUseCase CreateUseCase(
+    private static GetClientFinanceSummaryUseCase CreateUseCase(
         OrganizationRole role,
         StubFinanceReadQueries queries,
         RecordingTimeProvider clock) => new(
@@ -102,32 +141,34 @@ public sealed class GetFinanceOverviewUseCaseTests
                     role));
     }
 
-    private sealed class StubFinanceReadQueries(FinanceOverviewReadModel overview)
-        : IFinanceReadQueries
+    private sealed class StubFinanceReadQueries(
+        ClientFinanceSummaryReadModel? summary) : IFinanceReadQueries
     {
-        public int GetOverviewCallCount { get; private set; }
+        public int CallCount { get; private set; }
         public Guid OrganizationId { get; private set; }
+        public Guid ClientId { get; private set; }
         public DateOnly ReferenceDate { get; private set; }
         public CancellationToken CancellationToken { get; private set; }
 
         public Task<FinanceOverviewReadModel> GetOverviewAsync(
             Guid organizationId,
             DateOnly referenceDate,
-            CancellationToken cancellationToken = default)
-        {
-            GetOverviewCallCount++;
-            OrganizationId = organizationId;
-            ReferenceDate = referenceDate;
-            CancellationToken = cancellationToken;
-            return Task.FromResult(overview);
-        }
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
 
         public Task<ClientFinanceSummaryReadModel?> GetClientSummaryAsync(
             Guid organizationId,
             Guid clientId,
             DateOnly referenceDate,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            OrganizationId = organizationId;
+            ClientId = clientId;
+            ReferenceDate = referenceDate;
+            CancellationToken = cancellationToken;
+            return Task.FromResult(summary);
+        }
 
         public Task<IReadOnlyList<PaymentPlanListItemReadModel>> ListAsync(
             Guid organizationId,
@@ -136,14 +177,14 @@ public sealed class GetFinanceOverviewUseCaseTests
             int pageNumber,
             int pageSize,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<PaymentPlanListItemReadModel>>([]);
+            throw new NotSupportedException();
 
         public Task<PaymentPlanDetailReadModel?> FindAsync(
             Guid organizationId,
             Guid paymentPlanId,
             DateOnly referenceDate,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<PaymentPlanDetailReadModel?>(null);
+            throw new NotSupportedException();
     }
 
     private sealed class RecordingTimeProvider(DateTimeOffset utcNow) : TimeProvider

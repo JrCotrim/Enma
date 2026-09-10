@@ -146,6 +146,187 @@ public sealed class FinanceReadQueriesTests(PostgreSqlFixture fixture) : IAsyncL
     }
 
     [Fact]
+    public async Task GetClientSummaryAsync_ReturnsExactTenantAndClientScopedMetrics()
+    {
+        Organization tenant = CreateOrganization("client-summary");
+        Organization foreignTenant = CreateOrganization("client-summary-foreign");
+        Client client = CreateClient(tenant, "Summary Client");
+        Client sameTenantPeer = CreateClient(tenant, "Summary Peer");
+        Client foreignClient = CreateClient(foreignTenant, "Foreign Summary Client");
+        ClientPaymentPlan openPlan = CreatePlan(
+            client,
+            100.01m,
+            4,
+            new DateOnly(2026, 7, 7),
+            CreatedAt);
+        ClientPaymentPlan paidPlan = CreatePlan(
+            client,
+            20m,
+            2,
+            new DateOnly(2026, 11, 7),
+            CreatedAt);
+        ClientPaymentPlan peerPlan = CreatePlan(
+            sameTenantPeer,
+            8_888.88m,
+            1,
+            ReferenceDate.AddDays(-1),
+            CreatedAt);
+        ClientPaymentPlan foreignPlan = CreatePlan(
+            foreignClient,
+            9_999_999.99m,
+            1,
+            ReferenceDate.AddDays(-1),
+            CreatedAt);
+
+        openPlan.Installments.Single(item => item.SequenceNumber == 1)
+            .MarkPaid(CreatedAt.AddDays(1));
+        foreach (PaymentInstallment installment in paidPlan.Installments)
+        {
+            installment.MarkPaid(CreatedAt.AddDays(1));
+        }
+
+        await SeedAsync(
+            tenant,
+            foreignTenant,
+            client,
+            sameTenantPeer,
+            foreignClient,
+            openPlan,
+            paidPlan,
+            peerPlan,
+            foreignPlan);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+
+        ClientFinanceSummaryReadModel? summary =
+            await new FinanceReadQueries(dbContext).GetClientSummaryAsync(
+                tenant.Id,
+                client.Id,
+                ReferenceDate);
+
+        Assert.Equal(
+            new ClientFinanceSummaryReadModel(
+                client.Id,
+                ReferenceDate,
+                120.01m,
+                45.01m,
+                75m,
+                25m,
+                2L),
+            summary);
+        Assert.Empty(dbContext.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task GetClientSummaryAsync_HandlesEmptyMissingAndForeignClients()
+    {
+        Organization tenant = CreateOrganization("client-summary-empty");
+        Organization foreignTenant = CreateOrganization("client-summary-empty-foreign");
+        Client emptyClient = CreateClient(tenant, "Empty Summary Client");
+        Client foreignClient = CreateClient(foreignTenant, "Foreign Empty Client");
+        ClientPaymentPlan foreignPlan = CreatePlan(
+            foreignClient,
+            999m,
+            1,
+            ReferenceDate.AddDays(-1),
+            CreatedAt);
+        await SeedAsync(
+            tenant,
+            foreignTenant,
+            emptyClient,
+            foreignClient,
+            foreignPlan);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var queries = new FinanceReadQueries(dbContext);
+
+        ClientFinanceSummaryReadModel? empty = await queries.GetClientSummaryAsync(
+            tenant.Id,
+            emptyClient.Id,
+            ReferenceDate);
+        ClientFinanceSummaryReadModel? missing = await queries.GetClientSummaryAsync(
+            tenant.Id,
+            Guid.NewGuid(),
+            ReferenceDate);
+        ClientFinanceSummaryReadModel? foreign = await queries.GetClientSummaryAsync(
+            tenant.Id,
+            foreignClient.Id,
+            ReferenceDate);
+
+        Assert.Equal(
+            new ClientFinanceSummaryReadModel(
+                emptyClient.Id,
+                ReferenceDate,
+                0m,
+                0m,
+                0m,
+                0m,
+                0L),
+            empty);
+        Assert.Null(missing);
+        Assert.Null(foreign);
+        Assert.Empty(dbContext.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task GetClientSummaryAsync_UsesOneAggregateCommandWithoutMultiplication()
+    {
+        Organization tenant = CreateOrganization("client-summary-sql");
+        Client client = CreateClient(tenant, "Summary SQL Client");
+        ClientPaymentPlan plan = CreatePlan(
+            client,
+            1_000m,
+            4,
+            ReferenceDate.AddMonths(-2),
+            CreatedAt);
+        await SeedAsync(tenant, client, plan);
+        var interceptor = new ReaderCommandInterceptor();
+        await using EnmaDbContext dbContext = CreateContext(interceptor);
+
+        ClientFinanceSummaryReadModel? summary =
+            await new FinanceReadQueries(dbContext).GetClientSummaryAsync(
+                tenant.Id,
+                client.Id,
+                ReferenceDate);
+
+        Assert.NotNull(summary);
+        Assert.Equal(1_000m, summary.TotalContractedAmount);
+        Assert.Equal(1L, summary.PaymentPlanCount);
+        string sql = Assert.Single(interceptor.CommandTexts);
+        Assert.Contains("clients", sql, StringComparison.Ordinal);
+        Assert.Contains("client_payment_plans", sql, StringComparison.Ordinal);
+        Assert.Contains("payment_installments", sql, StringComparison.Ordinal);
+        Assert.Contains("GROUP BY", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(dbContext.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task GetClientSummaryAsync_PreservesLargeDecimalExactly()
+    {
+        const decimal amount = 9_999_999_999_999_999.99m;
+        Organization tenant = CreateOrganization("client-summary-money");
+        Client client = CreateClient(tenant, "Summary Money Client");
+        ClientPaymentPlan plan = CreatePlan(
+            client,
+            amount,
+            1,
+            ReferenceDate,
+            CreatedAt);
+        await SeedAsync(tenant, client, plan);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+
+        ClientFinanceSummaryReadModel? summary =
+            await new FinanceReadQueries(dbContext).GetClientSummaryAsync(
+                tenant.Id,
+                client.Id,
+                ReferenceDate);
+
+        Assert.NotNull(summary);
+        Assert.Equal(amount, summary.TotalContractedAmount);
+        Assert.Equal(amount, summary.TotalOutstandingAmount);
+        Assert.Equal(0m, summary.TotalReceivedAmount);
+        Assert.Equal(0m, summary.OverdueAmount);
+    }
+
+    [Fact]
     public async Task ListAsync_IsTenantScopedFilteredOrderedPagedAndComputesMetrics()
     {
         Organization tenant = CreateOrganization("tenant");

@@ -159,6 +159,113 @@ public sealed class FinanceReadQueries : IFinanceReadQueries
             overview.UpcomingInstallmentCount);
     }
 
+    public async Task<ClientFinanceSummaryReadModel?> GetClientSummaryAsync(
+        Guid organizationId,
+        Guid clientId,
+        DateOnly referenceDate,
+        CancellationToken cancellationToken = default)
+    {
+        var installmentMetrics = _dbContext.PaymentInstallments
+            .AsNoTracking()
+            .Where(installment =>
+                installment.OrganizationId == organizationId)
+            .GroupBy(installment => new
+            {
+                installment.OrganizationId,
+                installment.PaymentPlanId
+            })
+            .Select(group => new
+            {
+                group.Key.OrganizationId,
+                group.Key.PaymentPlanId,
+                ReceivedAmount = group.Sum(installment =>
+                    installment.PaidAt != null ? installment.Amount : 0m),
+                OutstandingAmount = group.Sum(installment =>
+                    installment.PaidAt == null ? installment.Amount : 0m),
+                OverdueAmount = group.Sum(installment =>
+                    installment.PaidAt == null &&
+                    installment.DueDate < referenceDate
+                        ? installment.Amount
+                        : 0m)
+            });
+
+        var planMetrics =
+            from paymentPlan in _dbContext.ClientPaymentPlans.AsNoTracking()
+            where paymentPlan.OrganizationId == organizationId &&
+                paymentPlan.ClientId == clientId
+            join installmentMetric in installmentMetrics
+                on new
+                {
+                    paymentPlan.OrganizationId,
+                    PaymentPlanId = paymentPlan.Id
+                }
+                equals new
+                {
+                    installmentMetric.OrganizationId,
+                    installmentMetric.PaymentPlanId
+                }
+                into installmentMetricMatches
+            from installmentMetric in installmentMetricMatches.DefaultIfEmpty()
+            select new
+            {
+                paymentPlan.OrganizationId,
+                paymentPlan.ClientId,
+                paymentPlan.TotalAmount,
+                ReceivedAmount = (decimal?)installmentMetric.ReceivedAmount ?? 0m,
+                OutstandingAmount =
+                    (decimal?)installmentMetric.OutstandingAmount ?? 0m,
+                OverdueAmount = (decimal?)installmentMetric.OverdueAmount ?? 0m
+            };
+
+        var clientMetrics = planMetrics
+            .GroupBy(plan => new
+            {
+                plan.OrganizationId,
+                plan.ClientId
+            })
+            .Select(group => new
+            {
+                group.Key.OrganizationId,
+                group.Key.ClientId,
+                TotalContractedAmount =
+                    (decimal?)group.Sum(plan => plan.TotalAmount),
+                TotalReceivedAmount =
+                    (decimal?)group.Sum(plan => plan.ReceivedAmount),
+                TotalOutstandingAmount =
+                    (decimal?)group.Sum(plan => plan.OutstandingAmount),
+                OverdueAmount =
+                    (decimal?)group.Sum(plan => plan.OverdueAmount),
+                PaymentPlanCount = (long?)group.LongCount()
+            });
+
+        return await (
+            from client in _dbContext.Clients.AsNoTracking()
+            where client.OrganizationId == organizationId &&
+                client.Id == clientId
+            join clientMetric in clientMetrics
+                on new
+                {
+                    client.OrganizationId,
+                    ClientId = client.Id
+                }
+                equals new
+                {
+                    clientMetric.OrganizationId,
+                    clientMetric.ClientId
+                }
+                into clientMetricMatches
+            from clientMetric in clientMetricMatches.DefaultIfEmpty()
+            select new ClientFinanceSummaryReadModel(
+                client.Id,
+                referenceDate,
+                clientMetric.TotalContractedAmount ?? 0m,
+                clientMetric.TotalReceivedAmount ?? 0m,
+                clientMetric.TotalOutstandingAmount ?? 0m,
+                clientMetric.OverdueAmount ?? 0m,
+                clientMetric.PaymentPlanCount ?? 0L))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<PaymentPlanListItemReadModel>> ListAsync(
         Guid organizationId,
         Guid? clientId,

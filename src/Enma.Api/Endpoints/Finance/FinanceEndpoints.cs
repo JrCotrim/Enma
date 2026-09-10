@@ -5,6 +5,7 @@ using Enma.Api.Authorization;
 using Enma.Api.Contracts.Finance;
 using Enma.Api.Endpoints;
 using Enma.Application.Finance;
+using Enma.Application.Finance.ClientSummary;
 using Enma.Application.Finance.Create;
 using Enma.Application.Finance.GetById;
 using Enma.Application.Finance.List;
@@ -35,6 +36,17 @@ public static class FinanceEndpoints
             .Produces<FinanceOverviewResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        financeGroup.MapGet(
+                "/clients/{clientId:guid}/summary",
+                GetClientSummaryAsync)
+            .WithName("GetClientFinanceSummary")
+            .WithSummary("Gets the financial summary for a client.")
+            .Produces<ClientFinanceSummaryResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
 
         RouteGroupBuilder group = financeGroup.MapGroup("/payment-plans");
@@ -156,6 +168,40 @@ public static class FinanceEndpoints
                 TypedResults.NotFound(),
             _ => throw new InvalidOperationException(
                 "Payment plan creation returned an unknown status.")
+        };
+    }
+
+    private static async Task<IResult> GetClientSummaryAsync(
+        Guid organizationId,
+        Guid clientId,
+        ClaimsPrincipal principal,
+        GetClientFinanceSummaryUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        GetClientFinanceSummaryResult result = await useCase.ExecuteAsync(
+            new GetClientFinanceSummaryQuery(
+                userId,
+                organizationId,
+                clientId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GetClientFinanceSummaryResultStatus.AccessDenied =>
+                TypedResults.Forbid(),
+            GetClientFinanceSummaryResultStatus.NotFound =>
+                TypedResults.NotFound(),
+            GetClientFinanceSummaryResultStatus.Succeeded => TypedResults.Ok(
+                MapClientFinanceSummary(result.Summary ??
+                    throw new InvalidOperationException(
+                        "A successful client finance summary query did not provide a summary."))),
+            _ => throw new InvalidOperationException(
+                "Client finance summary query returned an unknown status.")
         };
     }
 
@@ -297,6 +343,19 @@ public static class FinanceEndpoints
             overview.OverdueInstallmentCount,
             overview.DueTodayInstallmentCount,
             overview.UpcomingInstallmentCount);
+    }
+
+    private static ClientFinanceSummaryResponse MapClientFinanceSummary(
+        ClientFinanceSummaryReadModel summary)
+    {
+        return new ClientFinanceSummaryResponse(
+            summary.ClientId,
+            summary.ReferenceDate,
+            summary.TotalContractedAmount,
+            summary.TotalReceivedAmount,
+            summary.TotalOutstandingAmount,
+            summary.OverdueAmount,
+            summary.PaymentPlanCount);
     }
 
     private static PaymentPlanResponse MapPaymentPlan(
