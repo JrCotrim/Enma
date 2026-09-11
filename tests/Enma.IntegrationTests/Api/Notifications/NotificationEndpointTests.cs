@@ -8,6 +8,7 @@ using Enma.Domain.Authentication;
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
+using Enma.Domain.Finance;
 using Enma.Domain.Notifications;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
@@ -80,6 +81,7 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
                 nameof(NotificationResponse.Kind),
                 nameof(NotificationResponse.SourceType),
                 nameof(NotificationResponse.SourceId),
+                nameof(NotificationResponse.PaymentPlanId),
                 nameof(NotificationResponse.SourceTitle),
                 nameof(NotificationResponse.OccurrenceDate),
                 nameof(NotificationResponse.OccurrenceAt),
@@ -91,18 +93,20 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
             [
                 "legalDeadlineDueSoon",
                 "legalTaskDueSoon",
-                "calendarEventStartingSoon"
+                "calendarEventStartingSoon",
+                "paymentInstallmentDueToday"
             ],
             Enum.GetValues<NotificationKindResponse>()
                 .Select(value => JsonSerializer.Serialize(value).Trim('"')));
         Assert.Equal(
-            ["legalDeadline", "legalTask", "calendarEvent"],
+            ["legalDeadline", "legalTask", "calendarEvent", "paymentInstallment"],
             Enum.GetValues<NotificationSourceTypeResponse>()
                 .Select(value => JsonSerializer.Serialize(value).Trim('"')));
         Assert.DoesNotContain(
             typeof(NotificationResponse).GetProperties(),
             property => property.Name is "RecipientUserId" or
-                "OrganizationId" or "MembershipId" or "Description");
+                "OrganizationId" or "MembershipId" or "Description" or
+                "Amount" or "TotalAmount" or "Outstanding");
     }
 
     [Fact]
@@ -198,6 +202,131 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
         Assert.False(firstItem.TryGetProperty("recipientUserId", out _));
         Assert.False(firstItem.TryGetProperty("membershipId", out _));
         Assert.False(firstItem.TryGetProperty("description", out _));
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner)]
+    [InlineData(OrganizationRole.Administrator)]
+    public async Task List_PrivilegedRole_ReturnsFinanceProjectionWithoutMoney(
+        OrganizationRole role)
+    {
+        ApiGraph graph = CreateGraph($"finance-{role}", role);
+        Notification finance = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            graph,
+            graph.Actor.Id);
+        string rawHandle = await SeedAuthenticatedAsync(
+            graph.Actor,
+            graph.Entities.Concat([finance]));
+
+        using HttpResponseMessage response = await SendGetAsync(
+            GetListPath(graph.Organization.Id),
+            rawHandle);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        string json = await response.Content.ReadAsStringAsync();
+        ListNotificationsResponse result = Assert.IsType<ListNotificationsResponse>(
+            JsonSerializer.Deserialize<ListNotificationsResponse>(
+                json,
+                JsonSerializerOptions.Web));
+        NotificationResponse item = Assert.Single(result.Items);
+        PaymentInstallment installment = graph.PaymentPlan.Installments[0];
+        Assert.Equal(
+            NotificationKindResponse.PaymentInstallmentDueToday,
+            item.Kind);
+        Assert.Equal(
+            NotificationSourceTypeResponse.PaymentInstallment,
+            item.SourceType);
+        Assert.Equal(installment.Id, item.SourceId);
+        Assert.Equal(graph.PaymentPlan.Id, item.PaymentPlanId);
+        Assert.Equal(
+            $"{graph.Client.Name} — Parcela 1 de {graph.PaymentPlan.InstallmentCount}",
+            item.SourceTitle);
+        Assert.Equal(installment.DueDate, item.OccurrenceDate);
+        Assert.Null(item.OccurrenceAt);
+        Assert.Equal(1, result.UnreadCount);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement jsonItem = document.RootElement
+            .GetProperty("items")
+            .EnumerateArray()
+            .Single();
+        Assert.False(jsonItem.TryGetProperty("amount", out _));
+        Assert.False(jsonItem.TryGetProperty("totalAmount", out _));
+        Assert.False(jsonItem.TryGetProperty("outstanding", out _));
+    }
+
+    [Fact]
+    public async Task FinanceVisibility_DowngradeHidesCountAndMutationsThenPromotionRestoresUnread()
+    {
+        ApiGraph graph = CreateGraph(
+            "finance-role-change",
+            OrganizationRole.Administrator);
+        Notification finance = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            graph,
+            graph.Actor.Id);
+        Notification deadline = CreateNotification(
+            NotificationKind.LegalDeadlineDueSoon,
+            graph,
+            graph.Actor.Id);
+        string rawHandle = await SeedAuthenticatedAsync(
+            graph.Actor,
+            graph.Entities.Concat([finance, deadline]));
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using (HttpResponseMessage administratorResponse = await SendGetAsync(
+            GetListPath(graph.Organization.Id),
+            rawHandle))
+        {
+            ListNotificationsResponse administratorFeed = Assert.IsType<
+                ListNotificationsResponse>(
+                    await administratorResponse.Content.ReadFromJsonAsync<
+                        ListNotificationsResponse>());
+            Assert.Equal(2, administratorFeed.Items.Count);
+            Assert.Equal(2, administratorFeed.UnreadCount);
+        }
+
+        await ChangeRoleAsync(graph.Membership.Id, OrganizationRole.Member);
+
+        using (HttpResponseMessage memberResponse = await SendGetAsync(
+            GetListPath(graph.Organization.Id),
+            rawHandle))
+        {
+            ListNotificationsResponse memberFeed = Assert.IsType<
+                ListNotificationsResponse>(
+                    await memberResponse.Content.ReadFromJsonAsync<
+                        ListNotificationsResponse>());
+            Assert.Equal(deadline.Id, Assert.Single(memberFeed.Items).Id);
+            Assert.Equal(1, memberFeed.UnreadCount);
+        }
+
+        using HttpResponseMessage markOneResponse = await SendMutationAsync(
+            GetMarkOnePath(graph.Organization.Id, finance.Id),
+            rawHandle,
+            csrf);
+        await AssertEmptyResponseAsync(markOneResponse, HttpStatusCode.NotFound);
+
+        using HttpResponseMessage markAllResponse = await SendMutationAsync(
+            GetMarkAllPath(graph.Organization.Id),
+            rawHandle,
+            csrf);
+        await AssertEmptyResponseAsync(markAllResponse, HttpStatusCode.NoContent);
+        Assert.Null(await GetReadAtAsync(finance.Id));
+        Assert.Equal(Now, await GetReadAtAsync(deadline.Id));
+
+        await ChangeRoleAsync(
+            graph.Membership.Id,
+            OrganizationRole.Administrator);
+        using HttpResponseMessage promotedResponse = await SendGetAsync(
+            GetListPath(graph.Organization.Id),
+            rawHandle);
+        ListNotificationsResponse promotedFeed = Assert.IsType<
+            ListNotificationsResponse>(
+                await promotedResponse.Content.ReadFromJsonAsync<
+                    ListNotificationsResponse>());
+        Assert.Contains(promotedFeed.Items, item => item.Id == finance.Id);
+        Assert.Equal(1, promotedFeed.UnreadCount);
     }
 
     [Theory]
@@ -602,6 +731,17 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
             .SingleAsync();
     }
 
+    private async Task ChangeRoleAsync(
+        Guid membershipId,
+        OrganizationRole role)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        OrganizationMembership membership = await dbContext.OrganizationMemberships
+            .SingleAsync(candidate => candidate.Id == membershipId);
+        membership.ChangeRole(role);
+        await dbContext.SaveChangesAsync();
+    }
+
     private static ApiGraph CreateGraph(
         string marker,
         OrganizationRole actorRole)
@@ -655,6 +795,13 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
             membership.Id,
             membership.Id,
             Now.AddDays(-1));
+        var paymentPlan = new ClientPaymentPlan(
+            organization.Id,
+            clientEntity.Id,
+            300m,
+            3,
+            OccurrenceDate,
+            Now.AddDays(-1));
 
         return new ApiGraph(
             organization,
@@ -667,6 +814,7 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
             deadline,
             task,
             calendarEvent,
+            paymentPlan,
             [
                 organization,
                 actor,
@@ -677,7 +825,8 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
                 process,
                 deadline,
                 task,
-                calendarEvent
+                calendarEvent,
+                paymentPlan
             ]);
     }
 
@@ -740,6 +889,17 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
                 null,
                 null,
                 OccurrenceAt,
+                generatedAt ?? GeneratedAt),
+            NotificationKind.PaymentInstallmentDueToday => new Notification(
+                graph.Organization.Id,
+                recipientUserId,
+                kind,
+                null,
+                null,
+                null,
+                graph.PaymentPlan.Installments[0].Id,
+                graph.PaymentPlan.Installments[0].DueDate,
+                null,
                 generatedAt ?? GeneratedAt),
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
@@ -807,5 +967,6 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
         LegalDeadline Deadline,
         LegalTask Task,
         CalendarEvent CalendarEvent,
+        ClientPaymentPlan PaymentPlan,
         IReadOnlyList<object> Entities);
 }

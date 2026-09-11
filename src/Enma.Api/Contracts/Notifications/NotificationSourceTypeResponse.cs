@@ -12,5 +12,8 @@ public enum NotificationSourceTypeResponse
     LegalTask = 1,
 
     [JsonStringEnumMemberName("calendarEvent")]
-    CalendarEvent = 2
+    CalendarEvent = 2,
+
+    [JsonStringEnumMemberName("paymentInstallment")]
+    PaymentInstallment = 3
 }

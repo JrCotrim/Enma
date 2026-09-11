@@ -9,6 +9,7 @@ import {
 const organizationId = '11111111-1111-4111-8111-111111111111'
 const notificationId = '22222222-2222-4222-8222-222222222222'
 const sourceId = '33333333-3333-4333-8333-333333333333'
+const paymentPlanId = '44444444-4444-4444-8444-444444444444'
 
 function response(status: number, body?: unknown): Response {
   return new Response(body === undefined ? null : JSON.stringify(body), {
@@ -23,6 +24,7 @@ function notification(overrides: Record<string, unknown> = {}) {
     kind: 'legalDeadlineDueSoon',
     sourceType: 'legalDeadline',
     sourceId,
+    paymentPlanId: null,
     sourceTitle: 'Apresentar contestação',
     occurrenceDate: '2026-09-03',
     occurrenceAt: null,
@@ -43,7 +45,7 @@ afterEach(() => {
 describe('Notifications API client', () => {
   it('GetNotifications_ParsesStableKindsAndPreservesDateOnlyString', async () => {
     const items = [
-      notification(),
+      notification({ paymentPlanId: undefined }),
       notification({
         id: '44444444-4444-4444-8444-444444444444',
         kind: 'legalTaskDueSoon',
@@ -72,6 +74,7 @@ describe('Notifications API client', () => {
       'calendarEventStartingSoon',
     ])
     expect(result.items[0]?.occurrenceDate).toBe('2026-09-03')
+    expect(result.items[0]?.paymentPlanId).toBeNull()
     expect(result.unreadCount).toBe(27)
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/organizations/${organizationId}/notifications`,
@@ -84,10 +87,68 @@ describe('Notifications API client', () => {
     )
   })
 
+  it('GetNotifications_ParsesPaymentInstallmentWithRequiredPaymentPlan', async () => {
+    const finance = notification({
+      kind: 'paymentInstallmentDueToday',
+      sourceType: 'paymentInstallment',
+      paymentPlanId,
+      sourceTitle: 'Cliente Financeiro — Parcela 1 de 3',
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(response(200, { items: [finance], unreadCount: 1 })),
+    )
+
+    const result = await getNotifications(organizationId, vi.fn())
+
+    expect(result.items[0]).toMatchObject({
+      kind: 'paymentInstallmentDueToday',
+      sourceType: 'paymentInstallment',
+      sourceId,
+      paymentPlanId,
+    })
+  })
+
   it.each([
     [{ items: 'invalid', unreadCount: 0 }],
     [{ items: [notification({ kind: 'unknown' })], unreadCount: 1 }],
     [{ items: [notification({ occurrenceDate: '2026-02-30' })], unreadCount: 1 }],
+    [
+      {
+        items: [
+          notification({
+            kind: 'paymentInstallmentDueToday',
+            sourceType: 'paymentInstallment',
+            paymentPlanId: null,
+          }),
+        ],
+        unreadCount: 1,
+      },
+    ],
+    [
+      {
+        items: [
+          notification({
+            kind: 'paymentInstallmentDueToday',
+            sourceType: 'paymentInstallment',
+            paymentPlanId: 'invalid',
+          }),
+        ],
+        unreadCount: 1,
+      },
+    ],
+    [
+      {
+        items: [
+          notification({
+            kind: 'paymentInstallmentDueToday',
+            sourceType: 'legalDeadline',
+            paymentPlanId,
+          }),
+        ],
+        unreadCount: 1,
+      },
+    ],
     [
       {
         items: [

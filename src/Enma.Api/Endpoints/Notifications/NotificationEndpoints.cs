@@ -143,6 +143,7 @@ public static class NotificationEndpoints
             MapKind(item.Kind),
             MapSourceType(item.Kind),
             item.SourceId,
+            item.PaymentPlanId,
             item.SourceTitle,
             item.OccurrenceDate,
             item.OccurrenceAt,
@@ -160,6 +161,8 @@ public static class NotificationEndpoints
                 NotificationKindResponse.LegalTaskDueSoon,
             NotificationKind.CalendarEventStartingSoon =>
                 NotificationKindResponse.CalendarEventStartingSoon,
+            NotificationKind.PaymentInstallmentDueToday =>
+                NotificationKindResponse.PaymentInstallmentDueToday,
             _ => throw new InvalidOperationException(
                 "The notification read model returned an unknown kind.")
         };
@@ -176,6 +179,8 @@ public static class NotificationEndpoints
                 NotificationSourceTypeResponse.LegalTask,
             NotificationKind.CalendarEventStartingSoon =>
                 NotificationSourceTypeResponse.CalendarEvent,
+            NotificationKind.PaymentInstallmentDueToday =>
+                NotificationSourceTypeResponse.PaymentInstallment,
             _ => throw new InvalidOperationException(
                 "The notification read model returned an unknown kind.")
         };

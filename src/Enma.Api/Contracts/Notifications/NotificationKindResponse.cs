@@ -12,5 +12,8 @@ public enum NotificationKindResponse
     LegalTaskDueSoon = 1,
 
     [JsonStringEnumMemberName("calendarEventStartingSoon")]
-    CalendarEventStartingSoon = 2
+    CalendarEventStartingSoon = 2,
+
+    [JsonStringEnumMemberName("paymentInstallmentDueToday")]
+    PaymentInstallmentDueToday = 3
 }

@@ -10,6 +10,7 @@ const organizationA = '11111111-1111-4111-8111-111111111111'
 const organizationB = '22222222-2222-4222-8222-222222222222'
 const notificationId = '33333333-3333-4333-8333-333333333333'
 const sourceId = '44444444-4444-4444-8444-444444444444'
+const paymentPlanId = '55555555-5555-4555-8555-555555555555'
 
 const authContextValue: AuthContextValue = {
   state: 'authenticated',
@@ -32,6 +33,7 @@ function notification(overrides: Record<string, unknown> = {}) {
     kind: 'legalDeadlineDueSoon',
     sourceType: 'legalDeadline',
     sourceId,
+    paymentPlanId: null,
     sourceTitle: 'Apresentar contestação',
     occurrenceDate: '2026-09-03',
     occurrenceAt: null,
@@ -235,6 +237,40 @@ describe('NotificationCenter', () => {
     },
   )
 
+  it('Finance_RendersLabelWithoutMoneyAndNavigatesToPaymentPlan', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        response(
+          200,
+          feed([
+            notification({
+              kind: 'paymentInstallmentDueToday',
+              sourceType: 'paymentInstallment',
+              paymentPlanId,
+              sourceTitle: 'Cliente Financeiro — Parcela 1 de 3',
+              readAt: '2026-09-01T13:00:00Z',
+            }),
+          ]),
+        ),
+      ),
+    )
+    renderCenter()
+    await screen.findByRole('button', { name: 'Notificações' })
+    openCenter()
+
+    const item = screen.getByRole('button', {
+      name: /cliente financeiro — parcela 1 de 3/i,
+    })
+    expect(item).toHaveTextContent('Parcela vence hoje')
+    expect(item).not.toHaveTextContent('R$')
+    fireEvent.click(item)
+
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      `/organizations/${organizationA}/finance/payment-plans/${paymentPlanId}`,
+    )
+  })
+
   it('MarkOne_OptimisticallyUpdatesUsesCsrfAndReconciles', async () => {
     const readItem = notification({ readAt: '2026-09-01T13:00:00Z' })
     const fetchMock = vi
@@ -283,6 +319,33 @@ describe('NotificationCenter', () => {
     expect(screen.getByRole('button', { name: /apresentar contestação/i })).toHaveClass(
       'is-unread',
     )
+  })
+
+  it('MarkOne_NotFoundRefetchesWithoutRestoringHiddenFinanceItem', async () => {
+    const finance = notification({
+      kind: 'paymentInstallmentDueToday',
+      sourceType: 'paymentInstallment',
+      paymentPlanId,
+      sourceTitle: 'Cliente Financeiro — Parcela 1 de 3',
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, feed([finance], 1)))
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockResolvedValueOnce(response(404))
+      .mockResolvedValueOnce(response(200, feed()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderCenter()
+    await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
+    openCenter()
+
+    fireEvent.click(screen.getByRole('button', { name: /cliente financeiro/i }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(screen.queryByText(/cliente financeiro/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/não foi possível marcar a notificação como lida/i),
+    ).not.toBeInTheDocument()
   })
 
   it('MarkAll_IsSingleCsrfMutationAndReconciles', async () => {

@@ -200,6 +200,7 @@ export function WorkspaceControlCenter({
       </div>
 
       <NotificationCenter
+        key={`${currentOrganization.id}:${currentOrganization.role}`}
         organizationId={currentOrganization.id}
         embedded
         visible={isOpen && activeTab === 'notifications'}

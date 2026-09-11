@@ -12,6 +12,7 @@ const eventDateTimeFormatter = new Intl.DateTimeFormat('pt-BR', {
 export function getNotificationKindLabel(kind: NotificationKind): string {
   if (kind === 'legalDeadlineDueSoon') return 'Prazo próximo'
   if (kind === 'legalTaskDueSoon') return 'Tarefa próxima'
+  if (kind === 'paymentInstallmentDueToday') return 'Parcela vence hoje'
   return 'Evento em breve'
 }
 
@@ -32,6 +33,7 @@ export function getNotificationDestination(
   organizationId: string,
   sourceType: NotificationSourceType,
   sourceId: string,
+  paymentPlanId: string | null,
 ): string {
   const organizationBase = `/organizations/${organizationId}`
   if (sourceType === 'legalDeadline') {
@@ -39,6 +41,9 @@ export function getNotificationDestination(
   }
   if (sourceType === 'legalTask') {
     return `${organizationBase}/tasks/${sourceId}`
+  }
+  if (sourceType === 'paymentInstallment') {
+    return `${organizationBase}/finance/payment-plans/${paymentPlanId}`
   }
   return `${organizationBase}/agenda`
 }

@@ -28,12 +28,14 @@ const notificationKinds: readonly NotificationKind[] = [
   'legalDeadlineDueSoon',
   'legalTaskDueSoon',
   'calendarEventStartingSoon',
+  'paymentInstallmentDueToday',
 ]
 
 const notificationSourceTypes: readonly NotificationSourceType[] = [
   'legalDeadline',
   'legalTask',
   'calendarEvent',
+  'paymentInstallment',
 ]
 
 function isTimestamp(value: unknown): value is string {
@@ -78,16 +80,31 @@ function parseNotificationItem(value: unknown): NotificationItem | undefined {
   const isEvent =
     item.kind === 'calendarEventStartingSoon' &&
     item.sourceType === 'calendarEvent'
+  const isPaymentInstallment =
+    item.kind === 'paymentInstallmentDueToday' &&
+    item.sourceType === 'paymentInstallment'
+  const hasPaymentPlan =
+    typeof item.paymentPlanId === 'string' && isValidGuid(item.paymentPlanId)
+  const hasNoPaymentPlan =
+    item.paymentPlanId === null || item.paymentPlanId === undefined
   const hasDateOnlyOccurrence =
-    (isDeadline || isTask) &&
+    (isDeadline || isTask || isPaymentInstallment) &&
     typeof item.occurrenceDate === 'string' &&
     item.occurrenceAt === null
   const hasInstantOccurrence =
     isEvent && item.occurrenceDate === null && isTimestamp(item.occurrenceAt)
 
-  if (!hasDateOnlyOccurrence && !hasInstantOccurrence) return undefined
+  if (
+    (!hasDateOnlyOccurrence && !hasInstantOccurrence) ||
+    (isPaymentInstallment ? !hasPaymentPlan : !hasNoPaymentPlan)
+  ) {
+    return undefined
+  }
 
-  return item as unknown as NotificationItem
+  return {
+    ...item,
+    paymentPlanId: isPaymentInstallment ? item.paymentPlanId : null,
+  } as NotificationItem
 }
 
 function parseNotificationFeed(value: unknown): NotificationFeed {

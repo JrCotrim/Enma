@@ -5,6 +5,7 @@ public sealed record NotificationResponse(
     NotificationKindResponse Kind,
     NotificationSourceTypeResponse SourceType,
     Guid SourceId,
+    Guid? PaymentPlanId,
     string SourceTitle,
     DateOnly? OccurrenceDate,
     DateTimeOffset? OccurrenceAt,

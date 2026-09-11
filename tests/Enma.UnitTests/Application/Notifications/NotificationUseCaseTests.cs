@@ -240,6 +240,7 @@ public sealed class NotificationUseCaseTests
             NotificationId,
             NotificationKind.LegalTaskDueSoon,
             Guid.NewGuid(),
+            null,
             "Synthetic task",
             new DateOnly(2026, 8, 26),
             null,

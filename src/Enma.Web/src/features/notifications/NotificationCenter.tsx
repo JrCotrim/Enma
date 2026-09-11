@@ -18,6 +18,7 @@ import {
   getNotifications,
   markAllNotificationsAsRead,
   markNotificationAsRead,
+  NotificationRequestError,
 } from './notificationService'
 import type { NotificationFeed, NotificationItem } from './notificationTypes'
 
@@ -320,6 +321,7 @@ export function NotificationCenter({
       organizationId,
       item.sourceType,
       item.sourceId,
+      item.paymentPlanId,
     )
 
     if (!embedded) {
@@ -354,6 +356,12 @@ export function NotificationCenter({
         .catch((error: unknown) => {
           if (!mountedRef.current || controller.signal.aborted || isAbortError(error)) {
             return
+          }
+          if (
+            error instanceof NotificationRequestError &&
+            error.failure === 'not-found'
+          ) {
+            return reconcileAfterMutation()
           }
           setFeedState((current) =>
             current.status === 'success'

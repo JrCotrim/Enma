@@ -15,30 +15,15 @@ public sealed class NotificationMutationPersistence(EnmaDbContext dbContext)
     {
         DateTimeOffset normalizedReadAt = readAt.ToUniversalTime();
         int updatedRows = await dbContext.Notifications
-            .Where(notification =>
-                notification.Id == notificationId &&
-                notification.OrganizationId == organizationId &&
-                notification.RecipientUserId == recipientUserId &&
-                notification.ReadAt == null)
+            .VisibleTo(dbContext, organizationId, recipientUserId)
+            .Where(notification => notification.Id == notificationId)
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(
                     notification => notification.ReadAt,
-                    normalizedReadAt),
+                    notification => notification.ReadAt ?? normalizedReadAt),
                 cancellationToken);
 
-        if (updatedRows > 0)
-        {
-            return true;
-        }
-
-        return await dbContext.Notifications
-            .AsNoTracking()
-            .AnyAsync(
-                notification =>
-                    notification.Id == notificationId &&
-                    notification.OrganizationId == organizationId &&
-                    notification.RecipientUserId == recipientUserId,
-                cancellationToken);
+        return updatedRows > 0;
     }
 
     public async Task MarkAllAsReadAsync(
@@ -49,9 +34,8 @@ public sealed class NotificationMutationPersistence(EnmaDbContext dbContext)
     {
         DateTimeOffset normalizedReadAt = readAt.ToUniversalTime();
         await dbContext.Notifications
+            .VisibleTo(dbContext, organizationId, recipientUserId)
             .Where(notification =>
-                notification.OrganizationId == organizationId &&
-                notification.RecipientUserId == recipientUserId &&
                 notification.ReadAt == null)
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(

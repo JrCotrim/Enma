@@ -4,6 +4,7 @@ using Enma.Application.Notifications;
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
+using Enma.Domain.Finance;
 using Enma.Domain.Notifications;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
@@ -221,6 +222,244 @@ public sealed class NotificationReadMutationPersistenceTests(
             default:
                 throw new ArgumentOutOfRangeException(nameof(kind));
         }
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner)]
+    [InlineData(OrganizationRole.Administrator)]
+    public async Task ReadFeed_FinanceProjectionIsVisibleToPrivilegedRoles(
+        OrganizationRole role)
+    {
+        TenantGraph graph = CreateGraph($"finance-{role}", role);
+        Notification notification = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            graph);
+        await SeedAsync(graph.Entities.Concat([notification]));
+        var interceptor = new ReaderCommandInterceptor();
+        await using EnmaDbContext dbContext = CreateContext(interceptor);
+        var queries = new NotificationReadQueries(dbContext);
+
+        NotificationFeedReadResult result = await queries.ReadFeedAsync(
+            graph.Organization.Id,
+            graph.User.Id,
+            20);
+
+        NotificationReadModel item = Assert.Single(result.Items);
+        PaymentInstallment installment = graph.PaymentPlan.Installments[0];
+        Assert.Equal(NotificationKind.PaymentInstallmentDueToday, item.Kind);
+        Assert.Equal(installment.Id, item.SourceId);
+        Assert.Equal(graph.PaymentPlan.Id, item.PaymentPlanId);
+        Assert.Equal(
+            $"{graph.Client.Name} — Parcela 1 de {graph.PaymentPlan.InstallmentCount}",
+            item.SourceTitle);
+        Assert.Equal(installment.DueDate, item.OccurrenceDate);
+        Assert.Null(item.OccurrenceAt);
+        Assert.Equal(1, result.UnreadCount);
+
+        string feedSql = Assert.Single(
+            interceptor.CommandTexts,
+            text => text.Contains("payment_installments", StringComparison.Ordinal));
+        Assert.Contains("INNER JOIN client_payment_plans", feedSql);
+        Assert.Contains("INNER JOIN clients", feedSql);
+        Assert.Contains("organization_memberships", feedSql);
+        Assert.Contains("UNION ALL", feedSql);
+        Assert.Contains("LIMIT", feedSql);
+        Assert.True(
+            feedSql.LastIndexOf(
+                "organization_memberships",
+                StringComparison.Ordinal) <
+            feedSql.LastIndexOf("LIMIT", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner)]
+    [InlineData(OrganizationRole.Administrator)]
+    public async Task MarkOne_FinanceIsVisibleToPrivilegedRoles(
+        OrganizationRole role)
+    {
+        TenantGraph graph = CreateGraph($"finance-mark-one-{role}", role);
+        Notification finance = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            graph);
+        await SeedAsync(graph.Entities.Concat([finance]));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var persistence = new NotificationMutationPersistence(dbContext);
+
+        Assert.True(await persistence.MarkAsReadAsync(
+            finance.Id,
+            graph.Organization.Id,
+            graph.User.Id,
+            ReadAt));
+        Assert.Equal(ReadAt, await dbContext.Notifications
+            .Where(item => item.Id == finance.Id)
+            .Select(item => item.ReadAt)
+            .SingleAsync());
+    }
+
+    [Fact]
+    public async Task MarkAll_AdministratorIncludesFinanceAndLegacy()
+    {
+        TenantGraph graph = CreateGraph(
+            "finance-mark-all-admin",
+            OrganizationRole.Administrator);
+        Notification finance = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            graph);
+        Notification deadline = CreateNotification(
+            NotificationKind.LegalDeadlineDueSoon,
+            graph);
+        await SeedAsync(graph.Entities.Concat([finance, deadline]));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var persistence = new NotificationMutationPersistence(dbContext);
+
+        await persistence.MarkAllAsReadAsync(
+            graph.Organization.Id,
+            graph.User.Id,
+            ReadAt);
+
+        Assert.All(
+            await dbContext.Notifications
+                .Where(item => item.Id == finance.Id || item.Id == deadline.Id)
+                .Select(item => item.ReadAt)
+                .ToArrayAsync(),
+            value => Assert.Equal(ReadAt, value));
+    }
+
+    [Theory]
+    [InlineData(FinanceAccessState.InactiveMembership)]
+    [InlineData(FinanceAccessState.InactiveUser)]
+    [InlineData(FinanceAccessState.InactiveOrganization)]
+    public async Task ReadFeed_FinanceRequiresCurrentActiveAccess(
+        FinanceAccessState state)
+    {
+        TenantGraph graph = CreateGraph(
+            $"fin-inactive-{(int)state}",
+            OrganizationRole.Owner);
+        if (state == FinanceAccessState.InactiveMembership)
+        {
+            graph.Membership.Deactivate();
+        }
+        else if (state == FinanceAccessState.InactiveUser)
+        {
+            graph.User.Deactivate();
+        }
+        else
+        {
+            graph.Organization.Deactivate();
+        }
+
+        Notification finance = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            graph);
+        await SeedAsync(graph.Entities.Concat([finance]));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var queries = new NotificationReadQueries(dbContext);
+
+        NotificationFeedReadResult result = await queries.ReadFeedAsync(
+            graph.Organization.Id,
+            graph.User.Id,
+            20);
+
+        Assert.Empty(result.Items);
+        Assert.Equal(0, result.UnreadCount);
+    }
+
+    [Fact]
+    public async Task FinanceVisibility_DowngradeHidesMutationsIgnoreAndPromotionRestoresUnread()
+    {
+        TenantGraph graph = CreateGraph(
+            "finance-role-change",
+            OrganizationRole.Administrator);
+        Notification finance = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            graph);
+        Notification deadline = CreateNotification(
+            NotificationKind.LegalDeadlineDueSoon,
+            graph);
+        await SeedAsync(graph.Entities.Concat([finance, deadline]));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var queries = new NotificationReadQueries(dbContext);
+        var persistence = new NotificationMutationPersistence(dbContext);
+
+        NotificationFeedReadResult administratorFeed = await queries.ReadFeedAsync(
+            graph.Organization.Id,
+            graph.User.Id,
+            20);
+        Assert.Equal(2, administratorFeed.Items.Count);
+        Assert.Equal(2, administratorFeed.UnreadCount);
+
+        OrganizationMembership membership = await dbContext.OrganizationMemberships
+            .SingleAsync(item => item.Id == graph.Membership.Id);
+        membership.ChangeRole(OrganizationRole.Member);
+        await dbContext.SaveChangesAsync();
+
+        NotificationFeedReadResult memberFeed = await queries.ReadFeedAsync(
+            graph.Organization.Id,
+            graph.User.Id,
+            20);
+        Assert.Equal(deadline.Id, Assert.Single(memberFeed.Items).Id);
+        Assert.Equal(1, memberFeed.UnreadCount);
+        Assert.False(await persistence.MarkAsReadAsync(
+            finance.Id,
+            graph.Organization.Id,
+            graph.User.Id,
+            ReadAt));
+
+        await persistence.MarkAllAsReadAsync(
+            graph.Organization.Id,
+            graph.User.Id,
+            ReadAt);
+        Assert.Null(await dbContext.Notifications
+            .Where(item => item.Id == finance.Id)
+            .Select(item => item.ReadAt)
+            .SingleAsync());
+        Assert.Equal(ReadAt, await dbContext.Notifications
+            .Where(item => item.Id == deadline.Id)
+            .Select(item => item.ReadAt)
+            .SingleAsync());
+
+        membership.ChangeRole(OrganizationRole.Administrator);
+        await dbContext.SaveChangesAsync();
+        NotificationFeedReadResult promotedFeed = await queries.ReadFeedAsync(
+            graph.Organization.Id,
+            graph.User.Id,
+            20);
+        Assert.Contains(promotedFeed.Items, item => item.Id == finance.Id);
+        Assert.Equal(1, promotedFeed.UnreadCount);
+    }
+
+    [Fact]
+    public async Task ReadFeed_AppliesFinanceVisibilityBeforeTake()
+    {
+        TenantGraph graph = CreateGraph("finance-before-take");
+        Notification deadline = CreateNotification(
+            NotificationKind.LegalDeadlineDueSoon,
+            graph,
+            generatedAt: GeneratedAt.AddHours(-1));
+        Notification[] finance = graph.PaymentPlan.Installments
+            .Select((installment, index) => new Notification(
+                graph.Organization.Id,
+                graph.User.Id,
+                NotificationKind.PaymentInstallmentDueToday,
+                null,
+                null,
+                null,
+                installment.Id,
+                installment.DueDate,
+                null,
+                GeneratedAt.AddMinutes(index)))
+            .ToArray();
+        await SeedAsync(graph.Entities.Concat(finance).Append(deadline));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var queries = new NotificationReadQueries(dbContext);
+
+        NotificationFeedReadResult result = await queries.ReadFeedAsync(
+            graph.Organization.Id,
+            graph.User.Id,
+            1);
+
+        Assert.Equal(deadline.Id, Assert.Single(result.Items).Id);
+        Assert.Equal(1, result.UnreadCount);
     }
 
     [Fact]
@@ -460,7 +699,9 @@ public sealed class NotificationReadMutationPersistenceTests(
         await dbContext.SaveChangesAsync();
     }
 
-    private static TenantGraph CreateGraph(string marker)
+    private static TenantGraph CreateGraph(
+        string marker,
+        OrganizationRole role = OrganizationRole.Member)
     {
         var organization = new Organization(
             $"Notification {marker}",
@@ -470,7 +711,7 @@ public sealed class NotificationReadMutationPersistenceTests(
         var membership = new OrganizationMembership(
             organization.Id,
             user.Id,
-            OrganizationRole.Member,
+            role,
             CreatedAt);
         var client = new Client(
             organization.Id,
@@ -508,6 +749,13 @@ public sealed class NotificationReadMutationPersistenceTests(
             membership.Id,
             membership.Id,
             CreatedAt);
+        var paymentPlan = new ClientPaymentPlan(
+            organization.Id,
+            client.Id,
+            2_000m,
+            20,
+            OccurrenceDate,
+            CreatedAt);
 
         return new TenantGraph(
             organization,
@@ -518,6 +766,7 @@ public sealed class NotificationReadMutationPersistenceTests(
             deadline,
             task,
             calendarEvent,
+            paymentPlan,
             [
                 organization,
                 user,
@@ -526,7 +775,8 @@ public sealed class NotificationReadMutationPersistenceTests(
                 process,
                 deadline,
                 task,
-                calendarEvent
+                calendarEvent,
+                paymentPlan
             ]);
     }
 
@@ -541,7 +791,8 @@ public sealed class NotificationReadMutationPersistenceTests(
     private static Notification CreateNotification(
         NotificationKind kind,
         TenantGraph graph,
-        Guid? recipientUserId = null)
+        Guid? recipientUserId = null,
+        DateTimeOffset? generatedAt = null)
     {
         Guid recipient = recipientUserId ?? graph.User.Id;
 
@@ -557,7 +808,7 @@ public sealed class NotificationReadMutationPersistenceTests(
                 null,
                 OccurrenceDate,
                 null,
-                GeneratedAt),
+                generatedAt ?? GeneratedAt),
             NotificationKind.LegalTaskDueSoon => new Notification(
                 graph.Organization.Id,
                 recipient,
@@ -568,7 +819,7 @@ public sealed class NotificationReadMutationPersistenceTests(
                 null,
                 OccurrenceDate,
                 null,
-                GeneratedAt),
+                generatedAt ?? GeneratedAt),
             NotificationKind.CalendarEventStartingSoon => new Notification(
                 graph.Organization.Id,
                 recipient,
@@ -579,7 +830,18 @@ public sealed class NotificationReadMutationPersistenceTests(
                 null,
                 null,
                 OccurrenceAt,
-                GeneratedAt),
+                generatedAt ?? GeneratedAt),
+            NotificationKind.PaymentInstallmentDueToday => new Notification(
+                graph.Organization.Id,
+                recipient,
+                kind,
+                null,
+                null,
+                null,
+                graph.PaymentPlan.Installments[0].Id,
+                graph.PaymentPlan.Installments[0].DueDate,
+                null,
+                generatedAt ?? GeneratedAt),
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
     }
@@ -625,5 +887,13 @@ public sealed class NotificationReadMutationPersistenceTests(
         LegalDeadline Deadline,
         LegalTask Task,
         CalendarEvent CalendarEvent,
+        ClientPaymentPlan PaymentPlan,
         IReadOnlyList<object> Entities);
+
+    public enum FinanceAccessState
+    {
+        InactiveMembership = 0,
+        InactiveUser = 1,
+        InactiveOrganization = 2
+    }
 }

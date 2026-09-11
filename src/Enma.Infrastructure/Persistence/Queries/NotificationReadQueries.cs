@@ -25,17 +25,14 @@ public sealed class NotificationReadQueries : INotificationReadQueries
             throw new ArgumentOutOfRangeException(nameof(maximumItems));
         }
 
-        IQueryable<Notification> boundedNotifications = _dbContext.Notifications
+        IQueryable<Notification> visibleNotifications = _dbContext.Notifications
             .AsNoTracking()
-            .Where(notification =>
-                notification.OrganizationId == organizationId &&
-                notification.RecipientUserId == recipientUserId)
-            .OrderByDescending(notification => notification.GeneratedAt)
-            .ThenByDescending(notification => notification.Id)
-            .Take(maximumItems);
+            .VisibleTo(_dbContext, organizationId, recipientUserId);
 
-        IQueryable<NotificationReadModel> feedQuery =
-            from notification in boundedNotifications
+        var legacyFeedQuery =
+            from notification in visibleNotifications
+            where notification.Kind !=
+                NotificationKind.PaymentInstallmentDueToday
             join legalDeadline in _dbContext.LegalDeadlines.AsNoTracking()
                 on new
                 {
@@ -75,15 +72,15 @@ public sealed class NotificationReadQueries : INotificationReadQueries
                 }
                 into calendarEvents
             from calendarEvent in calendarEvents.DefaultIfEmpty()
-            orderby notification.GeneratedAt descending,
-                notification.Id descending
-            select new NotificationReadModel(
+            select new
+            {
                 notification.Id,
                 notification.Kind,
-                (notification.LegalDeadlineId ??
+                SourceId = (notification.LegalDeadlineId ??
                     notification.LegalTaskId ??
                     notification.CalendarEventId)!.Value,
-                legalDeadline != null
+                PaymentPlanId = (Guid?)null,
+                SourceTitle = legalDeadline != null
                     ? legalDeadline.Title
                     : legalTask != null
                         ? legalTask.Title
@@ -91,17 +88,83 @@ public sealed class NotificationReadQueries : INotificationReadQueries
                 notification.OccurrenceDate,
                 notification.OccurrenceAt,
                 notification.GeneratedAt,
-                notification.ReadAt);
+                notification.ReadAt
+            };
+
+        var financeFeedQuery =
+            from notification in visibleNotifications
+            where notification.Kind ==
+                NotificationKind.PaymentInstallmentDueToday
+            join installment in _dbContext.PaymentInstallments.AsNoTracking()
+                on new
+                {
+                    notification.OrganizationId,
+                    SourceId = notification.PaymentInstallmentId
+                }
+                equals new
+                {
+                    installment.OrganizationId,
+                    SourceId = (Guid?)installment.Id
+                }
+            join paymentPlan in _dbContext.ClientPaymentPlans.AsNoTracking()
+                on new
+                {
+                    installment.OrganizationId,
+                    PaymentPlanId = installment.PaymentPlanId
+                }
+                equals new
+                {
+                    paymentPlan.OrganizationId,
+                    PaymentPlanId = paymentPlan.Id
+                }
+            join client in _dbContext.Clients.AsNoTracking()
+                on new
+                {
+                    paymentPlan.OrganizationId,
+                    ClientId = paymentPlan.ClientId
+                }
+                equals new
+                {
+                    client.OrganizationId,
+                    ClientId = client.Id
+                }
+            select new
+            {
+                notification.Id,
+                notification.Kind,
+                SourceId = installment.Id,
+                PaymentPlanId = (Guid?)paymentPlan.Id,
+                SourceTitle = client.Name + " — Parcela " + installment.SequenceNumber +
+                    " de " + paymentPlan.InstallmentCount,
+                notification.OccurrenceDate,
+                notification.OccurrenceAt,
+                notification.GeneratedAt,
+                notification.ReadAt
+            };
+
+        IQueryable<NotificationReadModel> feedQuery = legacyFeedQuery
+            .Concat(financeFeedQuery)
+            .OrderByDescending(notification => notification.GeneratedAt)
+            .ThenByDescending(notification => notification.Id)
+            .Take(maximumItems)
+            .Select(notification => new NotificationReadModel(
+                notification.Id,
+                notification.Kind,
+                notification.SourceId,
+                notification.PaymentPlanId,
+                notification.SourceTitle,
+                notification.OccurrenceDate,
+                notification.OccurrenceAt,
+                notification.GeneratedAt,
+                notification.ReadAt));
 
         NotificationReadModel[] items = await feedQuery.ToArrayAsync(
             cancellationToken);
         int unreadCount = await _dbContext.Notifications
             .AsNoTracking()
+            .VisibleTo(_dbContext, organizationId, recipientUserId)
             .CountAsync(
-                notification =>
-                    notification.OrganizationId == organizationId &&
-                    notification.RecipientUserId == recipientUserId &&
-                    notification.ReadAt == null,
+                notification => notification.ReadAt == null,
                 cancellationToken);
 
         return new NotificationFeedReadResult(items, unreadCount);
