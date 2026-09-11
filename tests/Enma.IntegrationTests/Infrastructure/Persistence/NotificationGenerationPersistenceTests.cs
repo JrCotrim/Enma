@@ -3,6 +3,7 @@ using Enma.Application.Notifications;
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
+using Enma.Domain.Finance;
 using Enma.Domain.Notifications;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
@@ -372,6 +373,221 @@ public sealed class NotificationGenerationPersistenceTests(
     }
 
     [Fact]
+    public async Task PaymentInstallmentGeneration_EnforcesEligibilityRecipientsAndTenantIsolation()
+    {
+        TenantGraph activeTenant = CreateTenant("finance-active");
+        Person owner = AddPerson(activeTenant, "owner", OrganizationRole.Owner);
+        Person firstAdministrator = AddPerson(
+            activeTenant,
+            "administrator-one",
+            OrganizationRole.Administrator);
+        Person secondAdministrator = AddPerson(
+            activeTenant,
+            "administrator-two",
+            OrganizationRole.Administrator);
+        _ = AddPerson(activeTenant, "member-one", OrganizationRole.Member);
+        _ = AddPerson(activeTenant, "member-two", OrganizationRole.Member);
+        _ = AddPerson(activeTenant, "member-three", OrganizationRole.Member);
+        Person inactiveMembership = AddPerson(
+            activeTenant,
+            "inactive-membership",
+            OrganizationRole.Administrator);
+        inactiveMembership.Membership.Deactivate();
+        Person inactiveUser = AddPerson(
+            activeTenant,
+            "inactive-user",
+            OrganizationRole.Owner);
+        inactiveUser.User.Deactivate();
+
+        PaymentInstallment dueToday = CreatePaymentPlan(
+            activeTenant,
+            SchedulerDate).Installments.Single();
+        PaymentInstallment overdue = CreatePaymentPlan(
+            activeTenant,
+            SchedulerDate.AddDays(-1)).Installments.Single();
+        PaymentInstallment future = CreatePaymentPlan(
+            activeTenant,
+            SchedulerDate.AddDays(1)).Installments.Single();
+        PaymentInstallment paid = CreatePaymentPlan(
+            activeTenant,
+            SchedulerDate).Installments.Single();
+        paid.MarkPaid(GeneratedAt);
+
+        TenantGraph inactiveTenant = CreateTenant("finance-inactive");
+        _ = AddPerson(inactiveTenant, "owner", OrganizationRole.Owner);
+        PaymentInstallment inactiveOrganizationInstallment = CreatePaymentPlan(
+            inactiveTenant,
+            SchedulerDate).Installments.Single();
+        inactiveTenant.Organization.Deactivate();
+
+        TenantGraph otherTenant = CreateTenant("finance-other");
+        Person otherOwner = AddPerson(
+            otherTenant,
+            "owner",
+            OrganizationRole.Owner);
+        PaymentInstallment otherInstallment = CreatePaymentPlan(
+            otherTenant,
+            SchedulerDate).Installments.Single();
+        activeTenant.Entities.Add(
+            new OrganizationMembership(
+                activeTenant.Organization.Id,
+                otherOwner.User.Id,
+                OrganizationRole.Member,
+                GeneratedAt.AddDays(-1)));
+
+        await SeedAsync(
+            activeTenant.Entities
+                .Concat(inactiveTenant.Entities)
+                .Concat(otherTenant.Entities));
+
+        NotificationGenerationSourceResult result =
+            await GeneratePaymentInstallmentsAsync();
+        Notification[] notifications = await ReadNotificationsAsync();
+
+        Assert.Equal(new NotificationGenerationSourceResult(4, 1), result);
+        Assert.Equal(
+            new[]
+            {
+                owner.User.Id,
+                firstAdministrator.User.Id,
+                secondAdministrator.User.Id
+            }.Order(),
+            notifications
+                .Where(notification =>
+                    notification.PaymentInstallmentId == dueToday.Id)
+                .Select(notification => notification.RecipientUserId)
+                .Order());
+        Assert.Contains(
+            notifications,
+            notification =>
+                notification.OrganizationId == otherTenant.Organization.Id &&
+                notification.PaymentInstallmentId == otherInstallment.Id &&
+                notification.RecipientUserId == otherOwner.User.Id);
+        Assert.DoesNotContain(
+            notifications,
+            notification =>
+                notification.PaymentInstallmentId == overdue.Id ||
+                notification.PaymentInstallmentId == future.Id ||
+                notification.PaymentInstallmentId == paid.Id ||
+                notification.PaymentInstallmentId ==
+                    inactiveOrganizationInstallment.Id ||
+                notification.RecipientUserId == inactiveMembership.User.Id ||
+                notification.RecipientUserId == inactiveUser.User.Id ||
+                (notification.OrganizationId == activeTenant.Organization.Id &&
+                    notification.RecipientUserId == otherOwner.User.Id));
+        Assert.All(
+            notifications,
+            notification =>
+            {
+                Assert.Equal(
+                    NotificationKind.PaymentInstallmentDueToday,
+                    notification.Kind);
+                Assert.Equal(SchedulerDate, notification.OccurrenceDate);
+                Assert.Null(notification.OccurrenceAt);
+                Assert.Null(notification.LegalDeadlineId);
+                Assert.Null(notification.LegalTaskId);
+                Assert.Null(notification.CalendarEventId);
+                Assert.Equal(GeneratedAt, notification.GeneratedAt);
+                Assert.Null(notification.ReadAt);
+            });
+    }
+
+    [Fact]
+    public async Task PaymentInstallmentGeneration_IsIdempotentAndPreservesPaidHistory()
+    {
+        TenantGraph tenant = CreateTenant("finance-history");
+        Person owner = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        PaymentInstallment installment = CreatePaymentPlan(
+            tenant,
+            SchedulerDate).Installments.Single();
+        await SeedAsync(tenant.Entities);
+
+        NotificationGenerationSourceResult first =
+            await GeneratePaymentInstallmentsAsync();
+        NotificationGenerationSourceResult repeated =
+            await GeneratePaymentInstallmentsAsync();
+        Notification original = Assert.Single(await ReadNotificationsAsync());
+
+        await using (EnmaDbContext updateContext = fixture.CreateDbContext())
+        {
+            PaymentInstallment persistedInstallment =
+                await updateContext.PaymentInstallments.SingleAsync(
+                    candidate => candidate.Id == installment.Id);
+            persistedInstallment.MarkPaid(GeneratedAt.AddMinutes(1));
+            await updateContext.SaveChangesAsync();
+        }
+
+        NotificationGenerationSourceResult afterPayment =
+            await GeneratePaymentInstallmentsAsync();
+        Notification historical = Assert.Single(await ReadNotificationsAsync());
+
+        Assert.Equal(new NotificationGenerationSourceResult(1, 1), first);
+        Assert.Equal(new NotificationGenerationSourceResult(0, 1), repeated);
+        Assert.Equal(new NotificationGenerationSourceResult(0, 1), afterPayment);
+        Assert.Equal(original.Id, historical.Id);
+        Assert.Equal(installment.Id, historical.PaymentInstallmentId);
+        Assert.Equal(owner.User.Id, historical.RecipientUserId);
+    }
+
+    [Fact]
+    public async Task ConcurrentPaymentInstallmentGeneration_DoesNotDuplicate()
+    {
+        TenantGraph tenant = CreateTenant("finance-concurrent");
+        Person owner = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        PaymentInstallment installment = CreatePaymentPlan(
+            tenant,
+            SchedulerDate).Installments.Single();
+        await SeedAsync(tenant.Entities);
+
+        await using EnmaDbContext firstContext = fixture.CreateDbContext();
+        await using EnmaDbContext secondContext = fixture.CreateDbContext();
+        var firstPersistence = new NotificationGenerationPersistence(firstContext);
+        var secondPersistence = new NotificationGenerationPersistence(secondContext);
+
+        NotificationGenerationSourceResult[] results = await Task.WhenAll(
+            firstPersistence.GeneratePaymentInstallmentDueTodayAsync(
+                SchedulerDate,
+                GeneratedAt,
+                CancellationToken.None),
+            secondPersistence.GeneratePaymentInstallmentDueTodayAsync(
+                SchedulerDate,
+                GeneratedAt,
+                CancellationToken.None));
+
+        Assert.Equal(1, results.Sum(result => result.InsertedCount));
+        Notification notification = Assert.Single(await ReadNotificationsAsync());
+        Assert.Equal(installment.Id, notification.PaymentInstallmentId);
+        Assert.Equal(owner.User.Id, notification.RecipientUserId);
+    }
+
+    [Fact]
+    public async Task PaymentInstallmentGeneration_ProcessesMultipleBatches()
+    {
+        TenantGraph tenant = CreateTenant("finance-batching");
+        _ = AddPerson(tenant, "owner", OrganizationRole.Owner);
+
+        for (int index = 0; index < NotificationGenerationPersistence.BatchSize + 1;
+             index++)
+        {
+            _ = CreatePaymentPlan(tenant, SchedulerDate);
+        }
+
+        await SeedAsync(tenant.Entities);
+
+        NotificationGenerationSourceResult result =
+            await GeneratePaymentInstallmentsAsync();
+
+        Assert.Equal(
+            new NotificationGenerationSourceResult(
+                NotificationGenerationPersistence.BatchSize + 1,
+                2),
+            result);
+        Assert.Equal(
+            NotificationGenerationPersistence.BatchSize + 1,
+            (await ReadNotificationsAsync()).Length);
+    }
+
+    [Fact]
     public async Task RepeatedGeneration_IsIdempotentAndUsesCurrentAssignment()
     {
         TenantGraph tenant = CreateTenant("assignment-change");
@@ -588,6 +804,17 @@ public sealed class NotificationGenerationPersistenceTests(
             CancellationToken.None);
     }
 
+    private async Task<NotificationGenerationSourceResult>
+        GeneratePaymentInstallmentsAsync()
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var persistence = new NotificationGenerationPersistence(dbContext);
+        return await persistence.GeneratePaymentInstallmentDueTodayAsync(
+            SchedulerDate,
+            GeneratedAt,
+            CancellationToken.None);
+    }
+
     private async Task SeedAsync(IEnumerable<object> entities)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -732,6 +959,21 @@ public sealed class NotificationGenerationPersistenceTests(
             GeneratedAt.AddDays(-1));
         tenant.Entities.Add(calendarEvent);
         return calendarEvent;
+    }
+
+    private static ClientPaymentPlan CreatePaymentPlan(
+        TenantGraph tenant,
+        DateOnly dueDate)
+    {
+        var paymentPlan = new ClientPaymentPlan(
+            tenant.Organization.Id,
+            tenant.Client.Id,
+            1m,
+            1,
+            dueDate,
+            GeneratedAt.AddDays(-1));
+        tenant.Entities.Add(paymentPlan);
+        return paymentPlan;
     }
 
     private static void AssertTaskNotification(

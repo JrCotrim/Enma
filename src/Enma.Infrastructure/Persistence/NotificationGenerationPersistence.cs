@@ -244,6 +244,85 @@ public sealed class NotificationGenerationPersistence(EnmaDbContext dbContext)
         DO NOTHING
         """;
 
+    private const string PaymentInstallmentInsertSql =
+        """
+        WITH candidates AS MATERIALIZED (
+            SELECT
+                installment.organization_id,
+                installment.id AS payment_installment_id,
+                membership.user_id AS recipient_user_id,
+                installment.due_date AS occurrence_date
+            FROM payment_installments AS installment
+            INNER JOIN client_payment_plans AS payment_plan
+                ON payment_plan.organization_id = installment.organization_id
+                AND payment_plan.id = installment.payment_plan_id
+            INNER JOIN organizations AS organization
+                ON organization.id = installment.organization_id
+                AND organization.is_active
+            INNER JOIN organization_memberships AS membership
+                ON membership.organization_id = installment.organization_id
+                AND membership.is_active
+                AND membership.role IN (1, 2)
+            INNER JOIN users AS recipient
+                ON recipient.id = membership.user_id
+                AND recipient.is_active
+            WHERE installment.paid_at IS NULL
+              AND installment.due_date = @schedulerDate
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM notifications AS existing
+                  WHERE existing.organization_id = installment.organization_id
+                    AND existing.payment_installment_id = installment.id
+                    AND existing.recipient_user_id = membership.user_id
+                    AND existing.kind = 4
+                    AND existing.occurrence_date = installment.due_date
+              )
+            ORDER BY
+                installment.due_date,
+                installment.organization_id,
+                installment.id,
+                membership.user_id
+            LIMIT @batchSize
+        )
+        INSERT INTO notifications (
+            id,
+            organization_id,
+            recipient_user_id,
+            kind,
+            legal_deadline_id,
+            legal_task_id,
+            calendar_event_id,
+            payment_installment_id,
+            occurrence_date,
+            occurrence_at,
+            generated_at,
+            read_at
+        )
+        SELECT
+            gen_random_uuid(),
+            candidate.organization_id,
+            candidate.recipient_user_id,
+            4,
+            NULL,
+            NULL,
+            NULL,
+            candidate.payment_installment_id,
+            candidate.occurrence_date,
+            NULL,
+            @generatedAt,
+            NULL
+        FROM candidates AS candidate
+        ON CONFLICT (
+            organization_id,
+            payment_installment_id,
+            recipient_user_id,
+            kind,
+            occurrence_date
+        )
+        WHERE payment_installment_id IS NOT NULL
+        DO NOTHING
+        """;
+
     public Task<NotificationGenerationSourceResult>
         GenerateLegalDeadlineRemindersAsync(
             DateOnly schedulerDate,
@@ -287,6 +366,24 @@ public sealed class NotificationGenerationPersistence(EnmaDbContext dbContext)
                 [
                     CreateTimestampParameter("windowStart", windowStart),
                     CreateTimestampParameter("windowEnd", windowEnd),
+                    CreateTimestampParameter("generatedAt", generatedAt),
+                    CreateBatchSizeParameter()
+                ],
+                cancellationToken),
+            cancellationToken);
+    }
+
+    public Task<NotificationGenerationSourceResult>
+        GeneratePaymentInstallmentDueTodayAsync(
+            DateOnly schedulerDate,
+            DateTimeOffset generatedAt,
+            CancellationToken cancellationToken)
+    {
+        return GenerateSourceAsync(
+            () => dbContext.Database.ExecuteSqlRawAsync(
+                PaymentInstallmentInsertSql,
+                [
+                    CreateDateParameter("schedulerDate", schedulerDate),
                     CreateTimestampParameter("generatedAt", generatedAt),
                     CreateBatchSizeParameter()
                 ],

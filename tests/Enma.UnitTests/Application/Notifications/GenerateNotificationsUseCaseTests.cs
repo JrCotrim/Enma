@@ -36,6 +36,7 @@ public sealed class GenerateNotificationsUseCaseTests
         Assert.Equal(schedulerDate.AddDays(1), persistence.DeadlineCall?.WindowEnd);
         Assert.Equal(schedulerDate, persistence.TaskCall?.WindowStart);
         Assert.Equal(schedulerDate.AddDays(1), persistence.TaskCall?.WindowEnd);
+        Assert.Equal(schedulerDate, persistence.FinanceCall?.SchedulerDate);
     }
 
     [Fact]
@@ -66,6 +67,7 @@ public sealed class GenerateNotificationsUseCaseTests
         Assert.Equal(Now, persistence.DeadlineCall?.GeneratedAt);
         Assert.Equal(Now, persistence.TaskCall?.GeneratedAt);
         Assert.Equal(Now, persistence.CalendarCall?.GeneratedAt);
+        Assert.Equal(Now, persistence.FinanceCall?.GeneratedAt);
     }
 
     [Fact]
@@ -75,7 +77,8 @@ public sealed class GenerateNotificationsUseCaseTests
         {
             DeadlineResult = new NotificationGenerationSourceResult(3, 1),
             TaskResult = new NotificationGenerationSourceResult(5, 2),
-            CalendarResult = new NotificationGenerationSourceResult(7, 3)
+            CalendarResult = new NotificationGenerationSourceResult(7, 3),
+            PaymentInstallmentResult = new NotificationGenerationSourceResult(11, 4)
         };
         var useCase = new GenerateNotificationsUseCase(
             persistence,
@@ -86,9 +89,13 @@ public sealed class GenerateNotificationsUseCaseTests
         Assert.Equal(1, persistence.DeadlineCallCount);
         Assert.Equal(1, persistence.TaskCallCount);
         Assert.Equal(1, persistence.CalendarCallCount);
+        Assert.Equal(1, persistence.PaymentInstallmentCallCount);
         Assert.Equal(persistence.DeadlineResult, result.LegalDeadlines);
         Assert.Equal(persistence.TaskResult, result.LegalTasks);
         Assert.Equal(persistence.CalendarResult, result.CalendarEvents);
+        Assert.Equal(
+            persistence.PaymentInstallmentResult,
+            result.PaymentInstallments);
     }
 
     [Fact]
@@ -112,6 +119,7 @@ public sealed class GenerateNotificationsUseCaseTests
         Assert.Equal(1, persistence.DeadlineCallCount);
         Assert.Equal(0, persistence.TaskCallCount);
         Assert.Equal(0, persistence.CalendarCallCount);
+        Assert.Equal(0, persistence.PaymentInstallmentCallCount);
     }
 
     private sealed class RecordingPersistence : INotificationGenerationPersistence
@@ -125,6 +133,9 @@ public sealed class GenerateNotificationsUseCaseTests
         public NotificationGenerationSourceResult CalendarResult { get; init; } =
             new(0, 1);
 
+        public NotificationGenerationSourceResult PaymentInstallmentResult
+            { get; init; } = new(0, 1);
+
         public Exception? DeadlineException { get; init; }
 
         public int DeadlineCallCount { get; private set; }
@@ -133,11 +144,15 @@ public sealed class GenerateNotificationsUseCaseTests
 
         public int CalendarCallCount { get; private set; }
 
+        public int PaymentInstallmentCallCount { get; private set; }
+
         public DateOnlyCall? DeadlineCall { get; private set; }
 
         public DateOnlyCall? TaskCall { get; private set; }
 
         public InstantCall? CalendarCall { get; private set; }
+
+        public PaymentInstallmentCall? FinanceCall { get; private set; }
 
         public Task<NotificationGenerationSourceResult>
             GenerateLegalDeadlineRemindersAsync(
@@ -190,6 +205,20 @@ public sealed class GenerateNotificationsUseCaseTests
                 cancellationToken);
             return Task.FromResult(CalendarResult);
         }
+
+        public Task<NotificationGenerationSourceResult>
+            GeneratePaymentInstallmentDueTodayAsync(
+                DateOnly schedulerDate,
+                DateTimeOffset generatedAt,
+                CancellationToken cancellationToken)
+        {
+            PaymentInstallmentCallCount++;
+            FinanceCall = new PaymentInstallmentCall(
+                schedulerDate,
+                generatedAt,
+                cancellationToken);
+            return Task.FromResult(PaymentInstallmentResult);
+        }
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
@@ -219,6 +248,11 @@ public sealed class GenerateNotificationsUseCaseTests
     private sealed record InstantCall(
         DateTimeOffset WindowStart,
         DateTimeOffset WindowEnd,
+        DateTimeOffset GeneratedAt,
+        CancellationToken CancellationToken);
+
+    private sealed record PaymentInstallmentCall(
+        DateOnly SchedulerDate,
         DateTimeOffset GeneratedAt,
         CancellationToken CancellationToken);
 }

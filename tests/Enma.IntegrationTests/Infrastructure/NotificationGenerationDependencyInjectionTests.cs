@@ -4,6 +4,7 @@ using Enma.Infrastructure;
 using Enma.Infrastructure.Persistence;
 using Enma.IntegrationTests.Api;
 using Enma.IntegrationTests.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -64,6 +65,11 @@ public sealed class NotificationGenerationDependencyInjectionTests(
     public async Task Program_RegistersSingleNotificationGenerationWorker()
     {
         await fixture.ResetDatabaseAsync();
+        await using (EnmaDbContext dbContext = fixture.CreateDbContext())
+        {
+            await dbContext.Database.MigrateAsync();
+        }
+
         await using var factory = new EnmaApiFactory(fixture);
 
         IHostedService[] hostedServices = factory.Services

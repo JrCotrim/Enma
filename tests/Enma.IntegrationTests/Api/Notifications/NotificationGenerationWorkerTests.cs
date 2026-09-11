@@ -25,6 +25,7 @@ public sealed class NotificationGenerationWorkerTests
         await worker.StopAsync(CancellationToken.None);
 
         Assert.Equal(1, control.CycleCount);
+        Assert.Equal(1, control.PaymentInstallmentCallCount);
     }
 
     [Fact]
@@ -203,6 +204,8 @@ public sealed class NotificationGenerationWorkerTests
 
         public int MaximumConcurrentCycles { get; private set; }
 
+        public int PaymentInstallmentCallCount { get; private set; }
+
         public HashSet<Guid> PersistenceInstanceIds { get; } = [];
 
         public void EnqueueFailure(Exception exception)
@@ -234,6 +237,16 @@ public sealed class NotificationGenerationWorkerTests
             {
                 activeCycles--;
             }
+        }
+
+        public void CompleteFinanceSource()
+        {
+            lock (sync)
+            {
+                PaymentInstallmentCallCount++;
+            }
+
+            CompleteCycle();
         }
 
         public async Task WaitForCycleAsync()
@@ -283,7 +296,16 @@ public sealed class NotificationGenerationWorkerTests
                 DateTimeOffset generatedAt,
                 CancellationToken cancellationToken)
         {
-            control.CompleteCycle();
+            return Task.FromResult(new NotificationGenerationSourceResult(0, 1));
+        }
+
+        public Task<NotificationGenerationSourceResult>
+            GeneratePaymentInstallmentDueTodayAsync(
+                DateOnly schedulerDate,
+                DateTimeOffset generatedAt,
+                CancellationToken cancellationToken)
+        {
+            control.CompleteFinanceSource();
             return Task.FromResult(new NotificationGenerationSourceResult(0, 1));
         }
     }

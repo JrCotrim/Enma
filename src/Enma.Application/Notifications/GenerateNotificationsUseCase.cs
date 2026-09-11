@@ -32,11 +32,17 @@ public sealed class GenerateNotificationsUseCase(
                 now.Add(CalendarEventReminderWindow),
                 now,
                 cancellationToken);
+        NotificationGenerationSourceResult paymentInstallments =
+            await persistence.GeneratePaymentInstallmentDueTodayAsync(
+                schedulerDate,
+                now,
+                cancellationToken);
 
         return new NotificationGenerationCycleResult(
             now,
             legalDeadlines,
             legalTasks,
-            calendarEvents);
+            calendarEvents,
+            paymentInstallments);
     }
 }

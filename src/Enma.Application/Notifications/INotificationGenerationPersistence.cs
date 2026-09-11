@@ -19,4 +19,10 @@ public interface INotificationGenerationPersistence
         DateTimeOffset windowEnd,
         DateTimeOffset generatedAt,
         CancellationToken cancellationToken);
+
+    Task<NotificationGenerationSourceResult>
+        GeneratePaymentInstallmentDueTodayAsync(
+            DateOnly schedulerDate,
+            DateTimeOffset generatedAt,
+            CancellationToken cancellationToken);
 }

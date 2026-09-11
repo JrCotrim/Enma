@@ -41,6 +41,10 @@ internal sealed class NotificationGenerationWorker(
         LogSourceResult("LegalDeadline", result.LegalDeadlines, duration);
         LogSourceResult("LegalTask", result.LegalTasks, duration);
         LogSourceResult("CalendarEvent", result.CalendarEvents, duration);
+        LogSourceResult(
+            "PaymentInstallment",
+            result.PaymentInstallments,
+            duration);
         logger.LogInformation(
             "Notification generation cycle completed in {DurationMilliseconds} ms",
             duration.TotalMilliseconds);
