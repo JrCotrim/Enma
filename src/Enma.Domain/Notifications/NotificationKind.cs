@@ -4,5 +4,6 @@ public enum NotificationKind
 {
     LegalDeadlineDueSoon = 1,
     LegalTaskDueSoon = 2,
-    CalendarEventStartingSoon = 3
+    CalendarEventStartingSoon = 3,
+    PaymentInstallmentDueToday = 4
 }

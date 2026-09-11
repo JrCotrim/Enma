@@ -338,6 +338,7 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
             null,
             completedTask.Id,
             null,
+            null,
             DateOnly.FromDateTime(Now.UtcDateTime),
             null,
             Now.AddHours(-1));

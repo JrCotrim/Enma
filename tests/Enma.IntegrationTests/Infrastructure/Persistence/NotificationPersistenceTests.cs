@@ -1,6 +1,7 @@
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
+using Enma.Domain.Finance;
 using Enma.Domain.Notifications;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
@@ -26,6 +27,8 @@ public sealed class NotificationPersistenceTests(
         "fk_notifications_tasks_org_legal_task_id";
     private const string CalendarEventForeignKey =
         "fk_notifications_calendar_events_org_calendar_event_id";
+    private const string PaymentInstallmentForeignKey =
+        "fk_notifications_installments_org_payment_installment_id";
 
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
@@ -76,10 +79,40 @@ public sealed class NotificationPersistenceTests(
         Assert.Equal(graph.LegalDeadline.Id, persisted.LegalDeadlineId);
         Assert.Null(persisted.LegalTaskId);
         Assert.Null(persisted.CalendarEventId);
+        Assert.Null(persisted.PaymentInstallmentId);
         Assert.Equal(DueDate, persisted.OccurrenceDate);
         Assert.Null(persisted.OccurrenceAt);
         Assert.Equal(GeneratedAt, persisted.GeneratedAt);
         Assert.Equal(GeneratedAt.AddMinutes(5), persisted.ReadAt);
+    }
+
+    [Fact]
+    public async Task SaveAndLoad_FinanceNotification_PreservesInstallmentSource()
+    {
+        TenantGraph graph = CreateTenantGraph("Finance", "notification-finance");
+        await SeedAsync(GetGraphEntities(graph));
+        Notification notification = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            graph);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        dbContext.Notifications.Add(notification);
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+
+        Notification persisted = await dbContext.Notifications
+            .AsNoTracking()
+            .SingleAsync();
+
+        Assert.Equal(NotificationKind.PaymentInstallmentDueToday, persisted.Kind);
+        Assert.Equal(
+            graph.PaymentInstallment.Id,
+            persisted.PaymentInstallmentId);
+        Assert.Null(persisted.LegalDeadlineId);
+        Assert.Null(persisted.LegalTaskId);
+        Assert.Null(persisted.CalendarEventId);
+        Assert.Equal(graph.PaymentInstallment.DueDate, persisted.OccurrenceDate);
+        Assert.Null(persisted.OccurrenceAt);
     }
 
     [Fact]
@@ -93,6 +126,7 @@ public sealed class NotificationPersistenceTests(
             tenantB.RecipientUser.Id,
             NotificationKind.LegalDeadlineDueSoon,
             tenantA.LegalDeadline.Id,
+            null,
             null,
             null,
             DueDate,
@@ -111,6 +145,9 @@ public sealed class NotificationPersistenceTests(
     [InlineData(NotificationKind.LegalDeadlineDueSoon, DeadlineForeignKey)]
     [InlineData(NotificationKind.LegalTaskDueSoon, TaskForeignKey)]
     [InlineData(NotificationKind.CalendarEventStartingSoon, CalendarEventForeignKey)]
+    [InlineData(
+        NotificationKind.PaymentInstallmentDueToday,
+        PaymentInstallmentForeignKey)]
     public async Task SaveChanges_WithSourceFromAnotherTenant_IsRejected(
         NotificationKind kind,
         string expectedConstraintName)
@@ -138,6 +175,9 @@ public sealed class NotificationPersistenceTests(
     [InlineData(
         NotificationKind.CalendarEventStartingSoon,
         "ux_notifications_calendar_event_dedupe")]
+    [InlineData(
+        NotificationKind.PaymentInstallmentDueToday,
+        "ux_notifications_payment_installment_dedupe")]
     public async Task SaveChanges_WithRepeatedDedupeIdentity_IsRejected(
         NotificationKind kind,
         string expectedConstraintName)
@@ -160,6 +200,30 @@ public sealed class NotificationPersistenceTests(
             expectedConstraintName);
         await using EnmaDbContext verificationContext = fixture.CreateDbContext();
         Assert.Equal(1, await verificationContext.Notifications.CountAsync());
+    }
+
+    [Fact]
+    public async Task FinanceDedupe_DifferentInstallmentsAndTenants_DoNotCollide()
+    {
+        TenantGraph tenantA = CreateTenantGraph("Finance A", "finance-a");
+        TenantGraph tenantB = CreateTenantGraph("Finance B", "finance-b");
+        await SeedAsync(GetGraphEntities(tenantA).Concat(GetGraphEntities(tenantB)));
+
+        await SeedAsync(
+            CreateFinanceNotification(
+                tenantA,
+                tenantA.PaymentPlan.Installments[0],
+                DueDate),
+            CreateFinanceNotification(
+                tenantA,
+                tenantA.PaymentPlan.Installments[1],
+                DueDate),
+            CreateNotification(
+                NotificationKind.PaymentInstallmentDueToday,
+                tenantB));
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(3, await dbContext.Notifications.CountAsync());
     }
 
     [Fact]
@@ -223,6 +287,7 @@ public sealed class NotificationPersistenceTests(
             Guid.NewGuid(),
             null,
             null,
+            null,
             DueDate,
             null,
             GeneratedAt);
@@ -262,6 +327,7 @@ public sealed class NotificationPersistenceTests(
     [InlineData(NotificationKind.LegalDeadlineDueSoon)]
     [InlineData(NotificationKind.LegalTaskDueSoon)]
     [InlineData(NotificationKind.CalendarEventStartingSoon)]
+    [InlineData(NotificationKind.PaymentInstallmentDueToday)]
     public async Task DeleteSource_RemovesRelatedNotification(
         NotificationKind kind)
     {
@@ -288,6 +354,12 @@ public sealed class NotificationPersistenceTests(
                     .Where(calendarEvent => calendarEvent.Id == graph.CalendarEvent.Id)
                     .ExecuteDeleteAsync();
                 break;
+            case NotificationKind.PaymentInstallmentDueToday:
+                await dbContext.PaymentInstallments
+                    .Where(installment =>
+                        installment.Id == graph.PaymentInstallment.Id)
+                    .ExecuteDeleteAsync();
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(kind));
         }
@@ -309,6 +381,7 @@ public sealed class NotificationPersistenceTests(
             graph.LegalDeadline.Id,
             graph.LegalTask.Id,
             null,
+            graph.PaymentInstallment.Id,
             DueDate,
             null,
             GeneratedAt,
@@ -340,6 +413,7 @@ public sealed class NotificationPersistenceTests(
             graph.LegalDeadline.Id,
             null,
             null,
+            null,
             mismatchKind ? DueDate : null,
             mismatchKind ? null : StartsAt,
             GeneratedAt,
@@ -361,6 +435,7 @@ public sealed class NotificationPersistenceTests(
             graph.LegalDeadline.Id,
             null,
             null,
+            null,
             DueDate,
             null,
             GeneratedAt,
@@ -368,6 +443,30 @@ public sealed class NotificationPersistenceTests(
 
         Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
         Assert.Equal("ck_notifications_read_at", exception.ConstraintName);
+    }
+
+    [Fact]
+    public async Task DirectInsert_FinanceWithInstantOccurrence_IsRejected()
+    {
+        TenantGraph graph = CreateTenantGraph(
+            "Finance occurrence",
+            "notification-finance-occurrence");
+        await SeedAsync(GetGraphEntities(graph));
+
+        PostgresException exception = await ExecuteInvalidInsertAsync(
+            graph,
+            NotificationKind.PaymentInstallmentDueToday,
+            null,
+            null,
+            null,
+            graph.PaymentInstallment.Id,
+            null,
+            StartsAt,
+            GeneratedAt,
+            null);
+
+        Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
+        Assert.Equal("ck_notifications_occurrence", exception.ConstraintName);
     }
 
     [Fact]
@@ -387,6 +486,7 @@ public sealed class NotificationPersistenceTests(
                 nameof(Notification.LegalDeadlineId),
                 nameof(Notification.LegalTaskId),
                 nameof(Notification.CalendarEventId),
+                nameof(Notification.PaymentInstallmentId),
                 nameof(Notification.OccurrenceDate),
                 nameof(Notification.OccurrenceAt),
                 nameof(Notification.GeneratedAt),
@@ -451,6 +551,18 @@ public sealed class NotificationPersistenceTests(
             "calendar_event_id IS NOT NULL");
         AssertIndex(
             entityType,
+            "ux_notifications_payment_installment_dedupe",
+            [
+                nameof(Notification.OrganizationId),
+                nameof(Notification.PaymentInstallmentId),
+                nameof(Notification.RecipientUserId),
+                nameof(Notification.Kind),
+                nameof(Notification.OccurrenceDate)
+            ],
+            true,
+            "payment_installment_id IS NOT NULL");
+        AssertIndex(
+            entityType,
             "ix_notifications_organization_id_recipient_user_id",
             [
                 nameof(Notification.OrganizationId),
@@ -458,7 +570,7 @@ public sealed class NotificationPersistenceTests(
             ],
             false,
             null);
-        Assert.Equal(4, entityType.GetIndexes().Count());
+        Assert.Equal(5, entityType.GetIndexes().Count());
 
         AssertForeignKey(
             entityType,
@@ -503,7 +615,41 @@ public sealed class NotificationPersistenceTests(
             ],
             [nameof(CalendarEvent.OrganizationId), nameof(CalendarEvent.Id)],
             DeleteBehavior.Cascade);
-        Assert.Equal(4, entityType.GetForeignKeys().Count());
+        AssertForeignKey(
+            entityType,
+            PaymentInstallmentForeignKey,
+            typeof(PaymentInstallment),
+            [
+                nameof(Notification.OrganizationId),
+                nameof(Notification.PaymentInstallmentId)
+            ],
+            [
+                nameof(PaymentInstallment.OrganizationId),
+                nameof(PaymentInstallment.Id)
+            ],
+            DeleteBehavior.Cascade);
+        Assert.Equal(5, entityType.GetForeignKeys().Count());
+
+        IEntityType installmentType = Assert.IsAssignableFrom<IEntityType>(
+            dbContext.Model.FindEntityType(typeof(PaymentInstallment)));
+        AssertIndex(
+            installmentType,
+            "ix_payment_installments_unpaid_due_date_organization_id_id",
+            [
+                nameof(PaymentInstallment.DueDate),
+                nameof(PaymentInstallment.OrganizationId),
+                nameof(PaymentInstallment.Id)
+            ],
+            false,
+            "paid_at IS NULL");
+        Assert.Contains(
+            installmentType.GetKeys(),
+            key => key.Properties.Select(property => property.Name)
+                .SequenceEqual(
+                    [
+                        nameof(PaymentInstallment.OrganizationId),
+                        nameof(PaymentInstallment.Id)
+                    ]));
     }
 
     [Fact]
@@ -512,7 +658,7 @@ public sealed class NotificationPersistenceTests(
         Assert.Equal(
             "id,organization_id,recipient_user_id,kind,legal_deadline_id," +
             "legal_task_id,calendar_event_id,occurrence_date,occurrence_at," +
-            "generated_at,read_at",
+            "generated_at,read_at,payment_installment_id",
             await GetTableColumnsAsync("notifications"));
         Assert.Equal(
             [
@@ -529,6 +675,7 @@ public sealed class NotificationPersistenceTests(
                 "pk_notifications",
                 "ux_notifications_calendar_event_dedupe",
                 "ux_notifications_deadline_dedupe",
+                "ux_notifications_payment_installment_dedupe",
                 "ux_notifications_task_dedupe"
             ],
             await GetIndexNamesAsync("notifications"));
@@ -547,10 +694,18 @@ public sealed class NotificationPersistenceTests(
             await GetConstraintColumnsAsync(
                 "notifications",
                 CalendarEventForeignKey));
+        Assert.Equal(
+            "organization_id,payment_installment_id",
+            await GetConstraintColumnsAsync(
+                "notifications",
+                PaymentInstallmentForeignKey));
         Assert.Equal("RESTRICT", await GetDeleteRuleAsync(RecipientForeignKey));
         Assert.Equal("CASCADE", await GetDeleteRuleAsync(DeadlineForeignKey));
         Assert.Equal("CASCADE", await GetDeleteRuleAsync(TaskForeignKey));
         Assert.Equal("CASCADE", await GetDeleteRuleAsync(CalendarEventForeignKey));
+        Assert.Equal(
+            "CASCADE",
+            await GetDeleteRuleAsync(PaymentInstallmentForeignKey));
 
         await AssertIndexDefinitionAsync(
             "notifications",
@@ -570,6 +725,12 @@ public sealed class NotificationPersistenceTests(
             "(organization_id, calendar_event_id, recipient_user_id, kind, " +
             "occurrence_at)",
             "WHERE (calendar_event_id IS NOT NULL)");
+        await AssertIndexDefinitionAsync(
+            "notifications",
+            "ux_notifications_payment_installment_dedupe",
+            "(organization_id, payment_installment_id, recipient_user_id, kind, " +
+            "occurrence_date)",
+            "WHERE (payment_installment_id IS NOT NULL)");
 
         Assert.Equal(
             "organization_id,user_id",
@@ -596,6 +757,11 @@ public sealed class NotificationPersistenceTests(
             await GetUniqueConstraintColumnsAsync(
                 "calendar_events",
                 "ak_calendar_events_organization_id_id"));
+        Assert.Equal(
+            "organization_id,id",
+            await GetUniqueConstraintColumnsAsync(
+                "payment_installments",
+                "ak_payment_installments_organization_id_id"));
 
         await AssertIndexDefinitionAsync(
             "legal_deadlines",
@@ -612,6 +778,11 @@ public sealed class NotificationPersistenceTests(
             "ix_calendar_events_starts_at_organization_id_id",
             "(starts_at, organization_id, id)",
             null);
+        await AssertIndexDefinitionAsync(
+            "payment_installments",
+            "ix_payment_installments_unpaid_due_date_organization_id_id",
+            "(due_date, organization_id, id)",
+            "WHERE (paid_at IS NULL)");
     }
 
     private async Task<DbUpdateException> SaveInvalidAsync(
@@ -629,6 +800,7 @@ public sealed class NotificationPersistenceTests(
         Guid? legalDeadlineId,
         Guid? legalTaskId,
         Guid? calendarEventId,
+        Guid? paymentInstallmentId,
         DateOnly? occurrenceDate,
         DateTimeOffset? occurrenceAt,
         DateTimeOffset generatedAt,
@@ -642,11 +814,13 @@ public sealed class NotificationPersistenceTests(
                 INSERT INTO notifications
                     (id, organization_id, recipient_user_id, kind,
                      legal_deadline_id, legal_task_id, calendar_event_id,
+                     payment_installment_id,
                      occurrence_date, occurrence_at, generated_at, read_at)
                 VALUES
                     ({Guid.NewGuid()}, {graph.Organization.Id},
                      {graph.RecipientUser.Id}, {(int)kind}, {legalDeadlineId},
-                     {legalTaskId}, {calendarEventId}, {occurrenceDate},
+                     {legalTaskId}, {calendarEventId}, {paymentInstallmentId},
+                     {occurrenceDate},
                      {occurrenceAt}, {generatedAt}, {readAt})
                 """));
     }
@@ -704,7 +878,8 @@ public sealed class NotificationPersistenceTests(
             graph.LegalProcess,
             graph.LegalDeadline,
             graph.LegalTask,
-            graph.CalendarEvent
+            graph.CalendarEvent,
+            graph.PaymentPlan
         ];
     }
 
@@ -769,6 +944,13 @@ public sealed class NotificationPersistenceTests(
             null,
             recipientMembership.Id,
             CreatedAt);
+        var paymentPlan = new ClientPaymentPlan(
+            organization.Id,
+            client.Id,
+            200m,
+            2,
+            DueDate,
+            CreatedAt);
 
         return new TenantGraph(
             organization,
@@ -778,7 +960,8 @@ public sealed class NotificationPersistenceTests(
             legalProcess,
             legalDeadline,
             legalTask,
-            calendarEvent);
+            calendarEvent,
+            paymentPlan);
     }
 
     private static Notification CreateNotification(
@@ -798,6 +981,7 @@ public sealed class NotificationPersistenceTests(
                 sourceGraph.LegalDeadline.Id,
                 null,
                 null,
+                null,
                 sourceGraph.LegalDeadline.DueDate,
                 null,
                 generatedAt ?? GeneratedAt),
@@ -807,6 +991,7 @@ public sealed class NotificationPersistenceTests(
                 kind,
                 null,
                 sourceGraph.LegalTask.Id,
+                null,
                 null,
                 sourceGraph.LegalTask.DueDate,
                 null,
@@ -819,10 +1004,36 @@ public sealed class NotificationPersistenceTests(
                 null,
                 sourceGraph.CalendarEvent.Id,
                 null,
+                null,
                 sourceGraph.CalendarEvent.StartsAt,
                 generatedAt ?? GeneratedAt),
+            NotificationKind.PaymentInstallmentDueToday =>
+                CreateFinanceNotification(
+                    ownerGraph,
+                    sourceGraph.PaymentInstallment,
+                    sourceGraph.PaymentInstallment.DueDate,
+                    generatedAt),
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
+    }
+
+    private static Notification CreateFinanceNotification(
+        TenantGraph ownerGraph,
+        PaymentInstallment installment,
+        DateOnly occurrenceDate,
+        DateTimeOffset? generatedAt = null)
+    {
+        return new Notification(
+            ownerGraph.Organization.Id,
+            ownerGraph.RecipientUser.Id,
+            NotificationKind.PaymentInstallmentDueToday,
+            null,
+            null,
+            null,
+            installment.Id,
+            occurrenceDate,
+            null,
+            generatedAt ?? GeneratedAt);
     }
 
     private static void AssertPostgresException(
@@ -1065,6 +1276,7 @@ public sealed class NotificationPersistenceTests(
                 nameof(Notification.LegalDeadlineId),
                 nameof(Notification.LegalTaskId),
                 nameof(Notification.CalendarEventId),
+                nameof(Notification.PaymentInstallmentId),
                 nameof(Notification.OccurrenceDate),
                 nameof(Notification.OccurrenceAt),
                 nameof(Notification.GeneratedAt),
@@ -1116,5 +1328,9 @@ public sealed class NotificationPersistenceTests(
         LegalProcess LegalProcess,
         LegalDeadline LegalDeadline,
         LegalTask LegalTask,
-        CalendarEvent CalendarEvent);
+        CalendarEvent CalendarEvent,
+        ClientPaymentPlan PaymentPlan)
+    {
+        public PaymentInstallment PaymentInstallment => PaymentPlan.Installments[0];
+    }
 }

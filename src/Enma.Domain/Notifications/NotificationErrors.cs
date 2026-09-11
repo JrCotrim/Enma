@@ -8,6 +8,7 @@ public static class NotificationErrors
     public const string LegalDeadlineIdInvalid = "Legal deadline identifier is invalid.";
     public const string LegalTaskIdInvalid = "Legal task identifier is invalid.";
     public const string CalendarEventIdInvalid = "Calendar event identifier is invalid.";
+    public const string PaymentInstallmentIdInvalid = "Payment installment identifier is invalid.";
     public const string SourceInvalid = "Exactly one notification source is required.";
     public const string KindSourceMismatch = "Notification kind does not match its source.";
     public const string OccurrenceDateRequired = "Occurrence date is required for this notification kind.";

@@ -477,6 +477,7 @@ public sealed class NotificationGenerationPersistenceTests(
             null,
             alreadyGeneratedTask.Id,
             null,
+            null,
             SchedulerDate,
             null,
             GeneratedAt);

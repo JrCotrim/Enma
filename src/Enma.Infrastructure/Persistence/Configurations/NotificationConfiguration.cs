@@ -1,5 +1,6 @@
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Deadlines;
+using Enma.Domain.Finance;
 using Enma.Domain.Notifications;
 using Enma.Domain.Organizations;
 using Enma.Domain.Tasks;
@@ -19,19 +20,20 @@ public sealed class NotificationConfiguration
             {
                 tableBuilder.HasCheckConstraint(
                     "ck_notifications_kind",
-                    "kind IN (1, 2, 3)");
+                    "kind IN (1, 2, 3, 4)");
                 tableBuilder.HasCheckConstraint(
                     "ck_notifications_exactly_one_source",
                     "num_nonnulls(legal_deadline_id, legal_task_id, " +
-                    "calendar_event_id) = 1");
+                    "calendar_event_id, payment_installment_id) = 1");
                 tableBuilder.HasCheckConstraint(
                     "ck_notifications_kind_source",
                     "(kind = 1 AND legal_deadline_id IS NOT NULL) OR " +
                     "(kind = 2 AND legal_task_id IS NOT NULL) OR " +
-                    "(kind = 3 AND calendar_event_id IS NOT NULL)");
+                    "(kind = 3 AND calendar_event_id IS NOT NULL) OR " +
+                    "(kind = 4 AND payment_installment_id IS NOT NULL)");
                 tableBuilder.HasCheckConstraint(
                     "ck_notifications_occurrence",
-                    "(kind IN (1, 2) AND occurrence_date IS NOT NULL AND " +
+                    "(kind IN (1, 2, 4) AND occurrence_date IS NOT NULL AND " +
                     "occurrence_at IS NULL) OR " +
                     "(kind = 3 AND occurrence_date IS NULL AND " +
                     "occurrence_at IS NOT NULL)");
@@ -74,6 +76,10 @@ public sealed class NotificationConfiguration
 
         builder.Property(notification => notification.CalendarEventId)
             .HasColumnName("calendar_event_id")
+            .HasColumnType("uuid");
+
+        builder.Property(notification => notification.PaymentInstallmentId)
+            .HasColumnName("payment_installment_id")
             .HasColumnType("uuid");
 
         builder.Property(notification => notification.OccurrenceDate)
@@ -137,6 +143,18 @@ public sealed class NotificationConfiguration
             .HasDatabaseName("ux_notifications_calendar_event_dedupe")
             .HasFilter("calendar_event_id IS NOT NULL");
 
+        builder.HasIndex(notification => new
+            {
+                notification.OrganizationId,
+                notification.PaymentInstallmentId,
+                notification.RecipientUserId,
+                notification.Kind,
+                notification.OccurrenceDate
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_notifications_payment_installment_dedupe")
+            .HasFilter("payment_installment_id IS NOT NULL");
+
         builder.HasOne<OrganizationMembership>()
             .WithMany()
             .HasForeignKey(notification => new
@@ -199,5 +217,21 @@ public sealed class NotificationConfiguration
             .OnDelete(DeleteBehavior.Cascade)
             .HasConstraintName(
                 "fk_notifications_calendar_events_org_calendar_event_id");
+
+        builder.HasOne<PaymentInstallment>()
+            .WithMany()
+            .HasForeignKey(notification => new
+            {
+                notification.OrganizationId,
+                notification.PaymentInstallmentId
+            })
+            .HasPrincipalKey(installment => new
+            {
+                installment.OrganizationId,
+                installment.Id
+            })
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName(
+                "fk_notifications_installments_org_payment_installment_id");
     }
 }

@@ -9,6 +9,7 @@ public sealed class Notification
         Guid? legalDeadlineId,
         Guid? legalTaskId,
         Guid? calendarEventId,
+        Guid? paymentInstallmentId,
         DateOnly? occurrenceDate,
         DateTimeOffset? occurrenceAt,
         DateTimeOffset generatedAt)
@@ -46,6 +47,10 @@ public sealed class Notification
             calendarEventId,
             nameof(calendarEventId),
             NotificationErrors.CalendarEventIdInvalid);
+        ValidateOptionalIdentifier(
+            paymentInstallmentId,
+            nameof(paymentInstallmentId),
+            NotificationErrors.PaymentInstallmentIdInvalid);
 
         if (occurrenceDate == DateOnly.MinValue)
         {
@@ -68,12 +73,17 @@ public sealed class Notification
                 NotificationErrors.GeneratedAtInvalid);
         }
 
-        ValidateSourceCount(legalDeadlineId, legalTaskId, calendarEventId);
+        ValidateSourceCount(
+            legalDeadlineId,
+            legalTaskId,
+            calendarEventId,
+            paymentInstallmentId);
         ValidateKindShape(
             kind,
             legalDeadlineId,
             legalTaskId,
             calendarEventId,
+            paymentInstallmentId,
             occurrenceDate,
             occurrenceAt);
 
@@ -84,6 +94,7 @@ public sealed class Notification
         LegalDeadlineId = legalDeadlineId;
         LegalTaskId = legalTaskId;
         CalendarEventId = calendarEventId;
+        PaymentInstallmentId = paymentInstallmentId;
         OccurrenceDate = occurrenceDate;
         OccurrenceAt = occurrenceAt?.ToUniversalTime();
         GeneratedAt = generatedAt.ToUniversalTime();
@@ -102,6 +113,8 @@ public sealed class Notification
     public Guid? LegalTaskId { get; private set; }
 
     public Guid? CalendarEventId { get; private set; }
+
+    public Guid? PaymentInstallmentId { get; private set; }
 
     public DateOnly? OccurrenceDate { get; private set; }
 
@@ -146,11 +159,13 @@ public sealed class Notification
     private static void ValidateSourceCount(
         Guid? legalDeadlineId,
         Guid? legalTaskId,
-        Guid? calendarEventId)
+        Guid? calendarEventId,
+        Guid? paymentInstallmentId)
     {
         int sourceCount = Convert.ToInt32(legalDeadlineId.HasValue) +
             Convert.ToInt32(legalTaskId.HasValue) +
-            Convert.ToInt32(calendarEventId.HasValue);
+            Convert.ToInt32(calendarEventId.HasValue) +
+            Convert.ToInt32(paymentInstallmentId.HasValue);
 
         if (sourceCount != 1)
         {
@@ -163,6 +178,7 @@ public sealed class Notification
         Guid? legalDeadlineId,
         Guid? legalTaskId,
         Guid? calendarEventId,
+        Guid? paymentInstallmentId,
         DateOnly? occurrenceDate,
         DateTimeOffset? occurrenceAt)
     {
@@ -171,6 +187,8 @@ public sealed class Notification
             NotificationKind.LegalDeadlineDueSoon => legalDeadlineId.HasValue,
             NotificationKind.LegalTaskDueSoon => legalTaskId.HasValue,
             NotificationKind.CalendarEventStartingSoon => calendarEventId.HasValue,
+            NotificationKind.PaymentInstallmentDueToday =>
+                paymentInstallmentId.HasValue,
             _ => false
         };
 
@@ -182,7 +200,8 @@ public sealed class Notification
         }
 
         if (kind is NotificationKind.LegalDeadlineDueSoon or
-            NotificationKind.LegalTaskDueSoon)
+            NotificationKind.LegalTaskDueSoon or
+            NotificationKind.PaymentInstallmentDueToday)
         {
             if (!occurrenceDate.HasValue)
             {

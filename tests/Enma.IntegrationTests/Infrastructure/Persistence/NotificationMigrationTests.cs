@@ -1,6 +1,7 @@
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
+using Enma.Domain.Finance;
 using Enma.Domain.Notifications;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
@@ -86,12 +87,24 @@ public sealed class NotificationMigrationTests(
             graph.CalendarEvent.Id,
             (await dbContext.CalendarEvents.SingleAsync()).Id);
 
+        var paymentPlan = new ClientPaymentPlan(
+            graph.Organization.Id,
+            graph.Client.Id,
+            100m,
+            1,
+            DueDate,
+            CreatedAt.AddDays(1));
+        dbContext.ClientPaymentPlans.Add(paymentPlan);
+        await dbContext.SaveChangesAsync();
+        PaymentInstallment installment = Assert.Single(paymentPlan.Installments);
+
         dbContext.Notifications.AddRange(
             new Notification(
                 graph.Organization.Id,
                 graph.RecipientUser.Id,
                 NotificationKind.LegalDeadlineDueSoon,
                 graph.LegalDeadline.Id,
+                null,
                 null,
                 null,
                 graph.LegalDeadline.DueDate,
@@ -104,6 +117,7 @@ public sealed class NotificationMigrationTests(
                 null,
                 graph.LegalTask.Id,
                 null,
+                null,
                 graph.LegalTask.DueDate,
                 null,
                 CreatedAt.AddDays(1)),
@@ -115,11 +129,29 @@ public sealed class NotificationMigrationTests(
                 null,
                 graph.CalendarEvent.Id,
                 null,
+                null,
                 graph.CalendarEvent.StartsAt,
+                CreatedAt.AddDays(1)),
+            new Notification(
+                graph.Organization.Id,
+                graph.RecipientUser.Id,
+                NotificationKind.PaymentInstallmentDueToday,
+                null,
+                null,
+                null,
+                installment.Id,
+                installment.DueDate,
+                null,
                 CreatedAt.AddDays(1)));
         await dbContext.SaveChangesAsync();
 
-        Assert.Equal(3, await dbContext.Notifications.CountAsync());
+        Assert.Equal(4, await dbContext.Notifications.CountAsync());
+        Assert.Equal(
+            installment.Id,
+            (await dbContext.Notifications.SingleAsync(notification =>
+                notification.Kind ==
+                    NotificationKind.PaymentInstallmentDueToday))
+                .PaymentInstallmentId);
         Assert.Equal(
             "organization_id,user_id",
             await GetUniqueConstraintColumnsAsync(

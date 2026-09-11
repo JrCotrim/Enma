@@ -14,6 +14,8 @@ public sealed class NotificationTests
         "44444444-4444-4444-4444-444444444444");
     private static readonly Guid CalendarEventId = Guid.Parse(
         "55555555-5555-5555-5555-555555555555");
+    private static readonly Guid PaymentInstallmentId = Guid.Parse(
+        "66666666-6666-6666-6666-666666666666");
     private static readonly DateOnly OccurrenceDate = new(2026, 9, 1);
     private static readonly DateTimeOffset OccurrenceAt = new(
         2026,
@@ -32,6 +34,7 @@ public sealed class NotificationTests
         Guid? legalDeadlineId,
         Guid? legalTaskId,
         Guid? calendarEventId,
+        Guid? paymentInstallmentId,
         DateOnly? occurrenceDate,
         DateTimeOffset? occurrenceAt)
     {
@@ -40,6 +43,7 @@ public sealed class NotificationTests
             legalDeadlineId,
             legalTaskId,
             calendarEventId,
+            paymentInstallmentId,
             occurrenceDate,
             occurrenceAt);
 
@@ -50,6 +54,7 @@ public sealed class NotificationTests
         Assert.Equal(legalDeadlineId, notification.LegalDeadlineId);
         Assert.Equal(legalTaskId, notification.LegalTaskId);
         Assert.Equal(calendarEventId, notification.CalendarEventId);
+        Assert.Equal(paymentInstallmentId, notification.PaymentInstallmentId);
         Assert.Equal(occurrenceDate, notification.OccurrenceDate);
         Assert.Equal(occurrenceAt, notification.OccurrenceAt);
         Assert.Equal(GeneratedAt, notification.GeneratedAt);
@@ -72,6 +77,7 @@ public sealed class NotificationTests
                 LegalDeadlineId,
                 null,
                 null,
+                null,
                 OccurrenceDate,
                 null,
                 GeneratedAt));
@@ -85,6 +91,7 @@ public sealed class NotificationTests
         Guid? legalDeadlineId,
         Guid? legalTaskId,
         Guid? calendarEventId,
+        Guid? paymentInstallmentId,
         string expectedParameterName)
     {
         ArgumentException exception = Assert.Throws<ArgumentException>(() =>
@@ -93,6 +100,7 @@ public sealed class NotificationTests
                 legalDeadlineId,
                 legalTaskId,
                 calendarEventId,
+                paymentInstallmentId,
                 OccurrenceDate,
                 null));
 
@@ -109,6 +117,7 @@ public sealed class NotificationTests
                     LegalDeadlineId,
                     null,
                     null,
+                    null,
                     OccurrenceDate,
                     null));
 
@@ -120,7 +129,8 @@ public sealed class NotificationTests
     public void Constructor_WithInvalidSourceCount_Throws(
         Guid? legalDeadlineId,
         Guid? legalTaskId,
-        Guid? calendarEventId)
+        Guid? calendarEventId,
+        Guid? paymentInstallmentId)
     {
         ArgumentException exception = Assert.Throws<ArgumentException>(() =>
             CreateNotification(
@@ -128,6 +138,7 @@ public sealed class NotificationTests
                 legalDeadlineId,
                 legalTaskId,
                 calendarEventId,
+                paymentInstallmentId,
                 OccurrenceDate,
                 null));
 
@@ -141,6 +152,7 @@ public sealed class NotificationTests
         Guid? legalDeadlineId,
         Guid? legalTaskId,
         Guid? calendarEventId,
+        Guid? paymentInstallmentId,
         DateOnly? occurrenceDate,
         DateTimeOffset? occurrenceAt)
     {
@@ -150,6 +162,7 @@ public sealed class NotificationTests
                 legalDeadlineId,
                 legalTaskId,
                 calendarEventId,
+                paymentInstallmentId,
                 occurrenceDate,
                 occurrenceAt));
 
@@ -163,6 +176,7 @@ public sealed class NotificationTests
         Guid? legalDeadlineId,
         Guid? legalTaskId,
         Guid? calendarEventId,
+        Guid? paymentInstallmentId,
         DateOnly? occurrenceDate,
         DateTimeOffset? occurrenceAt,
         string expectedParameterName)
@@ -173,6 +187,7 @@ public sealed class NotificationTests
                 legalDeadlineId,
                 legalTaskId,
                 calendarEventId,
+                paymentInstallmentId,
                 occurrenceDate,
                 occurrenceAt));
 
@@ -198,6 +213,7 @@ public sealed class NotificationTests
             null,
             CalendarEventId,
             null,
+            null,
             occurrenceAt,
             generatedAt);
         Notification deadlineNotification = CreateNotification(
@@ -205,6 +221,16 @@ public sealed class NotificationTests
             LegalDeadlineId,
             null,
             null,
+            null,
+            OccurrenceDate,
+            null,
+            generatedAt);
+        Notification financeNotification = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            null,
+            null,
+            null,
+            PaymentInstallmentId,
             OccurrenceDate,
             null,
             generatedAt);
@@ -214,6 +240,8 @@ public sealed class NotificationTests
         Assert.Equal(TimeSpan.Zero, calendarNotification.GeneratedAt.Offset);
         Assert.Equal(generatedAt.UtcDateTime, calendarNotification.GeneratedAt.UtcDateTime);
         Assert.Equal(OccurrenceDate, deadlineNotification.OccurrenceDate);
+        Assert.Equal(TimeSpan.Zero, financeNotification.GeneratedAt.Offset);
+        Assert.Equal(OccurrenceDate, financeNotification.OccurrenceDate);
     }
 
     [Theory]
@@ -230,6 +258,7 @@ public sealed class NotificationTests
                     null,
                     null,
                     CalendarEventId,
+                    null,
                     null,
                     occurrenceAt,
                     generatedAt));
@@ -297,12 +326,13 @@ public sealed class NotificationTests
         Assert.Equal(LegalDeadlineId, notification.LegalDeadlineId);
         Assert.Null(notification.LegalTaskId);
         Assert.Null(notification.CalendarEventId);
+        Assert.Null(notification.PaymentInstallmentId);
         Assert.Equal(OccurrenceDate, notification.OccurrenceDate);
         Assert.Null(notification.OccurrenceAt);
         Assert.Equal(GeneratedAt, notification.GeneratedAt);
     }
 
-    public static TheoryData<NotificationKind, Guid?, Guid?, Guid?, DateOnly?, DateTimeOffset?>
+    public static TheoryData<NotificationKind, Guid?, Guid?, Guid?, Guid?, DateOnly?, DateTimeOffset?>
         ValidShapes =>
         new()
         {
@@ -311,6 +341,7 @@ public sealed class NotificationTests
                 LegalDeadlineId,
                 null,
                 null,
+                null,
                 OccurrenceDate,
                 null
             },
@@ -318,6 +349,7 @@ public sealed class NotificationTests
                 NotificationKind.LegalTaskDueSoon,
                 null,
                 LegalTaskId,
+                null,
                 null,
                 OccurrenceDate,
                 null
@@ -328,27 +360,40 @@ public sealed class NotificationTests
                 null,
                 CalendarEventId,
                 null,
+                null,
                 OccurrenceAt
+            },
+            {
+                NotificationKind.PaymentInstallmentDueToday,
+                null,
+                null,
+                null,
+                PaymentInstallmentId,
+                OccurrenceDate,
+                null
             }
         };
 
-    public static TheoryData<Guid?, Guid?, Guid?, string> EmptyOptionalIdentifiers =>
+    public static TheoryData<Guid?, Guid?, Guid?, Guid?, string>
+        EmptyOptionalIdentifiers =>
         new()
         {
-            { Guid.Empty, null, null, "legalDeadlineId" },
-            { null, Guid.Empty, null, "legalTaskId" },
-            { null, null, Guid.Empty, "calendarEventId" }
+            { Guid.Empty, null, null, null, "legalDeadlineId" },
+            { null, Guid.Empty, null, null, "legalTaskId" },
+            { null, null, Guid.Empty, null, "calendarEventId" },
+            { null, null, null, Guid.Empty, "paymentInstallmentId" }
         };
 
-    public static TheoryData<Guid?, Guid?, Guid?> InvalidSourceCounts =>
+    public static TheoryData<Guid?, Guid?, Guid?, Guid?> InvalidSourceCounts =>
         new()
         {
-            { null, null, null },
-            { LegalDeadlineId, LegalTaskId, null },
-            { LegalDeadlineId, LegalTaskId, CalendarEventId }
+            { null, null, null, null },
+            { LegalDeadlineId, LegalTaskId, null, null },
+            { LegalDeadlineId, null, null, PaymentInstallmentId },
+            { LegalDeadlineId, LegalTaskId, CalendarEventId, PaymentInstallmentId }
         };
 
-    public static TheoryData<NotificationKind, Guid?, Guid?, Guid?, DateOnly?, DateTimeOffset?>
+    public static TheoryData<NotificationKind, Guid?, Guid?, Guid?, Guid?, DateOnly?, DateTimeOffset?>
         MismatchedKindsAndSources =>
         new()
         {
@@ -356,6 +401,7 @@ public sealed class NotificationTests
                 NotificationKind.LegalDeadlineDueSoon,
                 null,
                 LegalTaskId,
+                null,
                 null,
                 OccurrenceDate,
                 null
@@ -365,6 +411,7 @@ public sealed class NotificationTests
                 null,
                 null,
                 CalendarEventId,
+                null,
                 OccurrenceDate,
                 null
             },
@@ -374,11 +421,21 @@ public sealed class NotificationTests
                 null,
                 null,
                 null,
+                null,
                 OccurrenceAt
+            },
+            {
+                NotificationKind.PaymentInstallmentDueToday,
+                LegalDeadlineId,
+                null,
+                null,
+                null,
+                OccurrenceDate,
+                null
             }
         };
 
-    public static TheoryData<NotificationKind, Guid?, Guid?, Guid?, DateOnly?, DateTimeOffset?, string>
+    public static TheoryData<NotificationKind, Guid?, Guid?, Guid?, Guid?, DateOnly?, DateTimeOffset?, string>
         InvalidOccurrences =>
         new()
         {
@@ -389,12 +446,14 @@ public sealed class NotificationTests
                 null,
                 null,
                 null,
+                null,
                 "occurrenceDate"
             },
             {
                 NotificationKind.LegalTaskDueSoon,
                 null,
                 LegalTaskId,
+                null,
                 null,
                 OccurrenceDate,
                 OccurrenceAt,
@@ -405,6 +464,7 @@ public sealed class NotificationTests
                 null,
                 null,
                 CalendarEventId,
+                null,
                 OccurrenceDate,
                 OccurrenceAt,
                 "occurrenceDate"
@@ -414,6 +474,7 @@ public sealed class NotificationTests
                 null,
                 null,
                 CalendarEventId,
+                null,
                 null,
                 null,
                 "occurrenceAt"
@@ -423,9 +484,30 @@ public sealed class NotificationTests
                 LegalDeadlineId,
                 null,
                 null,
+                null,
                 DateOnly.MinValue,
                 null,
                 "occurrenceDate"
+            },
+            {
+                NotificationKind.PaymentInstallmentDueToday,
+                null,
+                null,
+                null,
+                PaymentInstallmentId,
+                null,
+                null,
+                "occurrenceDate"
+            },
+            {
+                NotificationKind.PaymentInstallmentDueToday,
+                null,
+                null,
+                null,
+                PaymentInstallmentId,
+                OccurrenceDate,
+                OccurrenceAt,
+                "occurrenceAt"
             }
         };
 
@@ -451,6 +533,7 @@ public sealed class NotificationTests
             LegalDeadlineId,
             null,
             null,
+            null,
             OccurrenceDate,
             null);
     }
@@ -460,6 +543,7 @@ public sealed class NotificationTests
         Guid? legalDeadlineId,
         Guid? legalTaskId,
         Guid? calendarEventId,
+        Guid? paymentInstallmentId,
         DateOnly? occurrenceDate,
         DateTimeOffset? occurrenceAt,
         DateTimeOffset? generatedAt = null)
@@ -471,6 +555,7 @@ public sealed class NotificationTests
             legalDeadlineId,
             legalTaskId,
             calendarEventId,
+            paymentInstallmentId,
             occurrenceDate,
             occurrenceAt,
             generatedAt ?? GeneratedAt);

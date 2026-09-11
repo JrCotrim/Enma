@@ -98,6 +98,16 @@ public sealed class PaymentInstallmentConfiguration
                 "ix_payment_installments_unpaid_organization_id_due_date_id")
             .HasFilter("paid_at IS NULL");
 
+        builder.HasIndex(installment => new
+            {
+                installment.DueDate,
+                installment.OrganizationId,
+                installment.Id
+            })
+            .HasDatabaseName(
+                "ix_payment_installments_unpaid_due_date_organization_id_id")
+            .HasFilter("paid_at IS NULL");
+
         builder.HasOne<Organization>()
             .WithMany()
             .HasForeignKey(installment => installment.OrganizationId)
