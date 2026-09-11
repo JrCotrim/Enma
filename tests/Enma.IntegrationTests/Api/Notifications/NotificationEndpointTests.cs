@@ -257,6 +257,69 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GeneratedFinanceNotification_FlowsThroughRoleAwareApiProjection()
+    {
+        ApiGraph graph = CreateGraph(
+            "generated-finance",
+            OrganizationRole.Administrator);
+        User member = CreateUser("generated-finance-member");
+        var memberMembership = new OrganizationMembership(
+            graph.Organization.Id,
+            member.Id,
+            OrganizationRole.Member,
+            Now.AddDays(-1));
+        string administratorHandle = await SeedAuthenticatedAsync(
+            graph.Actor,
+            graph.Entities.Concat([member, memberMembership]));
+        string memberHandle = await SeedAuthenticatedAsync(member, []);
+        PaymentInstallment installment = graph.PaymentPlan.Installments[0];
+
+        await using (EnmaDbContext dbContext = fixture.CreateDbContext())
+        {
+            var persistence = new NotificationGenerationPersistence(dbContext);
+            var generation = await persistence
+                .GeneratePaymentInstallmentDueTodayAsync(
+                    installment.DueDate,
+                    Now,
+                    CancellationToken.None);
+            Assert.Equal(2, generation.InsertedCount);
+            Assert.False(await dbContext.Notifications.AnyAsync(notification =>
+                notification.RecipientUserId == member.Id));
+        }
+
+        using HttpResponseMessage administratorResponse = await SendGetAsync(
+            GetListPath(graph.Organization.Id),
+            administratorHandle);
+        Assert.Equal(HttpStatusCode.OK, administratorResponse.StatusCode);
+        ListNotificationsResponse administratorFeed = Assert.IsType<
+            ListNotificationsResponse>(
+                await administratorResponse.Content.ReadFromJsonAsync<
+                    ListNotificationsResponse>());
+        NotificationResponse item = Assert.Single(administratorFeed.Items);
+        Assert.Equal(NotificationKindResponse.PaymentInstallmentDueToday, item.Kind);
+        Assert.Equal(NotificationSourceTypeResponse.PaymentInstallment, item.SourceType);
+        Assert.Equal(installment.Id, item.SourceId);
+        Assert.Equal(graph.PaymentPlan.Id, item.PaymentPlanId);
+        Assert.Equal(
+            $"{graph.Client.Name} — Parcela 1 de {graph.PaymentPlan.InstallmentCount}",
+            item.SourceTitle);
+        Assert.Equal(installment.DueDate, item.OccurrenceDate);
+        Assert.Null(item.OccurrenceAt);
+        Assert.Equal(1, administratorFeed.UnreadCount);
+
+        using HttpResponseMessage memberResponse = await SendGetAsync(
+            GetListPath(graph.Organization.Id),
+            memberHandle);
+        Assert.Equal(HttpStatusCode.OK, memberResponse.StatusCode);
+        ListNotificationsResponse memberFeed = Assert.IsType<
+            ListNotificationsResponse>(
+                await memberResponse.Content.ReadFromJsonAsync<
+                    ListNotificationsResponse>());
+        Assert.Empty(memberFeed.Items);
+        Assert.Equal(0, memberFeed.UnreadCount);
+    }
+
+    [Fact]
     public async Task FinanceVisibility_DowngradeHidesCountAndMutationsThenPromotionRestoresUnread()
     {
         ApiGraph graph = CreateGraph(

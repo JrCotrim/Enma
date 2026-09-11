@@ -78,6 +78,9 @@ namespace Enma.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql(
+                "DELETE FROM notifications WHERE kind = 4;");
+
             migrationBuilder.DropForeignKey(
                 name: "fk_notifications_installments_org_payment_installment_id",
                 table: "notifications");

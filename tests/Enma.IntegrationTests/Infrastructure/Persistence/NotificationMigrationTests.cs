@@ -21,6 +21,10 @@ public sealed class NotificationMigrationTests(
 {
     private const string PreviousMigration =
         "20260822154734_AddCalendarEvents";
+    private const string PreFinanceMigration =
+        "20260907171157_ExtendAuditTaxonomyForFinance";
+    private const string FinanceMigration =
+        "20260910222135_AddFinancePaymentInstallmentNotifications";
 
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
@@ -174,6 +178,118 @@ public sealed class NotificationMigrationTests(
                 "ak_calendar_events_organization_id_id"));
     }
 
+    [Fact]
+    public async Task MigrateAsync_DownRemovesOnlyFinanceNotificationsAndReUpgrades()
+    {
+        RepresentativeGraph graph = CreateRepresentativeGraph();
+        var paymentPlan = new ClientPaymentPlan(
+            graph.Organization.Id,
+            graph.Client.Id,
+            100m,
+            1,
+            DueDate,
+            CreatedAt.AddDays(1));
+
+        await using (EnmaDbContext seedContext = fixture.CreateDbContext())
+        {
+            seedContext.AddRange(GetGraphEntities(graph));
+            seedContext.ClientPaymentPlans.Add(paymentPlan);
+            await seedContext.SaveChangesAsync();
+
+            PaymentInstallment installment = Assert.Single(paymentPlan.Installments);
+            seedContext.Notifications.AddRange(
+                new Notification(
+                    graph.Organization.Id,
+                    graph.RecipientUser.Id,
+                    NotificationKind.LegalDeadlineDueSoon,
+                    graph.LegalDeadline.Id,
+                    null,
+                    null,
+                    null,
+                    graph.LegalDeadline.DueDate,
+                    null,
+                    CreatedAt.AddDays(1)),
+                new Notification(
+                    graph.Organization.Id,
+                    graph.RecipientUser.Id,
+                    NotificationKind.LegalTaskDueSoon,
+                    null,
+                    graph.LegalTask.Id,
+                    null,
+                    null,
+                    graph.LegalTask.DueDate,
+                    null,
+                    CreatedAt.AddDays(1)),
+                new Notification(
+                    graph.Organization.Id,
+                    graph.RecipientUser.Id,
+                    NotificationKind.CalendarEventStartingSoon,
+                    null,
+                    null,
+                    graph.CalendarEvent.Id,
+                    null,
+                    null,
+                    graph.CalendarEvent.StartsAt,
+                    CreatedAt.AddDays(1)),
+                new Notification(
+                    graph.Organization.Id,
+                    graph.RecipientUser.Id,
+                    NotificationKind.PaymentInstallmentDueToday,
+                    null,
+                    null,
+                    null,
+                    installment.Id,
+                    installment.DueDate,
+                    null,
+                    CreatedAt.AddDays(1)));
+            await seedContext.SaveChangesAsync();
+        }
+
+        int[] currentKinds = await GetNotificationKindsAsync();
+        Assert.Equal([1, 2, 3, 4], currentKinds);
+
+        await MigrateAsync(PreFinanceMigration);
+
+        int[] downgradedKinds = await GetNotificationKindsAsync();
+        Assert.Equal([1, 2, 3], downgradedKinds);
+        Assert.False(await NotificationColumnExistsAsync("payment_installment_id"));
+        Assert.Equal(
+            [
+                "ck_notifications_exactly_one_source",
+                "ck_notifications_kind",
+                "ck_notifications_kind_source",
+                "ck_notifications_occurrence",
+                "ck_notifications_read_at"
+            ],
+            await GetNotificationCheckConstraintNamesAsync());
+
+        await MigrateAsync(FinanceMigration);
+
+        int[] reUpgradedKinds = await GetNotificationKindsAsync();
+        Assert.Equal([1, 2, 3], reUpgradedKinds);
+        Assert.True(await NotificationColumnExistsAsync("payment_installment_id"));
+
+        await using (EnmaDbContext reUpgradedContext = fixture.CreateDbContext())
+        {
+            PaymentInstallment installment = paymentPlan.Installments.Single();
+            reUpgradedContext.Notifications.Add(new Notification(
+                graph.Organization.Id,
+                graph.RecipientUser.Id,
+                NotificationKind.PaymentInstallmentDueToday,
+                null,
+                null,
+                null,
+                installment.Id,
+                installment.DueDate,
+                null,
+                CreatedAt.AddDays(2)));
+            await reUpgradedContext.SaveChangesAsync();
+        }
+
+        int[] healthySchemaKinds = await GetNotificationKindsAsync();
+        Assert.Equal([1, 2, 3, 4], healthySchemaKinds);
+    }
+
     private async Task MigrateAsync(string? targetMigration = null)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -228,6 +344,68 @@ public sealed class NotificationMigrationTests(
         command.Parameters.AddWithValue("constraintName", constraintName);
         object? result = await command.ExecuteScalarAsync();
         return result is null or DBNull ? null : (string)result;
+    }
+
+    private async Task<int[]> GetNotificationKindsAsync()
+    {
+        var kinds = new List<int>();
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT kind FROM notifications ORDER BY kind",
+            connection);
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
+
+        while (await reader.ReadAsync())
+        {
+            kinds.Add(reader.GetInt32(0));
+        }
+
+        return kinds.ToArray();
+    }
+
+    private async Task<bool> NotificationColumnExistsAsync(string columnName)
+    {
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'notifications'
+                  AND column_name = @columnName)
+            """,
+            connection);
+        command.Parameters.AddWithValue("columnName", columnName);
+        return Assert.IsType<bool>(await command.ExecuteScalarAsync());
+    }
+
+    private async Task<string[]> GetNotificationCheckConstraintNamesAsync()
+    {
+        var names = new List<string>();
+        await using var connection = new NpgsqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT constraint_name
+            FROM information_schema.table_constraints
+            WHERE constraint_schema = 'public'
+              AND table_name = 'notifications'
+              AND constraint_type = 'CHECK'
+              AND constraint_name LIKE 'ck_notifications_%'
+            ORDER BY constraint_name
+            """,
+            connection);
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync();
+
+        while (await reader.ReadAsync())
+        {
+            names.Add(reader.GetString(0));
+        }
+
+        return names.ToArray();
     }
 
     private static RepresentativeGraph CreateRepresentativeGraph()
