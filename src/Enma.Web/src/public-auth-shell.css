@@ -1,0 +1,345 @@
+/* ENMA public/auth shell — intentionally ineligible for authenticated workspaces. */
+
+.app-shell:not(:has(.organization-workspace)) {
+  --enma-public-canvas: #120d16;
+  --enma-public-surface: rgba(35, 27, 40, 0.86);
+  --enma-public-surface-solid: #211a26;
+  --enma-public-border: rgba(205, 162, 229, 0.18);
+  --enma-public-border-strong: rgba(205, 162, 229, 0.32);
+  --enma-public-text: #f3edf6;
+  --enma-public-muted: #b9acbf;
+  --enma-public-accent: #964cc5;
+  --enma-public-accent-hover: #a052ce;
+  --enma-public-danger: #f2a0b2;
+  min-height: 100dvh;
+  color: var(--enma-public-text);
+  color-scheme: dark;
+  background:
+    radial-gradient(circle at 18% 4%, rgba(164, 91, 214, 0.13), transparent 28rem),
+    linear-gradient(155deg, #1d1025 0%, var(--enma-public-canvas) 46%, #0e0a11 100%);
+}
+
+.app-shell:not(:has(.organization-workspace)) ::selection {
+  color: #fff;
+  background: rgba(164, 91, 214, 0.58);
+}
+
+.app-shell:not(:has(.organization-workspace)) .app-header {
+  display: flex;
+  min-height: 4.5rem;
+  align-items: center;
+  padding: 1rem clamp(1.25rem, 5vw, 4rem);
+  border-bottom: 1px solid rgba(205, 162, 229, 0.10);
+  background: rgba(18, 13, 22, 0.72);
+}
+
+.app-shell:not(:has(.organization-workspace)) .brand {
+  color: var(--enma-public-text);
+  text-decoration: none;
+  text-underline-offset: 0.25em;
+}
+
+.app-shell:not(:has(.organization-workspace)) .brand:hover {
+  color: #dab4ee;
+}
+
+.app-shell:not(:has(.organization-workspace)) .app-main {
+  min-height: calc(100dvh - 4.5rem);
+  padding: clamp(2rem, 7vw, 6rem) clamp(1.25rem, 7vw, 7rem);
+  place-items: center;
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(.page, .auth-card) {
+  width: min(100%, 38rem);
+  padding: clamp(1.75rem, 5vw, 2.75rem);
+  border: 1px solid var(--enma-public-border);
+  border-radius: 1rem;
+  color: var(--enma-public-text);
+  background: var(--enma-public-surface);
+  box-shadow: 0 24px 68px rgba(0, 0, 0, 0.30);
+  backdrop-filter: blur(18px) saturate(118%);
+  -webkit-backdrop-filter: blur(18px) saturate(118%);
+  justify-self: center;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-card {
+  width: min(100%, 32rem);
+}
+
+.app-shell:not(:has(.organization-workspace)) .invitation-recipient-card {
+  width: min(100%, 38rem);
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(.page, .auth-card, .organization-directory) h1 {
+  color: var(--enma-public-text);
+  font-size: clamp(2rem, 6vw, 3.25rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
+.app-shell:not(:has(.organization-workspace)) .page-copy {
+  max-width: 65ch;
+  margin-top: 1rem;
+  color: var(--enma-public-muted);
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.app-shell:not(:has(.organization-workspace)) .status-code {
+  margin: 0 0 0.75rem;
+  color: #c994e5;
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form {
+  gap: 0.7rem;
+  margin-top: 1.75rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form label {
+  color: #d6cadb;
+  font-size: 0.86rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form input {
+  min-height: 3.15rem;
+  margin-bottom: 0.55rem;
+  border-color: var(--enma-public-border-strong);
+  border-radius: 0.72rem;
+  color: var(--enma-public-text);
+  caret-color: #d8a9ef;
+  background: var(--enma-public-surface-solid);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form input:hover:not(:disabled) {
+  border-color: rgba(205, 162, 229, 0.44);
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form input:-webkit-autofill,
+.app-shell:not(:has(.organization-workspace)) .auth-form input:-webkit-autofill:hover,
+.app-shell:not(:has(.organization-workspace)) .auth-form input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--enma-public-text);
+  box-shadow: inset 0 0 0 1000px var(--enma-public-surface-solid);
+  caret-color: #d8a9ef;
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(
+  .brand,
+  .auth-form input,
+  .primary-button,
+  .secondary-button,
+  .home-link,
+  .public-text-link,
+  .auth-switch a,
+  .organization-link
+):focus-visible {
+  outline: 3px solid #c77fe9;
+  outline-offset: 3px;
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(.primary-button, .secondary-button) {
+  min-height: 3rem;
+  border-radius: 0.72rem;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.app-shell:not(:has(.organization-workspace)) .primary-button {
+  color: #fff;
+  border-color: var(--enma-public-accent);
+  background: var(--enma-public-accent);
+  box-shadow: 0 10px 24px rgba(83, 35, 111, 0.22);
+}
+
+.app-shell:not(:has(.organization-workspace)) .primary-button:hover:not(:disabled) {
+  border-color: var(--enma-public-accent-hover);
+  background: var(--enma-public-accent-hover);
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(.primary-button, .secondary-button):active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(.primary-button, .secondary-button):disabled {
+  cursor: wait;
+  opacity: 0.58;
+  transform: none;
+}
+
+.app-shell:not(:has(.organization-workspace)) .secondary-button {
+  color: #d1a7e7;
+  border-color: var(--enma-public-border-strong);
+  background: rgba(164, 91, 214, 0.055);
+}
+
+.app-shell:not(:has(.organization-workspace)) .secondary-button:hover:not(:disabled) {
+  color: #edd7f8;
+  border-color: rgba(205, 162, 229, 0.46);
+  background: rgba(164, 91, 214, 0.12);
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(.home-link, .public-text-link, .auth-switch a) {
+  color: #cf96eb;
+  font-weight: 700;
+  text-underline-offset: 0.22em;
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(.home-link, .public-text-link, .auth-switch a):hover {
+  color: #edcdfb;
+}
+
+.app-shell:not(:has(.organization-workspace)) .public-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.75rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .public-action-link {
+  display: inline-grid;
+  margin-top: 0;
+  place-items: center;
+  text-decoration: none;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-switch {
+  margin: 1.4rem 0 0;
+  color: var(--enma-public-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.app-shell:not(:has(.organization-workspace)) .form-error {
+  color: var(--enma-public-danger);
+}
+
+.app-shell:not(:has(.organization-workspace)) .invitation-recipient-details div {
+  border-bottom-color: var(--enma-public-border);
+}
+
+.app-shell:not(:has(.organization-workspace)) .invitation-recipient-details dt {
+  color: var(--enma-public-muted);
+}
+
+.app-shell:not(:has(.organization-workspace)) .organization-directory {
+  width: min(100%, 62rem);
+  color: var(--enma-public-text);
+}
+
+.app-shell:not(:has(.organization-workspace)) .organization-directory-header {
+  align-items: center;
+}
+
+.app-shell:not(:has(.organization-workspace)) .organization-card,
+.app-shell:not(:has(.organization-workspace)) .organization-empty {
+  border-color: var(--enma-public-border);
+  color: var(--enma-public-text);
+  background: var(--enma-public-surface);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(16px) saturate(116%);
+  -webkit-backdrop-filter: blur(16px) saturate(116%);
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(.organization-card, .organization-empty) h2 {
+  color: var(--enma-public-text);
+}
+
+.app-shell:not(:has(.organization-workspace)) :where(.organization-card, .organization-empty) p {
+  color: var(--enma-public-muted);
+}
+
+.app-shell:not(:has(.organization-workspace)) .organization-link {
+  color: #fff;
+  background: var(--enma-public-accent);
+  transition:
+    background-color 150ms ease,
+    transform 150ms ease;
+}
+
+.app-shell:not(:has(.organization-workspace)) .organization-link:hover {
+  background: var(--enma-public-accent-hover);
+}
+
+@media (max-width: 40rem) {
+  .app-shell:not(:has(.organization-workspace)) .app-header {
+    min-height: 4rem;
+    padding-inline: 1rem;
+  }
+
+  .app-shell:not(:has(.organization-workspace)) .app-main {
+    min-height: calc(100dvh - 4rem);
+    padding: 1rem;
+    place-items: start center;
+  }
+
+  .app-shell:not(:has(.organization-workspace)) :where(.page, .auth-card) {
+    padding: 1.5rem;
+  }
+
+  .app-shell:not(:has(.organization-workspace)) .public-actions,
+  .app-shell:not(:has(.organization-workspace)) .organization-directory-header,
+  .app-shell:not(:has(.organization-workspace)) .organization-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .app-shell:not(:has(.organization-workspace)) .public-action-link,
+  .app-shell:not(:has(.organization-workspace)) .organization-link,
+  .app-shell:not(:has(.organization-workspace)) .workspace-actions,
+  .app-shell:not(:has(.organization-workspace)) .workspace-actions > *,
+  .app-shell:not(:has(.organization-workspace)) .invitation-recipient-actions > * {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell:not(:has(.organization-workspace)) :where(
+    .primary-button,
+    .secondary-button,
+    .organization-link
+  ) {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-shell:not(:has(.organization-workspace)) :where(
+    .page,
+    .auth-card,
+    .organization-card,
+    .organization-empty
+  ) {
+    background: #211a26;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .app-shell:not(:has(.organization-workspace)) :where(
+    .page,
+    .auth-card,
+    .organization-card,
+    .organization-empty
+  ) {
+    border-color: rgba(238, 215, 250, 0.58);
+    background: #18121c;
+  }
+}

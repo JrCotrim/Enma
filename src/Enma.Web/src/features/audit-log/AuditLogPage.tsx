@@ -252,7 +252,7 @@ function OrganizationAuditLogPage() {
       <header className="audit-log-header workspace-page-header">
         <div className="workspace-page-heading">
           <p className="eyebrow workspace-page-eyebrow">ADMINISTRAÇÃO</p>
-          <h2 className="workspace-page-title" id="audit-log-title">Audit Log</h2>
+          <h2 className="workspace-page-title" id="audit-log-title">Auditoria</h2>
           <p className="audit-log-description workspace-page-subtitle">
             Consulte os eventos administrativos registrados nesta organização.
           </p>
@@ -262,7 +262,7 @@ function OrganizationAuditLogPage() {
       {!isAuthorized ? (
         <div className="audit-log-state" role="alert">
           <h3>Acesso negado</h3>
-          <p>Somente proprietários e administradores podem consultar o Audit Log.</p>
+          <p>Somente proprietários e administradores podem consultar a auditoria.</p>
           <Link className="home-link" to="..">Voltar para a visão geral</Link>
         </div>
       ) : (
@@ -270,7 +270,7 @@ function OrganizationAuditLogPage() {
           <form
             key={`${rawEventType ?? ''}:${rawEntityType ?? ''}:${rawEntityId ?? ''}`}
             className="audit-log-filters"
-            aria-label="Filtros do Audit Log"
+            aria-label="Filtros da auditoria"
             onSubmit={applyFilters}
           >
             <div className="audit-filter-control">
@@ -317,7 +317,7 @@ function OrganizationAuditLogPage() {
           </form>
 
           {currentListState.status === 'loading' ? (
-            <div className="audit-log-state" role="status"><p>Carregando eventos...</p></div>
+            <div className="audit-log-state" role="status"><p>Carregando eventos…</p></div>
           ) : null}
           {currentListState.status === 'invalid' ? (
             <div className="audit-log-state" role="alert">
@@ -330,7 +330,7 @@ function OrganizationAuditLogPage() {
           ) : null}
           {currentListState.status === 'forbidden' ? (
             <div className="audit-log-state" role="alert">
-              <h3>Acesso ao Audit Log negado</h3>
+              <h3>Acesso à auditoria negado</h3>
               <p>Seu acesso administrativo à organização pode ter mudado.</p>
               <button className="secondary-button" type="button" onClick={refreshOrganizations}>
                 Atualizar acesso
@@ -339,7 +339,7 @@ function OrganizationAuditLogPage() {
           ) : null}
           {currentListState.status === 'error' ? (
             <div className="audit-log-state" role="alert">
-              <h3>Não foi possível carregar o Audit Log</h3>
+              <h3>Não foi possível carregar a auditoria</h3>
               <p>Verifique sua conexão e tente novamente.</p>
               <button
                 className="secondary-button"
@@ -406,7 +406,7 @@ function OrganizationAuditLogPage() {
                 </div>
               ) : null}
 
-              <nav className="audit-log-pagination" aria-label="Paginação do Audit Log">
+              <nav className="audit-log-pagination" aria-label="Paginação da auditoria">
                 <button
                   className="secondary-button"
                   type="button"

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useInvitationResume } from '../invitations/InvitationResumeState'
 import { useAuth } from './AuthContext'
 import { SessionError, SessionLoading } from './SessionStatus'
@@ -82,7 +82,6 @@ export function LoginPage() {
 
   return (
     <section className="auth-card" aria-labelledby="login-title">
-      <p className="eyebrow">Acesso seguro</p>
       <h1 id="login-title">Entrar no ENMA</h1>
       <p className="page-copy">
         Use as credenciais da sua conta para acessar o espaço de trabalho.
@@ -95,6 +94,7 @@ export function LoginPage() {
           name="email"
           type="email"
           autoComplete="username"
+          spellCheck={false}
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
@@ -118,9 +118,12 @@ export function LoginPage() {
         ) : null}
 
         <button className="primary-button" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Entrando...' : 'Entrar'}
+          {isSubmitting ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
+      <p className="auth-switch">
+        Ainda não tem uma conta? <Link to="/register">Criar conta</Link>
+      </p>
     </section>
   )
 }

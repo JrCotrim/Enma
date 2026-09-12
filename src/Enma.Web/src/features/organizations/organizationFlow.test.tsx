@@ -384,7 +384,7 @@ describe('organization discovery and routing', () => {
 
     expect(screen.getAllByText('Membro').length).toBeGreaterThan(0)
     expect(
-      screen.queryByRole('heading', { name: 'Carregando organizações...' }),
+      screen.queryByRole('heading', { name: 'Carregando organizações…' }),
     ).not.toBeInTheDocument()
 
     await act(async () => {
@@ -441,7 +441,7 @@ describe('organization discovery and routing', () => {
     const router = renderRoute('/organizations')
 
     expect(
-      await screen.findByRole('heading', { name: 'Carregando organizações...' }),
+      await screen.findByRole('heading', { name: 'Carregando organizações…' }),
     ).toBeInTheDocument()
 
     await act(async () => {
@@ -454,7 +454,7 @@ describe('organization discovery and routing', () => {
     })
 
     expect(
-      screen.getByRole('heading', { name: 'Welcome to ENMA' }),
+      screen.getByRole('heading', { name: 'Bem-vindo ao ENMA' }),
     ).toBeInTheDocument()
     expect(screen.queryByText(organizationA.name)).not.toBeInTheDocument()
   })

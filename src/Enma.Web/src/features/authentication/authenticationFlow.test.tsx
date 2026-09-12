@@ -120,7 +120,7 @@ describe('authentication flow', () => {
     fireEvent.submit(form)
     fireEvent.submit(form)
 
-    expect(screen.getByRole('button', { name: 'Entrando...' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Entrando…' })).toBeDisabled()
     expect(fetchMock).toHaveBeenCalledTimes(2)
 
     await act(async () => {
@@ -210,7 +210,7 @@ describe('authentication flow', () => {
     renderRoute('/organizations')
 
     expect(
-      screen.getByRole('heading', { name: 'Verificando acesso...' }),
+      screen.getByRole('heading', { name: 'Verificando acesso…' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { name: 'Suas organizações' }),

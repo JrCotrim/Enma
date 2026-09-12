@@ -155,6 +155,7 @@ export function RegisterPage() {
           name="ownerEmail"
           type="email"
           autoComplete="email"
+          spellCheck={false}
           value={ownerEmail}
           onChange={(event) => setOwnerEmail(event.target.value)}
           required
@@ -178,9 +179,12 @@ export function RegisterPage() {
         ) : null}
 
         <button className="primary-button" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Criando conta...' : 'Criar conta'}
+          {isSubmitting ? 'Criando conta…' : 'Criar conta'}
         </button>
       </form>
+      <p className="auth-switch">
+        Já tem uma conta? <Link to="/login">Entrar</Link>
+      </p>
     </section>
   )
 }

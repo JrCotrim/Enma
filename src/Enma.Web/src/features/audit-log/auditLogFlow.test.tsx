@@ -142,7 +142,7 @@ describe('Audit G flow', () => {
 
       renderRoute()
 
-      expect(await screen.findByRole('heading', { name: 'Audit Log' })).toBeInTheDocument()
+      expect(await screen.findByRole('heading', { name: 'Auditoria' })).toBeInTheDocument()
       expect(screen.getByRole('link', { name: 'Auditoria' })).toHaveAttribute(
         'href',
         `/organizations/${organizationId}/audit-log`,
@@ -245,7 +245,7 @@ describe('Audit G flow', () => {
 
     renderRoute()
 
-    expect(await screen.findByText('Carregando eventos...')).toBeInTheDocument()
+    expect(await screen.findByText('Carregando eventos…')).toBeInTheDocument()
   })
 
   it('distingue empty inicial de filtered empty', async () => {
@@ -470,7 +470,7 @@ describe('Audit G flow', () => {
 
     renderRoute()
 
-    expect(await screen.findByRole('heading', { name: 'Acesso ao Audit Log negado' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Acesso à auditoria negado' })).toBeInTheDocument()
     expect(screen.queryByText('internal policy')).not.toBeInTheDocument()
   })
 
@@ -491,7 +491,7 @@ describe('Audit G flow', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderRoute()
 
-    const state = await screen.findByRole('heading', { name: 'Não foi possível carregar o Audit Log' })
+    const state = await screen.findByRole('heading', { name: 'Não foi possível carregar a auditoria' })
     expect(screen.queryByText('private database failure')).not.toBeInTheDocument()
     fireEvent.click(within(state.closest('.audit-log-state')!).getByRole('button', { name: 'Tentar novamente' }))
 

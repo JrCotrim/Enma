@@ -4,8 +4,7 @@ import { useOrganizationDiscovery } from './OrganizationContext'
 export function OrganizationLoading() {
   return (
     <section className="page auth-status" aria-live="polite">
-      <p className="eyebrow">Organizações</p>
-      <h1>Carregando organizações...</h1>
+      <h1>Carregando organizações…</h1>
       <p className="page-copy">Aguarde enquanto buscamos seus espaços de trabalho.</p>
     </section>
   )
@@ -16,7 +15,6 @@ export function OrganizationDiscoveryError() {
 
   return (
     <section className="page auth-status" aria-live="polite">
-      <p className="eyebrow">Organizações</p>
       <h1>Não foi possível carregar suas organizações</h1>
       <p className="page-copy">Verifique sua conexão e tente novamente.</p>
       <button
@@ -33,7 +31,6 @@ export function OrganizationDiscoveryError() {
 export function OrganizationUnavailable() {
   return (
     <section className="page auth-status" aria-live="polite">
-      <p className="eyebrow">Organização</p>
       <h1>Organização indisponível</h1>
       <p className="page-copy">
         Não foi possível abrir este espaço de trabalho com seu acesso atual.

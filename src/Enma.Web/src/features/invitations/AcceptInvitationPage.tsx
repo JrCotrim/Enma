@@ -52,7 +52,7 @@ export function AcceptInvitationPage() {
   if (state.status === 'loading') {
     return (
       <section className="auth-card invitation-recipient-card" aria-live="polite">
-        <h1>Verificando convite...</h1>
+        <h1>Verificando convite…</h1>
         <p className="page-copy">Aguarde enquanto confirmamos os dados do convite.</p>
       </section>
     )
@@ -123,7 +123,7 @@ export function AcceptInvitationPage() {
     <section className="auth-card invitation-recipient-card" aria-live="polite">
       <h1>
         {isBusy
-          ? 'Aceitando convite...'
+          ? 'Aceitando convite…'
           : isSuccess
             ? 'Convite aceito'
             : 'Você recebeu um convite'}

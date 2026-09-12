@@ -20,9 +20,9 @@ describe('application router', () => {
     renderRoute('/')
 
     expect(
-      await screen.findByRole('heading', { name: 'Welcome to ENMA' }),
+      await screen.findByRole('heading', { name: 'Bem-vindo ao ENMA' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'ENMA home' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Página inicial do ENMA' })).toHaveAttribute(
       'href',
       '/',
     )
@@ -32,9 +32,9 @@ describe('application router', () => {
     renderRoute('/missing-page')
 
     expect(
-      await screen.findByRole('heading', { name: 'Page not found' }),
+      await screen.findByRole('heading', { name: 'Página não encontrada' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Return home' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Voltar ao início' })).toHaveAttribute(
       'href',
       '/',
     )

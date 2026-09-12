@@ -22,7 +22,6 @@ export function OrganizationsPage() {
     <section className="organization-directory" aria-labelledby="organizations-title">
       <div className="organization-directory-header">
         <div>
-          <p className="eyebrow">Espaços de trabalho</p>
           <h1 id="organizations-title">Suas organizações</h1>
           <p className="page-copy">
             Escolha explicitamente a organização que deseja acessar.

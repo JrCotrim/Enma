@@ -169,7 +169,7 @@ describe('invitation recipient flow', () => {
     const router = renderInvitation()
 
     expect(
-      await screen.findByRole('heading', { name: 'Aceitando convite...' }),
+      await screen.findByRole('heading', { name: 'Aceitando convite…' }),
     ).toBeInTheDocument()
     await waitFor(() => {
       expect(

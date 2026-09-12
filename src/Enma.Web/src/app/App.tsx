@@ -4,7 +4,7 @@ export function App() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <Link className="brand" to="/" aria-label="ENMA home">
+        <Link className="brand" to="/" aria-label="Página inicial do ENMA">
           ENMA
         </Link>
       </header>

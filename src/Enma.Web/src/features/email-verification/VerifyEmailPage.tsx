@@ -13,7 +13,7 @@ const stateContent: Record<
   { readonly title: string; readonly message: string }
 > = {
   verifying: {
-    title: 'Verificando seu e-mail...',
+    title: 'Verificando seu e-mail…',
     message: 'Aguarde enquanto confirmamos seu endereço de e-mail.',
   },
   verified: {
@@ -58,8 +58,7 @@ export function VerifyEmailPage({ flow }: VerifyEmailPageProps) {
   const content = stateContent[state]
 
   return (
-    <section className="page" aria-live="polite">
-      <p className="eyebrow">Verificação de e-mail</p>
+    <section className="page public-status-card" aria-live="polite">
       <h1>{content.title}</h1>
       <p className="page-copy">{content.message}</p>
     </section>
