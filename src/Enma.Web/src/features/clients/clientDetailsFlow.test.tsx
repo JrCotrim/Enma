@@ -639,6 +639,50 @@ describe('Clients D2 flow', () => {
     expect(screen.queryByRole('button', { name: 'Desativar cliente' })).not.toBeInTheDocument()
   })
 
+  it('ClientDeactivate_ContainsKeyboardFocusAndRestoresTheTriggerOnClose', async () => {
+    vi.stubGlobal(
+      'fetch',
+      authenticatedDetailFetch(organizationA, response(200, clientA)),
+    )
+
+    renderRoute(detailPath(organizationA, clientA))
+    const trigger = await screen.findByRole('button', {
+      name: 'Desativar cliente',
+    })
+    fireEvent.click(trigger)
+
+    const dialog = screen.getByRole('alertdialog', {
+      name: 'Desativar cliente',
+      description: `Desativar ${clientA.name}? O cliente poderá ser reativado depois.`,
+    })
+    const cancel = screen.getByRole('button', { name: 'Cancelar' })
+    const confirm = screen.getByRole('button', {
+      name: 'Confirmar desativação',
+    })
+    expect(cancel).toHaveFocus()
+
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
+    expect(confirm).toHaveFocus()
+    fireEvent.keyDown(dialog, { key: 'Tab' })
+    expect(cancel).toHaveFocus()
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    const restoredTrigger = screen.getByRole('button', {
+      name: 'Desativar cliente',
+    })
+    await waitFor(() => expect(restoredTrigger).toHaveFocus())
+
+    fireEvent.click(restoredTrigger)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Desativar cliente' }),
+      ).toHaveFocus(),
+    )
+  })
+
   it('ClientReactivate_PostsExactEndpointAndConvergesFromRefetch', async () => {
     const reactivatedClient = { ...clientB, isActive: true }
     const fetchMock = vi
@@ -907,7 +951,7 @@ describe('Clients D2 flow', () => {
     const router = renderRoute(detailPath(organizationA, clientA))
 
     await screen.findByRole('heading', { name: clientA.name })
-    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Perfil' }))
     fireEvent.click(
       await screen.findByRole('button', {
         name: `Trocar para ${organizationB.name}`,

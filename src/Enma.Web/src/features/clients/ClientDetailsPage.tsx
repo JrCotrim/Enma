@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../authentication/AuthContext'
 import {
@@ -75,6 +81,7 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
   const mutationVersionRef = useRef(0)
   const mutationControllerRef = useRef<AbortController | undefined>(undefined)
   const isMutatingRef = useRef(false)
+  const deactivateTriggerRef = useRef<HTMLButtonElement>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [editEmail, setEditEmail] = useState('')
@@ -313,6 +320,43 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
     )
   }
 
+  function closeDeactivateConfirmation() {
+    if (isMutatingRef.current) {
+      return
+    }
+
+    setIsDeactivateConfirmationOpen(false)
+    window.setTimeout(() => deactivateTriggerRef.current?.focus())
+  }
+
+  function handleDeactivateConfirmationKeyDown(
+    event: KeyboardEvent<HTMLDivElement>,
+  ) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      closeDeactivateConfirmation()
+      return
+    }
+
+    if (event.key !== 'Tab') return
+    const buttons = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        'button:not([disabled])',
+      ),
+    )
+    const firstButton = buttons.at(0)
+    const lastButton = buttons.at(-1)
+
+    if (event.shiftKey && document.activeElement === firstButton) {
+      event.preventDefault()
+      lastButton?.focus()
+    } else if (!event.shiftKey && document.activeElement === lastButton) {
+      event.preventDefault()
+      firstButton?.focus()
+    }
+  }
+
   const backLink = (
     <Link className="home-link" to={`/organizations/${currentOrganization.id}/clients`}>
       Voltar para clientes
@@ -390,6 +434,7 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
               Editar cliente
             </button>
             <button
+              ref={deactivateTriggerRef}
               className="secondary-button"
               type="button"
               onClick={() => {
@@ -489,13 +534,14 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
           aria-labelledby="deactivate-title"
           aria-describedby="deactivate-description"
           aria-busy={isMutating}
+          onKeyDown={handleDeactivateConfirmationKeyDown}
         >
           <h3 id="deactivate-title">Desativar cliente</h3>
           <p id="deactivate-description">
             Desativar {client.name}? O cliente poderá ser reativado depois.
           </p>
           <div className="client-form-actions">
-            <button className="secondary-button" type="button" onClick={() => setIsDeactivateConfirmationOpen(false)} disabled={isMutating} autoFocus>Cancelar</button>
+            <button className="secondary-button" type="button" onClick={closeDeactivateConfirmation} disabled={isMutating} autoFocus>Cancelar</button>
             <button className="primary-button" type="button" onClick={() => handleLifecycle(client)} disabled={isMutating}>
               {isMutating ? 'Desativando...' : 'Confirmar desativação'}
             </button>

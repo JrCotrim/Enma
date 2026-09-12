@@ -246,7 +246,7 @@ describe('organization discovery and routing', () => {
         }),
       ).toBeInTheDocument()
 
-      fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Perfil' }))
 
       expect(
         screen.getByRole('button', {
@@ -271,7 +271,7 @@ describe('organization discovery and routing', () => {
       name: `Espaço de trabalho: ${organizationA.name}`,
     })
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Perfil' }))
     fireEvent.click(
       screen.getByRole('button', { name: `Trocar para ${organizationB.name}` }),
     )
@@ -284,7 +284,7 @@ describe('organization discovery and routing', () => {
     expect(screen.getByRole('heading', { name: 'Visão geral' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe(`/organizations/${organizationB.id}`)
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Perfil' }))
     expect(
       screen.getByRole('button', {
         name: `${organizationB.name}, organização atual`,
@@ -377,7 +377,7 @@ describe('organization discovery and routing', () => {
       name: `Espaço de trabalho: ${organizationA.name}`,
     })
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Perfil' }))
     expect(screen.getAllByText('Membro').length).toBeGreaterThan(0)
 
     fireEvent(window, new Event('focus'))
@@ -412,7 +412,7 @@ describe('organization discovery and routing', () => {
     await screen.findByRole('heading', {
       name: `Espaço de trabalho: ${organizationA.name}`,
     })
-    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Perfil' }))
     fireEvent.click(screen.getByRole('button', { name: 'Sair' }))
 
     expect(

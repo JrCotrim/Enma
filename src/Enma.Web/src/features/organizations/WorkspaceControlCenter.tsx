@@ -1,8 +1,8 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
-  type KeyboardEvent,
 } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
@@ -20,7 +20,7 @@ import {
   type OrganizationNavigationItem,
 } from './organizationTypes'
 
-type WorkspaceControlTab = 'profile' | 'notifications'
+type WorkspaceControlPanel = 'profile' | 'notifications'
 
 interface WorkspaceControlCenterProps {
   readonly currentOrganization: OrganizationNavigationItem
@@ -34,12 +34,18 @@ export function WorkspaceControlCenter({
   onSelectOrganization,
 }: WorkspaceControlCenterProps) {
   const rootRef = useRef<HTMLDivElement>(null)
-  const profileTabRef = useRef<HTMLButtonElement>(null)
-  const notificationTabRef = useRef<HTMLButtonElement>(null)
+  const profileTriggerRef = useRef<HTMLButtonElement>(null)
+  const notificationTriggerRef = useRef<HTMLButtonElement>(null)
   const profileIconRef = useRef<AnimatedUserIconHandle>(null)
   const notificationIconRef = useRef<AnimatedBellIconHandle>(null)
+  const controlId = useId()
+  const profileTriggerId = `${controlId}-profile-trigger`
+  const profilePanelId = `${controlId}-profile-panel`
+  const notificationTriggerId = `${controlId}-notifications-trigger`
+  const notificationPanelId = `${controlId}-notifications-panel`
   const prefersReducedMotion = useReducedMotion()
-  const [activeTab, setActiveTab] = useState<WorkspaceControlTab>('profile')
+  const [activePanel, setActivePanel] =
+    useState<WorkspaceControlPanel>('profile')
   const [isOpen, setIsOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [notificationPulseKey, setNotificationPulseKey] = useState(0)
@@ -66,10 +72,10 @@ export function WorkspaceControlCenter({
       event.preventDefault()
       setIsOpen(false)
 
-      if (activeTab === 'profile') {
-        profileTabRef.current?.focus()
+      if (activePanel === 'profile') {
+        profileTriggerRef.current?.focus()
       } else {
-        notificationTabRef.current?.focus()
+        notificationTriggerRef.current?.focus()
       }
     }
 
@@ -80,44 +86,16 @@ export function WorkspaceControlCenter({
       document.removeEventListener('pointerdown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [activeTab, isOpen])
+  }, [activePanel, isOpen])
 
-  const activateTab = (tab: WorkspaceControlTab) => {
-    if (activeTab === tab) {
+  const togglePanel = (panel: WorkspaceControlPanel) => {
+    if (activePanel === panel) {
       setIsOpen((open) => !open)
       return
     }
 
-    setActiveTab(tab)
+    setActivePanel(panel)
     setIsOpen(true)
-  }
-
-  const handleTabKeyDown = (
-    event: KeyboardEvent<HTMLButtonElement>,
-    tab: WorkspaceControlTab,
-  ) => {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
-      return
-    }
-
-    event.preventDefault()
-    const nextTab =
-      event.key === 'ArrowRight'
-        ? tab === 'profile'
-          ? 'notifications'
-          : 'profile'
-        : tab === 'profile'
-          ? 'notifications'
-          : 'profile'
-
-    setActiveTab(nextTab)
-    setIsOpen(true)
-
-    if (nextTab === 'profile') {
-      profileTabRef.current?.focus()
-    } else {
-      notificationTabRef.current?.focus()
-    }
   }
 
   const panelMotion = prefersReducedMotion
@@ -136,20 +114,19 @@ export function WorkspaceControlCenter({
     <div ref={rootRef} className="workspace-control-center">
       <div
         className="workspace-control-tabs"
-        role="tablist"
+        role="group"
         aria-label="Conta e notificações"
       >
         <button
-          ref={profileTabRef}
+          ref={profileTriggerRef}
+          id={profileTriggerId}
           className={`workspace-control-tab${
-            activeTab === 'profile' ? ' is-active' : ''
+            activePanel === 'profile' ? ' is-active' : ''
           }`}
           type="button"
-          role="tab"
-          aria-selected={activeTab === 'profile'}
-          aria-expanded={isOpen && activeTab === 'profile'}
-          onClick={() => activateTab('profile')}
-          onKeyDown={(event) => handleTabKeyDown(event, 'profile')}
+          aria-expanded={isOpen && activePanel === 'profile'}
+          aria-controls={profilePanelId}
+          onClick={() => togglePanel('profile')}
           onMouseEnter={() => profileIconRef.current?.startAnimation()}
           onMouseLeave={() => profileIconRef.current?.stopAnimation()}
           onFocus={() => profileIconRef.current?.startAnimation()}
@@ -164,16 +141,15 @@ export function WorkspaceControlCenter({
         </button>
 
         <button
-          ref={notificationTabRef}
+          ref={notificationTriggerRef}
+          id={notificationTriggerId}
           className={`workspace-control-tab${
-            activeTab === 'notifications' ? ' is-active' : ''
+            activePanel === 'notifications' ? ' is-active' : ''
           }`}
           type="button"
-          role="tab"
-          aria-selected={activeTab === 'notifications'}
-          aria-expanded={isOpen && activeTab === 'notifications'}
-          onClick={() => activateTab('notifications')}
-          onKeyDown={(event) => handleTabKeyDown(event, 'notifications')}
+          aria-expanded={isOpen && activePanel === 'notifications'}
+          aria-controls={notificationPanelId}
+          onClick={() => togglePanel('notifications')}
           onMouseEnter={() => notificationIconRef.current?.startAnimation()}
           onMouseLeave={() => notificationIconRef.current?.stopAnimation()}
           onFocus={() => notificationIconRef.current?.startAnimation()}
@@ -203,7 +179,9 @@ export function WorkspaceControlCenter({
         key={`${currentOrganization.id}:${currentOrganization.role}`}
         organizationId={currentOrganization.id}
         embedded
-        visible={isOpen && activeTab === 'notifications'}
+        visible={isOpen && activePanel === 'notifications'}
+        panelId={notificationPanelId}
+        panelLabelledBy={notificationTriggerId}
         onUnreadCountChange={setUnreadCount}
         onNewNotification={() => {
           setNotificationPulseKey((key) => key + 1)
@@ -212,12 +190,12 @@ export function WorkspaceControlCenter({
       />
 
       <AnimatePresence mode="wait">
-        {isOpen && activeTab === 'profile' ? (
+        {isOpen && activePanel === 'profile' ? (
           <motion.section
             key="profile-panel"
+            id={profilePanelId}
             className="workspace-control-panel workspace-profile-panel"
-            role="tabpanel"
-            aria-label="Perfil"
+            aria-labelledby={profileTriggerId}
             {...panelMotion}
             transition={{ duration: prefersReducedMotion ? 0.01 : 0.2 }}
           >

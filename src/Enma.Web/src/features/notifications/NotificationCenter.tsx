@@ -34,6 +34,8 @@ interface NotificationCenterProps {
   readonly organizationId: string
   readonly embedded?: boolean
   readonly visible?: boolean
+  readonly panelId?: string
+  readonly panelLabelledBy?: string
   onUnreadCountChange?(count: number): void
   onNewNotification?(): void
 }
@@ -104,13 +106,16 @@ export function NotificationCenter({
   organizationId,
   embedded = false,
   visible = true,
+  panelId: providedPanelId,
+  panelLabelledBy,
   onUnreadCountChange,
   onNewNotification,
 }: NotificationCenterProps) {
   const { handleUnauthorized } = useAuth()
   const navigate = useNavigate()
   const prefersReducedMotion = useReducedMotion()
-  const panelId = useId()
+  const generatedPanelId = useId()
+  const panelId = providedPanelId ?? generatedPanelId
   const panelTitleId = `${panelId}-title`
   const [feedState, setFeedState] = useState<FeedState>({ status: 'loading' })
   const [refreshError, setRefreshError] = useState<string>()
@@ -563,7 +568,8 @@ export function NotificationCenter({
         ref={panelRef}
         id={panelId}
         className="notification-center notification-center-embedded"
-        aria-labelledby={panelTitleId}
+        role="region"
+        aria-labelledby={panelLabelledBy ?? panelTitleId}
       >
         <div className="notification-panel notification-panel-embedded">
           {panelContent}

@@ -739,6 +739,32 @@ describe('NotificationCenter', () => {
     expect(bell).toHaveFocus()
   })
 
+  it('EmbeddedPanel_UsesTheProvidedDisclosureRelationship', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, feed())))
+
+    render(
+      <AuthContext.Provider value={authContextValue}>
+        <MemoryRouter>
+          <button id="notification-disclosure" type="button">
+            Notificações do workspace
+          </button>
+          <NotificationCenter
+            organizationId={organizationA}
+            embedded
+            panelId="workspace-notifications"
+            panelLabelledBy="notification-disclosure"
+          />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    )
+
+    expect(
+      await screen.findByRole('region', {
+        name: 'Notificações do workspace',
+      }),
+    ).toHaveAttribute('id', 'workspace-notifications')
+  })
+
   it('Bell_NewUnreadAfterInitialLoad_Rings', async () => {
     const fetchMock = vi
       .fn()

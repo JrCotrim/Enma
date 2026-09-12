@@ -627,7 +627,7 @@ describe('Clients D1 flow', () => {
     const router = renderRoute(`/organizations/${organizationA.id}/clients`)
 
     await screen.findByRole('heading', { name: 'Clientes' })
-    fireEvent.click(screen.getByRole('tab', { name: 'Perfil' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Perfil' }))
     fireEvent.click(
       await screen.findByRole('button', {
         name: `Trocar para ${organizationB.name}`,
