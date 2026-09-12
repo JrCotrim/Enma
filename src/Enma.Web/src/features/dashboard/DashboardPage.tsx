@@ -33,6 +33,7 @@ import {
   getDashboardSupplementaryData,
   type DashboardSupplementaryData,
 } from './dashboardSupplementaryService'
+import { DashboardFinanceSummarySection } from './DashboardFinanceSummarySection'
 
 type DashboardState =
   | { readonly status: 'loading'; readonly scope: string }
@@ -653,6 +654,12 @@ function DashboardContent({
           </section>
         </div>
       </section>
+
+      {currentOrganization.role !== 'Member' ? (
+        <DashboardFinanceSummarySection
+          key={`finance:${currentOrganization.id}:${currentOrganization.role}`}
+        />
+      ) : null}
 
       <DashboardSupplementaryModules
         key={`${currentOrganization.id}:${currentOrganization.role}`}

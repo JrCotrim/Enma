@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
-import { StrictMode, useState, type ReactNode } from 'react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { StrictMode, useCallback, useState, type ReactNode } from 'react'
 import {
   createMemoryRouter,
   Outlet,
@@ -8,10 +8,18 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthContext, type AuthContextValue } from '../authentication/AuthContext'
 import {
+  FinanceRequestError,
+  getFinanceOverview,
+} from '../finance/financeService'
+import type { FinanceOverview } from '../finance/financeTypes'
+import {
   CurrentOrganizationContext,
   OrganizationDiscoveryContext,
 } from '../organizations/OrganizationContext'
-import type { OrganizationNavigationItem } from '../organizations/organizationTypes'
+import type {
+  OrganizationNavigationItem,
+  OrganizationRole,
+} from '../organizations/organizationTypes'
 import { DashboardPage } from './DashboardPage'
 import {
   DashboardRequestError,
@@ -37,6 +45,13 @@ vi.mock('./dashboardSupplementaryService', async () => {
   return { ...actual, getDashboardSupplementaryData: vi.fn() }
 })
 
+vi.mock('../finance/financeService', async () => {
+  const actual = await vi.importActual<typeof import('../finance/financeService')>(
+    '../finance/financeService',
+  )
+  return { ...actual, getFinanceOverview: vi.fn() }
+})
+
 const organizationA: OrganizationNavigationItem = {
   id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   membershipId: '11111111-1111-4111-8111-111111111111',
@@ -52,6 +67,34 @@ const organizationB: OrganizationNavigationItem = {
 const deadlineId = '33333333-3333-4333-8333-333333333333'
 const taskId = '44444444-4444-4444-8444-444444444444'
 const eventId = '55555555-5555-4555-8555-555555555555'
+
+function withRole(
+  organization: OrganizationNavigationItem,
+  role: OrganizationRole,
+): OrganizationNavigationItem {
+  return { ...organization, role }
+}
+
+function financeOverview(
+  overrides: Partial<FinanceOverview> = {},
+): FinanceOverview {
+  return {
+    referenceDate: '2026-09-08',
+    totalContractedAmount: '1200.00',
+    totalReceivedAmount: '9999999999999999.99',
+    totalOutstandingAmount: '300.40',
+    overdueAmount: '200.30',
+    dueTodayAmount: '100.20',
+    upcomingAmount: '0',
+    paymentPlanCount: 5,
+    openPaymentPlanCount: 2,
+    paidInstallmentCount: 7,
+    overdueInstallmentCount: 3,
+    dueTodayInstallmentCount: 1,
+    upcomingInstallmentCount: 0,
+    ...overrides,
+  }
+}
 
 function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardResponse {
   return {
@@ -107,39 +150,70 @@ const authValue: AuthContextValue = {
   handleUnauthorized: vi.fn(),
 }
 
+interface DashboardRenderOptions {
+  readonly enableSwitch?: boolean
+  readonly enableRoleDowngrade?: boolean
+  readonly downgradeOnRefresh?: boolean
+  readonly initialOrganization?: OrganizationNavigationItem
+  readonly switchOrganization?: OrganizationNavigationItem
+  readonly refreshOrganizations?: () => void
+  readonly strictMode?: boolean
+}
+
 function Providers({
   children,
   enableSwitch = false,
+  enableRoleDowngrade = false,
+  downgradeOnRefresh = false,
+  initialOrganization = organizationA,
+  switchOrganization = organizationB,
   refreshOrganizations = vi.fn(),
-}: {
-  readonly children: ReactNode
-  readonly enableSwitch?: boolean
-  readonly refreshOrganizations?: () => void
-}) {
-  const [currentOrganization, setCurrentOrganization] = useState(organizationA)
+}: DashboardRenderOptions & { readonly children: ReactNode }) {
+  const [currentOrganization, setCurrentOrganization] =
+    useState(initialOrganization)
+  const organizations = [currentOrganization, switchOrganization]
+  const handleRefreshOrganizations = useCallback(() => {
+    refreshOrganizations()
+    if (downgradeOnRefresh) {
+      setCurrentOrganization((organization) => withRole(organization, 'Member'))
+    }
+  }, [downgradeOnRefresh, refreshOrganizations])
+
   return (
     <AuthContext.Provider value={authValue}>
       <OrganizationDiscoveryContext.Provider
         value={{
           state: {
             status: 'success',
-            organizations: [organizationA, organizationB],
+            organizations,
           },
-          refreshOrganizations,
+          refreshOrganizations: handleRefreshOrganizations,
         }}
       >
         <CurrentOrganizationContext.Provider
           value={{
             currentOrganization,
-            organizations: [organizationA, organizationB],
+            organizations,
           }}
         >
           {enableSwitch ? (
             <button
               type="button"
-              onClick={() => setCurrentOrganization(organizationB)}
+              onClick={() => setCurrentOrganization(switchOrganization)}
             >
               Trocar organização
+            </button>
+          ) : null}
+          {enableRoleDowngrade ? (
+            <button
+              type="button"
+              onClick={() =>
+                setCurrentOrganization((organization) =>
+                  withRole(organization, 'Member'),
+                )
+              }
+            >
+              Mudar para membro
             </button>
           ) : null}
           {children}
@@ -149,11 +223,8 @@ function Providers({
   )
 }
 
-function renderDashboard(options?: {
-  readonly enableSwitch?: boolean
-  readonly refreshOrganizations?: () => void
-  readonly strictMode?: boolean
-}) {
+function renderDashboard(options?: DashboardRenderOptions) {
+  const initialOrganization = options?.initialOrganization ?? organizationA
   const router = createMemoryRouter(
     [
       {
@@ -166,7 +237,7 @@ function renderDashboard(options?: {
         children: [{ index: true, element: <DashboardPage /> }],
       },
     ],
-    { initialEntries: [`/organizations/${organizationA.id}`] },
+    { initialEntries: [`/organizations/${initialOrganization.id}`] },
   )
   const tree = <RouterProvider router={router} />
   return render(options?.strictMode ? <StrictMode>{tree}</StrictMode> : tree)
@@ -176,6 +247,9 @@ beforeEach(() => {
   vi.mocked(getDashboard).mockReset()
   vi.mocked(getDashboardSupplementaryData).mockReset()
   vi.mocked(getDashboardSupplementaryData).mockResolvedValue(supplementary())
+  vi.mocked(getFinanceOverview).mockReset()
+  vi.mocked(getFinanceOverview).mockResolvedValue(financeOverview())
+  vi.mocked(authValue.handleUnauthorized).mockReset()
 })
 
 afterEach(() => {
@@ -628,5 +702,347 @@ describe('DashboardPage', () => {
     expect(signal?.aborted).toBe(false)
     view.unmount()
     expect(signal?.aborted).toBe(true)
+  })
+
+  describe('Finance summary', () => {
+    const ownerOrganization = withRole(organizationA, 'Owner')
+    const administratorOrganization = withRole(organizationA, 'Administrator')
+
+    beforeEach(() => {
+      vi.mocked(getDashboard).mockResolvedValue(dashboard())
+    })
+
+    it('Owner_RendersExactSummaryCountsReferenceDateRouteAndPosition', async () => {
+      renderDashboard({ initialOrganization: ownerOrganization })
+
+      const finance = await screen.findByRole('region', { name: 'Financeiro' })
+      const financeContent = within(finance)
+
+      expect(getFinanceOverview).toHaveBeenCalledOnce()
+      expect(getFinanceOverview).toHaveBeenCalledWith(
+        ownerOrganization.id,
+        authValue.handleUnauthorized,
+        expect.any(AbortSignal),
+      )
+      expect(financeContent.getByText('Recebido')).toBeInTheDocument()
+      expect(financeContent.getByText('Em aberto')).toBeInTheDocument()
+      expect(financeContent.getByText('Em atraso')).toBeInTheDocument()
+      expect(financeContent.getByText('Vence hoje')).toBeInTheDocument()
+      expect(financeContent.queryByText('Total contratado')).not.toBeInTheDocument()
+      expect(financeContent.queryByText('A vencer')).not.toBeInTheDocument()
+      expect(
+        financeContent.getByText('R$ 9.999.999.999.999.999,99'),
+      ).toBeInTheDocument()
+      expect(financeContent.getByText('3 parcelas vencidas')).toBeInTheDocument()
+      expect(financeContent.getByText('1 parcela vencendo hoje')).toBeInTheDocument()
+      expect(financeContent.getByText('2 planos abertos')).toBeInTheDocument()
+      expect(financeContent.getByText('Posição em 08/09/2026')).toBeInTheDocument()
+      expect(
+        financeContent.getByRole('link', { name: 'Ver financeiro' }),
+      ).toHaveAttribute(
+        'href',
+        `/organizations/${ownerOrganization.id}/finance`,
+      )
+
+      const operational = screen.getByRole('region', {
+        name: 'Compromissos e prioridades',
+      })
+      const supplementaryRegion = screen.getByRole('region', {
+        name: 'Atividade recente e administração',
+      })
+      expect(
+        operational.compareDocumentPosition(finance) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(
+        finance.compareDocumentPosition(supplementaryRegion) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    })
+
+    it('Administrator_LoadsTheFinanceSummary', async () => {
+      renderDashboard({ initialOrganization: administratorOrganization })
+
+      expect(
+        await screen.findByRole('region', { name: 'Financeiro' }),
+      ).toBeInTheDocument()
+      expect(getFinanceOverview).toHaveBeenCalledOnce()
+      expect(getFinanceOverview).toHaveBeenCalledWith(
+        administratorOrganization.id,
+        authValue.handleUnauthorized,
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('Member_DoesNotMountFinanceOrIssueARequest', async () => {
+      renderDashboard({ initialOrganization: organizationA })
+
+      expect(
+        await screen.findByRole('link', { name: /Clientes ativos: 12/ }),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Financeiro' })).not.toBeInTheDocument()
+      expect(getFinanceOverview).not.toHaveBeenCalled()
+    })
+
+    it('Loading_IsLocalAndDoesNotBlockTheDashboard', async () => {
+      vi.mocked(getFinanceOverview).mockReturnValue(new Promise(() => undefined))
+
+      renderDashboard({ initialOrganization: ownerOrganization })
+
+      expect(
+        await screen.findByRole('link', { name: /Clientes ativos: 12/ }),
+      ).toBeInTheDocument()
+      const finance = screen.getByRole('region', { name: 'Financeiro' })
+      expect(finance).toHaveAttribute('aria-busy', 'true')
+      expect(within(finance).getByRole('status')).toHaveTextContent(
+        'Carregando resumo financeiro…',
+      )
+    })
+
+    it('ZeroOverview_RendersFourZerosEmptyStateAndNavigation', async () => {
+      vi.mocked(getFinanceOverview).mockResolvedValue(
+        financeOverview({
+          totalContractedAmount: '0',
+          totalReceivedAmount: '0.0',
+          totalOutstandingAmount: '0.00',
+          overdueAmount: '0',
+          dueTodayAmount: '0.0',
+          upcomingAmount: '0.00',
+          paymentPlanCount: 0,
+          openPaymentPlanCount: 0,
+          paidInstallmentCount: 0,
+          overdueInstallmentCount: 0,
+          dueTodayInstallmentCount: 0,
+          upcomingInstallmentCount: 0,
+        }),
+      )
+
+      renderDashboard({ initialOrganization: ownerOrganization })
+
+      const finance = await screen.findByRole('region', { name: 'Financeiro' })
+      await within(finance).findByText('Nenhum plano financeiro cadastrado.')
+      expect(within(finance).getAllByText('R$ 0,00')).toHaveLength(4)
+      expect(
+        within(finance).getByText('Nenhum plano financeiro cadastrado.'),
+      ).toHaveAttribute('role', 'status')
+      expect(
+        within(finance).getByRole('link', { name: 'Ver financeiro' }),
+      ).toBeInTheDocument()
+      expect(within(finance).queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('ErrorAndRetry_StayLocalAndDoNotReloadDashboardModules', async () => {
+      vi.mocked(getFinanceOverview)
+        .mockRejectedValueOnce(new Error('private detail'))
+        .mockResolvedValueOnce(financeOverview({ totalReceivedAmount: '88.75' }))
+
+      renderDashboard({ initialOrganization: ownerOrganization })
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(
+        'Não foi possível carregar o resumo financeiro. Tente novamente.',
+      )
+      expect(alert).not.toHaveTextContent('private detail')
+      expect(screen.getByRole('link', { name: /Clientes ativos: 12/ })).toBeInTheDocument()
+
+      fireEvent.click(within(alert).getByRole('button', { name: 'Tentar novamente' }))
+
+      expect(await screen.findByText('R$ 88,75')).toBeInTheDocument()
+      expect(getFinanceOverview).toHaveBeenCalledTimes(2)
+      expect(getDashboard).toHaveBeenCalledOnce()
+      expect(getDashboardSupplementaryData).toHaveBeenCalledOnce()
+    })
+
+    it('Unauthorized_UsesTheCentralSessionHandlerWithoutALocalError', async () => {
+      vi.mocked(getFinanceOverview).mockImplementation(
+        (_organizationId, onUnauthorized) => {
+          onUnauthorized()
+          return Promise.reject(new FinanceRequestError('unauthorized'))
+        },
+      )
+
+      renderDashboard({ initialOrganization: ownerOrganization })
+
+      await waitFor(() =>
+        expect(authValue.handleUnauthorized).toHaveBeenCalledOnce(),
+      )
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryByText('R$ 9.999.999.999.999.999,99')).not.toBeInTheDocument()
+    })
+
+    it('Forbidden_RefreshesOrganizationAccessAndOffersRecovery', async () => {
+      vi.mocked(getFinanceOverview).mockRejectedValue(
+        new FinanceRequestError('forbidden'),
+      )
+      const refreshOrganizations = vi.fn()
+
+      renderDashboard({
+        initialOrganization: ownerOrganization,
+        refreshOrganizations,
+      })
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('O acesso ao Financeiro pode ter mudado.')
+      expect(refreshOrganizations).toHaveBeenCalledOnce()
+      fireEvent.click(within(alert).getByRole('button', { name: 'Atualizar acesso' }))
+      expect(refreshOrganizations).toHaveBeenCalledTimes(2)
+      expect(screen.queryByText('R$ 9.999.999.999.999.999,99')).not.toBeInTheDocument()
+    })
+
+    it('ForbiddenRefreshToMember_RemovesTheSection', async () => {
+      vi.mocked(getFinanceOverview).mockRejectedValue(
+        new FinanceRequestError('forbidden'),
+      )
+      const refreshOrganizations = vi.fn()
+
+      renderDashboard({
+        initialOrganization: ownerOrganization,
+        refreshOrganizations,
+        downgradeOnRefresh: true,
+      })
+
+      await waitFor(() => expect(refreshOrganizations).toHaveBeenCalledOnce())
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('region', { name: 'Financeiro' }),
+        ).not.toBeInTheDocument(),
+      )
+      expect(getFinanceOverview).toHaveBeenCalledOnce()
+    })
+
+    it('OrganizationChange_IgnoresTheStaleResponse', async () => {
+      const stale = deferred<FinanceOverview>()
+      const currentOrganization = withRole(organizationB, 'Owner')
+      vi.mocked(getFinanceOverview).mockImplementation((organizationId) =>
+        organizationId === ownerOrganization.id
+          ? stale.promise
+          : Promise.resolve(financeOverview({ totalReceivedAmount: '222.22' })),
+      )
+
+      renderDashboard({
+        initialOrganization: ownerOrganization,
+        switchOrganization: currentOrganization,
+        enableSwitch: true,
+      })
+      await waitFor(() => expect(getFinanceOverview).toHaveBeenCalledOnce())
+      fireEvent.click(screen.getByRole('button', { name: 'Trocar organização' }))
+
+      expect(await screen.findByText('R$ 222,22')).toBeInTheDocument()
+      await act(async () =>
+        stale.resolve(financeOverview({ totalReceivedAmount: '777.77' })),
+      )
+      expect(screen.queryByText('R$ 777,77')).not.toBeInTheDocument()
+      expect(screen.getByText('R$ 222,22')).toBeInTheDocument()
+    })
+
+    it('OrganizationChange_IgnoresTheStaleError', async () => {
+      const stale = deferred<FinanceOverview>()
+      const currentOrganization = withRole(organizationB, 'Administrator')
+      vi.mocked(getFinanceOverview).mockImplementation((organizationId) =>
+        organizationId === ownerOrganization.id
+          ? stale.promise
+          : Promise.resolve(financeOverview({ totalReceivedAmount: '333.33' })),
+      )
+
+      renderDashboard({
+        initialOrganization: ownerOrganization,
+        switchOrganization: currentOrganization,
+        enableSwitch: true,
+      })
+      await waitFor(() => expect(getFinanceOverview).toHaveBeenCalledOnce())
+      fireEvent.click(screen.getByRole('button', { name: 'Trocar organização' }))
+
+      expect(await screen.findByText('R$ 333,33')).toBeInTheDocument()
+      await act(async () => stale.reject(new Error('stale private error')))
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.getByText('R$ 333,33')).toBeInTheDocument()
+    })
+
+    it('RoleDowngrade_RemovesRenderedFinanceDataWithoutANewRequest', async () => {
+      renderDashboard({
+        initialOrganization: administratorOrganization,
+        enableRoleDowngrade: true,
+      })
+
+      expect(
+        await screen.findByText('R$ 9.999.999.999.999.999,99'),
+      ).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Mudar para membro' }))
+
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('region', { name: 'Financeiro' }),
+        ).not.toBeInTheDocument(),
+      )
+      expect(screen.queryByText('R$ 9.999.999.999.999.999,99')).not.toBeInTheDocument()
+      expect(getFinanceOverview).toHaveBeenCalledOnce()
+    })
+
+    it('RoleDowngrade_AbortsAndIgnoresAPendingFinanceResponse', async () => {
+      const pending = deferred<FinanceOverview>()
+      let signal: AbortSignal | undefined
+      vi.mocked(getFinanceOverview).mockImplementation(
+        (_organizationId, _onUnauthorized, requestSignal) => {
+          signal = requestSignal
+          return pending.promise
+        },
+      )
+
+      renderDashboard({
+        initialOrganization: administratorOrganization,
+        enableRoleDowngrade: true,
+      })
+      await waitFor(() => expect(getFinanceOverview).toHaveBeenCalledOnce())
+      fireEvent.click(screen.getByRole('button', { name: 'Mudar para membro' }))
+
+      await waitFor(() => expect(signal?.aborted).toBe(true))
+      await act(async () => pending.resolve(financeOverview()))
+      expect(screen.queryByRole('region', { name: 'Financeiro' })).not.toBeInTheDocument()
+      expect(getFinanceOverview).toHaveBeenCalledOnce()
+    })
+
+    it('Unmount_AbortsTheFinanceRequest', async () => {
+      let signal: AbortSignal | undefined
+      vi.mocked(getFinanceOverview).mockImplementation(
+        (_organizationId, _onUnauthorized, requestSignal) => {
+          signal = requestSignal
+          return new Promise(() => undefined)
+        },
+      )
+
+      const view = renderDashboard({ initialOrganization: ownerOrganization })
+      await waitFor(() => expect(getFinanceOverview).toHaveBeenCalledOnce())
+      expect(signal?.aborted).toBe(false)
+      view.unmount()
+      expect(signal?.aborted).toBe(true)
+    })
+
+    it('StrictMode_AbortedFinanceEffectCannotReplaceTheFreshResult', async () => {
+      const stale = deferred<FinanceOverview>()
+      const signals: AbortSignal[] = []
+      vi.mocked(getFinanceOverview)
+        .mockImplementationOnce((_organizationId, _handler, signal) => {
+          signals.push(signal!)
+          return stale.promise
+        })
+        .mockImplementationOnce((_organizationId, _handler, signal) => {
+          signals.push(signal!)
+          return Promise.resolve(financeOverview({ totalReceivedAmount: '444.44' }))
+        })
+
+      renderDashboard({
+        initialOrganization: ownerOrganization,
+        strictMode: true,
+      })
+
+      expect(await screen.findByText('R$ 444,44')).toBeInTheDocument()
+      expect(signals[0]?.aborted).toBe(true)
+      expect(signals[1]?.aborted).toBe(false)
+      await act(async () =>
+        stale.resolve(financeOverview({ totalReceivedAmount: '777.77' })),
+      )
+      expect(screen.queryByText('R$ 777,77')).not.toBeInTheDocument()
+      expect(screen.getByText('R$ 444,44')).toBeInTheDocument()
+    })
   })
 })
