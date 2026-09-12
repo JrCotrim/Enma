@@ -1041,7 +1041,7 @@ body:has(.organization-workspace) :where(
   select,
   textarea
 )::placeholder {
-  color: #84798a;
+  color: var(--enma-v3-subtle);
   opacity: 1;
 }
 
@@ -1356,14 +1356,6 @@ body:has(.organization-workspace) :where(
   border-color: var(--enma-v3-border-strong) !important;
   background: #211b26 !important;
   box-shadow: none !important;
-}
-
-body:has(.organization-workspace) :where(
-  .organization-name-form input,
-  .team-search input
-)::placeholder {
-  color: #817587;
-  opacity: 1;
 }
 
 body:has(.organization-workspace) :where(
