@@ -724,7 +724,7 @@ describe('DashboardPage', () => {
         authValue.handleUnauthorized,
         expect.any(AbortSignal),
       )
-      expect(financeContent.getByText('Recebido')).toBeInTheDocument()
+      expect(await financeContent.findByText('Recebido')).toBeInTheDocument()
       expect(financeContent.getByText('Em aberto')).toBeInTheDocument()
       expect(financeContent.getByText('Em atraso')).toBeInTheDocument()
       expect(financeContent.getByText('Vence hoje')).toBeInTheDocument()
