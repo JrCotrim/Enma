@@ -30,6 +30,7 @@ internal static class NotificationVisibilityQueryExtensions
         return notifications.Where(notification =>
             notification.OrganizationId == organizationId &&
             notification.RecipientUserId == recipientUserId &&
+            notification.DismissedAt == null &&
             (notification.Kind != NotificationKind.PaymentInstallmentDueToday ||
                 financeAccess.Any()));
     }

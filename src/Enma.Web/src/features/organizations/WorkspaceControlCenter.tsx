@@ -3,6 +3,7 @@ import {
   useId,
   useRef,
   useState,
+  type SVGProps,
 } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
@@ -26,6 +27,26 @@ interface WorkspaceControlCenterProps {
   readonly currentOrganization: OrganizationNavigationItem
   readonly organizations: readonly OrganizationNavigationItem[]
   onSelectOrganization(organizationId: string): void
+}
+
+function BuildingOfficeIcon({
+  size = 24,
+  ...props
+}: SVGProps<SVGSVGElement> & { readonly size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 256 256"
+      {...props}
+    >
+      <path
+        fill="currentColor"
+        d="M248 208h-16V96a8 8 0 0 0 0-16h-48V48a8 8 0 0 0 0-16H40a8 8 0 0 0 0 16v160H24a8 8 0 0 0 0 16h224a8 8 0 0 0 0-16M216 96v112h-32V96ZM56 48h112v160h-24v-48a8 8 0 0 0-8-8H88a8 8 0 0 0-8 8v48H56Zm72 160H96v-40h32ZM72 80a8 8 0 0 1 8-8h16a8 8 0 0 1 0 16H80a8 8 0 0 1-8-8m48 0a8 8 0 0 1 8-8h16a8 8 0 0 1 0 16h-16a8 8 0 0 1-8-8m-48 40a8 8 0 0 1 8-8h16a8 8 0 0 1 0 16H80a8 8 0 0 1-8-8m48 0a8 8 0 0 1 8-8h16a8 8 0 0 1 0 16h-16a8 8 0 0 1-8-8"
+      />
+    </svg>
+  )
 }
 
 export function WorkspaceControlCenter({
@@ -200,9 +221,14 @@ export function WorkspaceControlCenter({
             transition={{ duration: prefersReducedMotion ? 0.01 : 0.2 }}
           >
             <header className="workspace-profile-header">
-              <span className="workspace-profile-kicker">Organização atual</span>
-              <strong>{currentOrganization.name}</strong>
-              <span>{getOrganizationRoleLabel(currentOrganization.role)}</span>
+              <span className="workspace-profile-current-icon" aria-hidden="true">
+                <BuildingOfficeIcon size={19} />
+              </span>
+              <span className="workspace-profile-current-copy">
+                <span className="workspace-profile-kicker">Organização atual</span>
+                <strong>{currentOrganization.name}</strong>
+                <span>{getOrganizationRoleLabel(currentOrganization.role)}</span>
+              </span>
             </header>
 
             <div className="workspace-profile-organizations">

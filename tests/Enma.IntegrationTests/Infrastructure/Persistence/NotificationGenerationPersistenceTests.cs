@@ -10,6 +10,7 @@ using Enma.Domain.Processes;
 using Enma.Domain.Tasks;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
+using Enma.Infrastructure.Persistence.Queries;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -631,6 +632,42 @@ public sealed class NotificationGenerationPersistenceTests(
         Assert.Equal(
             new[] { originalAssignee.User.Id, newAssignee.User.Id }.Order(),
             notifications.Select(notification => notification.RecipientUserId).Order());
+    }
+
+    [Fact]
+    public async Task DismissedNotification_RemainsDeduplicatedAndOutsideFeed()
+    {
+        TenantGraph tenant = CreateTenant("dismissed-dedupe");
+        Person creator = AddPerson(tenant, "creator", OrganizationRole.Member);
+        CreateTask(
+            tenant,
+            "Dismissed task",
+            SchedulerDate,
+            creator.Membership);
+        await SeedAsync(tenant.Entities);
+
+        Assert.Equal(1, (await GenerateTasksAsync()).InsertedCount);
+        Notification notification = Assert.Single(await ReadNotificationsAsync());
+        await using (EnmaDbContext mutationContext = fixture.CreateDbContext())
+        {
+            var mutations = new NotificationMutationPersistence(mutationContext);
+            Assert.True(await mutations.DismissAsync(
+                notification.Id,
+                tenant.Organization.Id,
+                creator.User.Id,
+                GeneratedAt.AddMinutes(1)));
+        }
+
+        Assert.Equal(0, (await GenerateTasksAsync()).InsertedCount);
+        Assert.Single(await ReadNotificationsAsync());
+        await using EnmaDbContext readContext = fixture.CreateDbContext();
+        var queries = new NotificationReadQueries(readContext);
+        NotificationFeedReadResult feed = await queries.ReadFeedAsync(
+            tenant.Organization.Id,
+            creator.User.Id,
+            20);
+        Assert.Empty(feed.Items);
+        Assert.Equal(0, feed.UnreadCount);
     }
 
     [Fact]

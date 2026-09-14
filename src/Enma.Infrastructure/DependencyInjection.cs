@@ -44,6 +44,8 @@ using Enma.Application.Finance.List;
 using Enma.Application.Finance.MarkPaid;
 using Enma.Application.Finance.Overview;
 using Enma.Application.Notifications;
+using Enma.Application.Notifications.Dismiss;
+using Enma.Application.Notifications.DismissAll;
 using Enma.Application.Notifications.List;
 using Enma.Application.Notifications.MarkAllRead;
 using Enma.Application.Notifications.MarkRead;
@@ -414,6 +416,8 @@ public static class DependencyInjection
         services.AddScoped<ListNotificationsUseCase>();
         services.AddScoped<MarkNotificationAsReadUseCase>();
         services.AddScoped<MarkAllNotificationsAsReadUseCase>();
+        services.AddScoped<DismissNotificationUseCase>();
+        services.AddScoped<DismissAllNotificationsUseCase>();
         services.AddScoped<GenerateNotificationsUseCase>();
         services.AddScoped<LegalDocumentReadAuthorization>();
         services.AddScoped<CreateClientUseCase>();

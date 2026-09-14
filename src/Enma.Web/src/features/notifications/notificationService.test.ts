@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearCsrfToken } from '../authentication/csrfClient'
 import {
+  dismissAllNotifications,
+  dismissNotification,
   getNotifications,
   markAllNotificationsAsRead,
   markNotificationAsRead,
@@ -172,10 +174,12 @@ describe('Notifications API client', () => {
     ).rejects.toMatchObject({ failure: 'unexpected' })
   })
 
-  it('ReadMutations_UseCsrfAndExactBodylessPutRoutes', async () => {
+  it('Mutations_UseCsrfAndExactBodylessRoutes', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(204))
       .mockResolvedValueOnce(response(204))
       .mockResolvedValueOnce(response(204))
     vi.stubGlobal('fetch', fetchMock)
@@ -186,6 +190,8 @@ describe('Notifications API client', () => {
       vi.fn(),
     )
     await markAllNotificationsAsRead(organizationId, vi.fn())
+    await dismissNotification(organizationId, notificationId, vi.fn())
+    await dismissAllNotifications(organizationId, vi.fn())
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/auth/csrf', {
       method: 'GET',
@@ -208,6 +214,28 @@ describe('Notifications API client', () => {
       `/api/organizations/${organizationId}/notifications/read-all`,
       {
         method: 'PUT',
+        headers: { 'X-CSRF-TOKEN': 'csrf-token' },
+        cache: 'no-store',
+        signal: undefined,
+        credentials: 'same-origin',
+      },
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      `/api/organizations/${organizationId}/notifications/${notificationId}`,
+      {
+        method: 'DELETE',
+        headers: { 'X-CSRF-TOKEN': 'csrf-token' },
+        cache: 'no-store',
+        signal: undefined,
+        credentials: 'same-origin',
+      },
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      `/api/organizations/${organizationId}/notifications`,
+      {
+        method: 'DELETE',
         headers: { 'X-CSRF-TOKEN': 'csrf-token' },
         cache: 'no-store',
         signal: undefined,

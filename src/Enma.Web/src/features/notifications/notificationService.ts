@@ -146,8 +146,9 @@ function notificationsEndpoint(organizationId: string): string {
   return `/api/organizations/${encodeURIComponent(organizationId)}/notifications`
 }
 
-async function sendReadMutation(
+async function sendMutation(
   endpoint: string,
+  method: 'DELETE' | 'PUT',
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -155,7 +156,7 @@ async function sendReadMutation(
   const response = await fetchWithSession(
     endpoint,
     {
-      method: 'PUT',
+      method,
       headers: { 'X-CSRF-TOKEN': requestToken },
       cache: 'no-store',
       signal,
@@ -189,8 +190,9 @@ export function markNotificationAsRead(
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
 ): Promise<void> {
-  return sendReadMutation(
+  return sendMutation(
     `${notificationsEndpoint(organizationId)}/${encodeURIComponent(notificationId)}/read`,
+    'PUT',
     onUnauthorized,
     signal,
   )
@@ -201,8 +203,36 @@ export function markAllNotificationsAsRead(
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
 ): Promise<void> {
-  return sendReadMutation(
+  return sendMutation(
     `${notificationsEndpoint(organizationId)}/read-all`,
+    'PUT',
+    onUnauthorized,
+    signal,
+  )
+}
+
+export function dismissNotification(
+  organizationId: string,
+  notificationId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendMutation(
+    `${notificationsEndpoint(organizationId)}/${encodeURIComponent(notificationId)}`,
+    'DELETE',
+    onUnauthorized,
+    signal,
+  )
+}
+
+export function dismissAllNotifications(
+  organizationId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return sendMutation(
+    notificationsEndpoint(organizationId),
+    'DELETE',
     onUnauthorized,
     signal,
   )

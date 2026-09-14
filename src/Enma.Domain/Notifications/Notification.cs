@@ -124,6 +124,8 @@ public sealed class Notification
 
     public DateTimeOffset? ReadAt { get; private set; }
 
+    public DateTimeOffset? DismissedAt { get; private set; }
+
     public void MarkAsRead(DateTimeOffset readAt)
     {
         if (readAt == DateTimeOffset.MinValue)

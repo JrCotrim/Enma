@@ -1,5 +1,7 @@
 using Enma.Application.Authorization;
 using Enma.Application.Notifications;
+using Enma.Application.Notifications.Dismiss;
+using Enma.Application.Notifications.DismissAll;
 using Enma.Application.Notifications.List;
 using Enma.Application.Notifications.MarkAllRead;
 using Enma.Application.Notifications.MarkRead;
@@ -211,6 +213,93 @@ public sealed class NotificationUseCaseTests
         Assert.Equal(0, persistence.MarkAllCallCount);
     }
 
+    [Fact]
+    public async Task DismissOne_Valid_UsesQualifiedIdentity()
+    {
+        var persistence = new FakeMutationPersistence(markOneFound: true);
+        var useCase = new DismissNotificationUseCase(
+            CreateAccessAuthorization(OrganizationRole.Member),
+            persistence,
+            new FixedTimeProvider(Now));
+
+        DismissNotificationResult result = await useCase.ExecuteAsync(
+            new DismissNotificationCommand(UserId, OrganizationId, NotificationId));
+
+        Assert.Equal(DismissNotificationResult.Succeeded, result);
+        Assert.Equal(1, persistence.DismissOneCallCount);
+        Assert.Equal(NotificationId, persistence.NotificationId);
+        Assert.Equal(OrganizationId, persistence.OrganizationId);
+        Assert.Equal(UserId, persistence.RecipientUserId);
+        Assert.Equal(Now.ToUniversalTime(), persistence.DismissedAt);
+    }
+
+    [Fact]
+    public async Task DismissOne_DeniedAccess_PerformsNoMutation()
+    {
+        var persistence = new FakeMutationPersistence(markOneFound: true);
+        var useCase = new DismissNotificationUseCase(
+            CreateAccessAuthorization(null),
+            persistence,
+            new FixedTimeProvider(Now));
+
+        DismissNotificationResult result = await useCase.ExecuteAsync(
+            new DismissNotificationCommand(UserId, OrganizationId, NotificationId));
+
+        Assert.Equal(DismissNotificationResult.AccessDenied, result);
+        Assert.Equal(0, persistence.DismissOneCallCount);
+    }
+
+    [Fact]
+    public async Task DismissOne_EmptyIdReturnsNotFoundWithoutMutation()
+    {
+        var persistence = new FakeMutationPersistence(markOneFound: true);
+        var useCase = new DismissNotificationUseCase(
+            CreateAccessAuthorization(OrganizationRole.Owner),
+            persistence,
+            new FixedTimeProvider(Now));
+
+        DismissNotificationResult result = await useCase.ExecuteAsync(
+            new DismissNotificationCommand(UserId, OrganizationId, Guid.Empty));
+
+        Assert.Equal(DismissNotificationResult.NotFound, result);
+        Assert.Equal(0, persistence.DismissOneCallCount);
+    }
+
+    [Fact]
+    public async Task DismissAll_UsesQualifiedIdentity()
+    {
+        var persistence = new FakeMutationPersistence(markOneFound: true);
+        var useCase = new DismissAllNotificationsUseCase(
+            CreateAccessAuthorization(OrganizationRole.Owner),
+            persistence,
+            new FixedTimeProvider(Now));
+
+        DismissAllNotificationsResult result = await useCase.ExecuteAsync(
+            new DismissAllNotificationsCommand(UserId, OrganizationId));
+
+        Assert.Equal(DismissAllNotificationsResult.Succeeded, result);
+        Assert.Equal(1, persistence.DismissAllCallCount);
+        Assert.Equal(OrganizationId, persistence.OrganizationId);
+        Assert.Equal(UserId, persistence.RecipientUserId);
+        Assert.Equal(Now.ToUniversalTime(), persistence.DismissedAt);
+    }
+
+    [Fact]
+    public async Task DismissAll_DeniedAccessPerformsNoMutation()
+    {
+        var persistence = new FakeMutationPersistence(markOneFound: true);
+        var useCase = new DismissAllNotificationsUseCase(
+            CreateAccessAuthorization(null),
+            persistence,
+            new FixedTimeProvider(Now));
+
+        DismissAllNotificationsResult result = await useCase.ExecuteAsync(
+            new DismissAllNotificationsCommand(UserId, OrganizationId));
+
+        Assert.Equal(DismissAllNotificationsResult.AccessDenied, result);
+        Assert.Equal(0, persistence.DismissAllCallCount);
+    }
+
     private static MarkNotificationAsReadUseCase CreateMarkOneUseCase(
         INotificationMutationPersistence persistence)
     {
@@ -307,6 +396,10 @@ public sealed class NotificationUseCaseTests
 
         public int MarkAllCallCount { get; private set; }
 
+        public int DismissOneCallCount { get; private set; }
+
+        public int DismissAllCallCount { get; private set; }
+
         public Guid? NotificationId { get; private set; }
 
         public Guid? OrganizationId { get; private set; }
@@ -314,6 +407,8 @@ public sealed class NotificationUseCaseTests
         public Guid? RecipientUserId { get; private set; }
 
         public DateTimeOffset? ReadAt { get; private set; }
+
+        public DateTimeOffset? DismissedAt { get; private set; }
 
         public CancellationToken CancellationToken { get; private set; }
 
@@ -343,6 +438,36 @@ public sealed class NotificationUseCaseTests
             OrganizationId = organizationId;
             RecipientUserId = recipientUserId;
             ReadAt = readAt;
+            CancellationToken = cancellationToken;
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> DismissAsync(
+            Guid notificationId,
+            Guid organizationId,
+            Guid recipientUserId,
+            DateTimeOffset dismissedAt,
+            CancellationToken cancellationToken = default)
+        {
+            DismissOneCallCount++;
+            NotificationId = notificationId;
+            OrganizationId = organizationId;
+            RecipientUserId = recipientUserId;
+            DismissedAt = dismissedAt;
+            CancellationToken = cancellationToken;
+            return Task.FromResult(markOneFound);
+        }
+
+        public Task DismissAllAsync(
+            Guid organizationId,
+            Guid recipientUserId,
+            DateTimeOffset dismissedAt,
+            CancellationToken cancellationToken = default)
+        {
+            DismissAllCallCount++;
+            OrganizationId = organizationId;
+            RecipientUserId = recipientUserId;
+            DismissedAt = dismissedAt;
             CancellationToken = cancellationToken;
             return Task.CompletedTask;
         }

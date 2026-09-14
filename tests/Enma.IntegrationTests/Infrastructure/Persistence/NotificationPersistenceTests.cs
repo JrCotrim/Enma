@@ -490,7 +490,8 @@ public sealed class NotificationPersistenceTests(
                 nameof(Notification.OccurrenceDate),
                 nameof(Notification.OccurrenceAt),
                 nameof(Notification.GeneratedAt),
-                nameof(Notification.ReadAt)
+                nameof(Notification.ReadAt),
+                nameof(Notification.DismissedAt)
             ],
             entityType.GetProperties()
                 .OrderBy(property => PropertyOrder(property.Name))
@@ -510,6 +511,10 @@ public sealed class NotificationPersistenceTests(
         Assert.Equal(
             "timestamp with time zone",
             entityType.FindProperty(nameof(Notification.GeneratedAt))!
+                .GetColumnType());
+        Assert.Equal(
+            "timestamp with time zone",
+            entityType.FindProperty(nameof(Notification.DismissedAt))!
                 .GetColumnType());
         Assert.Empty(entityType.GetNavigations());
 
@@ -658,10 +663,11 @@ public sealed class NotificationPersistenceTests(
         Assert.Equal(
             "id,organization_id,recipient_user_id,kind,legal_deadline_id," +
             "legal_task_id,calendar_event_id,occurrence_date,occurrence_at," +
-            "generated_at,read_at,payment_installment_id",
+            "generated_at,read_at,payment_installment_id,dismissed_at",
             await GetTableColumnsAsync("notifications"));
         Assert.Equal(
             [
+                "ck_notifications_dismissed_at",
                 "ck_notifications_exactly_one_source",
                 "ck_notifications_kind",
                 "ck_notifications_kind_source",
@@ -1280,7 +1286,8 @@ public sealed class NotificationPersistenceTests(
                 nameof(Notification.OccurrenceDate),
                 nameof(Notification.OccurrenceAt),
                 nameof(Notification.GeneratedAt),
-                nameof(Notification.ReadAt)
+                nameof(Notification.ReadAt),
+                nameof(Notification.DismissedAt)
             ],
             propertyName);
     }

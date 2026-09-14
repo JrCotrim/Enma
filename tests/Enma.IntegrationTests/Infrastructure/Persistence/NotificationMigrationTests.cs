@@ -268,6 +268,11 @@ public sealed class NotificationMigrationTests(
         int[] reUpgradedKinds = await GetNotificationKindsAsync();
         Assert.Equal([1, 2, 3], reUpgradedKinds);
         Assert.True(await NotificationColumnExistsAsync("payment_installment_id"));
+        Assert.False(await NotificationColumnExistsAsync("dismissed_at"));
+
+        await MigrateAsync();
+
+        Assert.True(await NotificationColumnExistsAsync("dismissed_at"));
 
         await using (EnmaDbContext reUpgradedContext = fixture.CreateDbContext())
         {

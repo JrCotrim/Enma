@@ -691,6 +691,146 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
         await AssertEmptyResponseAsync(response, HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task DismissOne_OnlyOwnNotificationLeavesFeedAndRepeatIsNotFound()
+    {
+        ApiGraph own = CreateGraph("dismiss-one-own", OrganizationRole.Member);
+        ApiGraph foreign = CreateGraph("dismiss-one-foreign", OrganizationRole.Owner);
+        Notification ownNotification = CreateNotification(
+            NotificationKind.LegalTaskDueSoon,
+            own,
+            own.Actor.Id);
+        Notification otherUser = CreateNotification(
+            NotificationKind.CalendarEventStartingSoon,
+            own,
+            own.OtherUser.Id);
+        Notification otherTenant = CreateNotification(
+            NotificationKind.LegalDeadlineDueSoon,
+            foreign,
+            foreign.Actor.Id);
+        string rawHandle = await SeedAuthenticatedAsync(
+            own.Actor,
+            own.Entities
+                .Concat(foreign.Entities)
+                .Concat([ownNotification, otherUser, otherTenant]));
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage otherUserResponse = await SendMutationAsync(
+            GetDismissOnePath(own.Organization.Id, otherUser.Id),
+            rawHandle,
+            csrf,
+            method: HttpMethod.Delete);
+        using HttpResponseMessage otherTenantResponse = await SendMutationAsync(
+            GetDismissOnePath(own.Organization.Id, otherTenant.Id),
+            rawHandle,
+            csrf,
+            method: HttpMethod.Delete);
+        using HttpResponseMessage response = await SendMutationAsync(
+            GetDismissOnePath(own.Organization.Id, ownNotification.Id),
+            rawHandle,
+            csrf,
+            method: HttpMethod.Delete);
+        using HttpResponseMessage repeat = await SendMutationAsync(
+            GetDismissOnePath(own.Organization.Id, ownNotification.Id),
+            rawHandle,
+            csrf,
+            method: HttpMethod.Delete);
+
+        await AssertEmptyResponseAsync(otherUserResponse, HttpStatusCode.NotFound);
+        await AssertEmptyResponseAsync(otherTenantResponse, HttpStatusCode.NotFound);
+        await AssertEmptyResponseAsync(response, HttpStatusCode.NoContent);
+        await AssertEmptyResponseAsync(repeat, HttpStatusCode.NotFound);
+        Assert.Equal(Now, await GetDismissedAtAsync(ownNotification.Id));
+        Assert.Null(await GetDismissedAtAsync(otherUser.Id));
+        Assert.Null(await GetDismissedAtAsync(otherTenant.Id));
+
+        using HttpResponseMessage listResponse = await SendGetAsync(
+            GetListPath(own.Organization.Id),
+            rawHandle);
+        ListNotificationsResponse feed = Assert.IsType<ListNotificationsResponse>(
+            await listResponse.Content.ReadFromJsonAsync<ListNotificationsResponse>());
+        Assert.Empty(feed.Items);
+        Assert.Equal(0, feed.UnreadCount);
+    }
+
+    [Fact]
+    public async Task DismissAll_AdministratorAffectsOnlyVisibleCurrentRecipient()
+    {
+        ApiGraph own = CreateGraph(
+            "dismiss-all-own",
+            OrganizationRole.Administrator);
+        ApiGraph foreign = CreateGraph("dismiss-all-foreign", OrganizationRole.Owner);
+        Notification ownDeadline = CreateNotification(
+            NotificationKind.LegalDeadlineDueSoon,
+            own,
+            own.Actor.Id);
+        Notification ownFinance = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            own,
+            own.Actor.Id);
+        ownFinance.MarkAsRead(Now.AddMinutes(-1));
+        Notification otherUser = CreateNotification(
+            NotificationKind.CalendarEventStartingSoon,
+            own,
+            own.OtherUser.Id);
+        Notification otherTenant = CreateNotification(
+            NotificationKind.LegalDeadlineDueSoon,
+            foreign,
+            foreign.Actor.Id);
+        string rawHandle = await SeedAuthenticatedAsync(
+            own.Actor,
+            own.Entities
+                .Concat(foreign.Entities)
+                .Concat([ownDeadline, ownFinance, otherUser, otherTenant]));
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage response = await SendMutationAsync(
+            GetListPath(own.Organization.Id),
+            rawHandle,
+            csrf,
+            method: HttpMethod.Delete);
+
+        await AssertEmptyResponseAsync(response, HttpStatusCode.NoContent);
+        Assert.Equal(Now, await GetDismissedAtAsync(ownDeadline.Id));
+        Assert.Equal(Now, await GetDismissedAtAsync(ownFinance.Id));
+        Assert.Null(await GetDismissedAtAsync(otherUser.Id));
+        Assert.Null(await GetDismissedAtAsync(otherTenant.Id));
+
+        using HttpResponseMessage listResponse = await SendGetAsync(
+            GetListPath(own.Organization.Id),
+            rawHandle);
+        ListNotificationsResponse feed = Assert.IsType<ListNotificationsResponse>(
+            await listResponse.Content.ReadFromJsonAsync<ListNotificationsResponse>());
+        Assert.Empty(feed.Items);
+        Assert.Equal(0, feed.UnreadCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DismissOne_MissingOrInvalidAntiforgeryIsRejected(bool invalid)
+    {
+        ApiGraph graph = CreateGraph("dismiss-csrf", OrganizationRole.Owner);
+        Notification notification = CreateNotification(
+            NotificationKind.LegalTaskDueSoon,
+            graph,
+            graph.Actor.Id);
+        string rawHandle = await SeedAuthenticatedAsync(
+            graph.Actor,
+            graph.Entities.Concat([notification]));
+        CsrfPair? csrf = invalid ? await GetCsrfPairAsync(rawHandle) : null;
+
+        using HttpResponseMessage response = await SendMutationAsync(
+            GetDismissOnePath(graph.Organization.Id, notification.Id),
+            rawHandle,
+            csrf,
+            invalid ? "invalid-token" : null,
+            HttpMethod.Delete);
+
+        await AssertEmptyResponseAsync(response, HttpStatusCode.BadRequest);
+        Assert.Null(await GetDismissedAtAsync(notification.Id));
+    }
+
     private static string[] GetPropertyNames<T>()
     {
         return typeof(T).GetProperties()
@@ -756,9 +896,10 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
         string path,
         string rawHandle,
         CsrfPair? csrf,
-        string? requestTokenOverride = null)
+        string? requestTokenOverride = null,
+        HttpMethod? method = null)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Put, path);
+        using var request = new HttpRequestMessage(method ?? HttpMethod.Put, path);
         var cookies = new List<string> { $"{SessionCookieName}={rawHandle}" };
         if (csrf is not null)
         {
@@ -791,6 +932,15 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
         return await dbContext.Notifications
             .Where(notification => notification.Id == notificationId)
             .Select(notification => notification.ReadAt)
+            .SingleAsync();
+    }
+
+    private async Task<DateTimeOffset?> GetDismissedAtAsync(Guid notificationId)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        return await dbContext.Notifications
+            .Where(notification => notification.Id == notificationId)
+            .Select(notification => notification.DismissedAt)
             .SingleAsync();
     }
 
@@ -983,6 +1133,13 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
     private static string GetMarkAllPath(Guid organizationId)
     {
         return $"{GetListPath(organizationId)}/read-all";
+    }
+
+    private static string GetDismissOnePath(
+        Guid organizationId,
+        Guid notificationId)
+    {
+        return $"{GetListPath(organizationId)}/{notificationId:D}";
     }
 
     private static async Task AssertEmptyResponseAsync(

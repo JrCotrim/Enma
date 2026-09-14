@@ -631,6 +631,139 @@ public sealed class NotificationReadMutationPersistenceTests(
     }
 
     [Fact]
+    public async Task DismissOne_UpdatesOnlyMatchingTenantAndRecipientAndLeavesFeed()
+    {
+        TenantGraph own = CreateGraph("dismiss-one-own");
+        TenantGraph foreign = CreateGraph("dismiss-one-foreign");
+        User otherUser = CreateUser("dismiss-one-other");
+        var otherMembership = new OrganizationMembership(
+            own.Organization.Id,
+            otherUser.Id,
+            OrganizationRole.Administrator,
+            CreatedAt);
+        Notification ownNotification = CreateNotification(
+            NotificationKind.LegalDeadlineDueSoon,
+            own);
+        Notification otherUserNotification = CreateNotification(
+            NotificationKind.LegalTaskDueSoon,
+            own,
+            otherUser.Id);
+        Notification foreignNotification = CreateNotification(
+            NotificationKind.CalendarEventStartingSoon,
+            foreign);
+        await SeedAsync(
+            own.Entities
+                .Concat(foreign.Entities)
+                .Concat(
+                [
+                    otherUser,
+                    otherMembership,
+                    ownNotification,
+                    otherUserNotification,
+                    foreignNotification
+                ]));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var persistence = new NotificationMutationPersistence(dbContext);
+
+        Assert.False(await persistence.DismissAsync(
+            otherUserNotification.Id,
+            own.Organization.Id,
+            own.User.Id,
+            ReadAt));
+        Assert.False(await persistence.DismissAsync(
+            foreignNotification.Id,
+            own.Organization.Id,
+            own.User.Id,
+            ReadAt));
+        Assert.False(await persistence.DismissAsync(
+            Guid.NewGuid(),
+            own.Organization.Id,
+            own.User.Id,
+            ReadAt));
+        Assert.True(await persistence.DismissAsync(
+            ownNotification.Id,
+            own.Organization.Id,
+            own.User.Id,
+            ReadAt));
+        Assert.False(await persistence.DismissAsync(
+            ownNotification.Id,
+            own.Organization.Id,
+            own.User.Id,
+            ReadAt.AddMinutes(1)));
+
+        Dictionary<Guid, DateTimeOffset?> dismissedAtById =
+            await dbContext.Notifications
+                .AsNoTracking()
+                .ToDictionaryAsync(item => item.Id, item => item.DismissedAt);
+        Assert.Equal(ReadAt, dismissedAtById[ownNotification.Id]);
+        Assert.Null(dismissedAtById[otherUserNotification.Id]);
+        Assert.Null(dismissedAtById[foreignNotification.Id]);
+
+        var queries = new NotificationReadQueries(dbContext);
+        NotificationFeedReadResult feed = await queries.ReadFeedAsync(
+            own.Organization.Id,
+            own.User.Id,
+            20);
+        Assert.Empty(feed.Items);
+        Assert.Equal(0, feed.UnreadCount);
+    }
+
+    [Fact]
+    public async Task DismissAll_RespectsRecipientTenantAndRoleVisibility()
+    {
+        TenantGraph own = CreateGraph("dismiss-all-own");
+        TenantGraph foreign = CreateGraph("dismiss-all-foreign");
+        User otherUser = CreateUser("dismiss-all-other");
+        var otherMembership = new OrganizationMembership(
+            own.Organization.Id,
+            otherUser.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        Notification ownTask = CreateNotification(
+            NotificationKind.LegalTaskDueSoon,
+            own);
+        ownTask.MarkAsRead(ReadAt.AddMinutes(-10));
+        Notification hiddenFinance = CreateNotification(
+            NotificationKind.PaymentInstallmentDueToday,
+            own);
+        Notification otherUserNotification = CreateNotification(
+            NotificationKind.CalendarEventStartingSoon,
+            own,
+            otherUser.Id);
+        Notification foreignNotification = CreateNotification(
+            NotificationKind.LegalDeadlineDueSoon,
+            foreign);
+        await SeedAsync(
+            own.Entities
+                .Concat(foreign.Entities)
+                .Concat(
+                [
+                    otherUser,
+                    otherMembership,
+                    ownTask,
+                    hiddenFinance,
+                    otherUserNotification,
+                    foreignNotification
+                ]));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var persistence = new NotificationMutationPersistence(dbContext);
+
+        await persistence.DismissAllAsync(
+            own.Organization.Id,
+            own.User.Id,
+            ReadAt);
+
+        Dictionary<Guid, DateTimeOffset?> dismissedAtById =
+            await dbContext.Notifications
+                .AsNoTracking()
+                .ToDictionaryAsync(item => item.Id, item => item.DismissedAt);
+        Assert.Equal(ReadAt, dismissedAtById[ownTask.Id]);
+        Assert.Null(dismissedAtById[hiddenFinance.Id]);
+        Assert.Null(dismissedAtById[otherUserNotification.Id]);
+        Assert.Null(dismissedAtById[foreignNotification.Id]);
+    }
+
+    [Fact]
     public async Task MarkOne_ConcurrentRequests_KeepOneFirstReadTimestamp()
     {
         TenantGraph graph = CreateGraph("mark-one-concurrent");

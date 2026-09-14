@@ -3,6 +3,8 @@ using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Contracts.Notifications;
 using Enma.Application.Notifications;
+using Enma.Application.Notifications.Dismiss;
+using Enma.Application.Notifications.DismissAll;
 using Enma.Application.Notifications.List;
 using Enma.Application.Notifications.MarkAllRead;
 using Enma.Application.Notifications.MarkRead;
@@ -46,6 +48,25 @@ public static class NotificationEndpoints
         group.MapPut("{notificationId:guid}/read", MarkAsReadAsync)
             .WithName("MarkNotificationAsRead")
             .WithSummary("Marks one of the current user's notifications as read.")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireEnmaAntiforgery();
+
+        group.MapDelete(string.Empty, DismissAllAsync)
+            .WithName("DismissAllNotifications")
+            .WithSummary("Dismisses all notifications visible to the current user.")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireEnmaAntiforgery();
+
+        group.MapDelete("{notificationId:guid}", DismissAsync)
+            .WithName("DismissNotification")
+            .WithSummary("Dismisses one notification visible to the current user.")
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
@@ -133,6 +154,59 @@ public static class NotificationEndpoints
             MarkAllNotificationsAsReadResult.Succeeded => TypedResults.NoContent(),
             _ => throw new InvalidOperationException(
                 "The notification bulk mutation returned an unknown status.")
+        };
+    }
+
+    private static async Task<IResult> DismissAsync(
+        Guid organizationId,
+        Guid notificationId,
+        ClaimsPrincipal principal,
+        DismissNotificationUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        DismissNotificationResult result = await useCase.ExecuteAsync(
+            new DismissNotificationCommand(
+                userId,
+                organizationId,
+                notificationId),
+            cancellationToken);
+
+        return result switch
+        {
+            DismissNotificationResult.AccessDenied => TypedResults.Forbid(),
+            DismissNotificationResult.NotFound => TypedResults.NotFound(),
+            DismissNotificationResult.Succeeded => TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "The notification dismissal returned an unknown status.")
+        };
+    }
+
+    private static async Task<IResult> DismissAllAsync(
+        Guid organizationId,
+        ClaimsPrincipal principal,
+        DismissAllNotificationsUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        DismissAllNotificationsResult result = await useCase.ExecuteAsync(
+            new DismissAllNotificationsCommand(userId, organizationId),
+            cancellationToken);
+
+        return result switch
+        {
+            DismissAllNotificationsResult.AccessDenied => TypedResults.Forbid(),
+            DismissAllNotificationsResult.Succeeded => TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "The notification bulk dismissal returned an unknown status.")
         };
     }
 

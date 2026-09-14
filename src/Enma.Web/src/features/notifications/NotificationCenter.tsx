@@ -15,6 +15,8 @@ import {
   getNotificationKindLabel,
 } from './notificationFormatting'
 import {
+  dismissAllNotifications,
+  dismissNotification,
   getNotifications,
   markAllNotificationsAsRead,
   markNotificationAsRead,
@@ -86,6 +88,22 @@ function optimisticReadAll(feed: NotificationFeed): NotificationFeed {
   }
 }
 
+function optimisticDismissOne(
+  feed: NotificationFeed,
+  notificationId: string,
+): NotificationFeed {
+  const dismissed = feed.items.find((item) => item.id === notificationId)
+  if (!dismissed) return feed
+
+  return {
+    items: feed.items.filter((item) => item.id !== notificationId),
+    unreadCount:
+      dismissed.readAt === null
+        ? Math.max(0, feed.unreadCount - 1)
+        : feed.unreadCount,
+  }
+}
+
 function rollbackReadOne(
   feed: NotificationFeed,
   notificationId: string,
@@ -123,6 +141,10 @@ export function NotificationCenter({
   const [isOpen, setIsOpen] = useState(false)
   const [bellAnimationKey, setBellAnimationKey] = useState(0)
   const [isMarkingAll, setIsMarkingAll] = useState(false)
+  const [dismissingNotificationId, setDismissingNotificationId] =
+    useState<string>()
+  const [isClearing, setIsClearing] = useState(false)
+  const [isConfirmingClear, setIsConfirmingClear] = useState(false)
   const [pendingReadCount, setPendingReadCount] = useState(0)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -135,6 +157,11 @@ export function NotificationCenter({
   const mutationControllersRef = useRef(new Set<AbortController>())
   const markingNotificationIdsRef = useRef(new Set<string>())
   const markingAllRef = useRef(false)
+  const dismissingNotificationIdRef = useRef<string | undefined>(undefined)
+  const clearingRef = useRef(false)
+  const clearTriggerRef = useRef<HTMLButtonElement>(null)
+  const clearCancelRef = useRef<HTMLButtonElement>(null)
+  const clearConfirmRef = useRef<HTMLButtonElement>(null)
   const onUnreadCountChangeRef = useRef(onUnreadCountChange)
   const onNewNotificationRef = useRef(onNewNotification)
 
@@ -277,6 +304,8 @@ export function NotificationCenter({
       mutationControllers.clear()
       markingNotificationIds.clear()
       markingAllRef.current = false
+      dismissingNotificationIdRef.current = undefined
+      clearingRef.current = false
       stopPolling()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('focus', refreshIfVisible)
@@ -439,26 +468,134 @@ export function NotificationCenter({
       })
   }
 
+  const dismissOne = (item: NotificationItem) => {
+    if (
+      !feed ||
+      dismissingNotificationIdRef.current ||
+      clearingRef.current ||
+      markingAllRef.current ||
+      markingNotificationIdsRef.current.size > 0
+    ) {
+      return
+    }
+
+    const snapshot = feed
+    dismissingNotificationIdRef.current = item.id
+    setDismissingNotificationId(item.id)
+    setMutationError(undefined)
+    invalidateCurrentFetch()
+    setFeedState({
+      status: 'success',
+      feed: optimisticDismissOne(snapshot, item.id),
+    })
+
+    const controller = new AbortController()
+    mutationControllersRef.current.add(controller)
+    void dismissNotification(
+      organizationId,
+      item.id,
+      handleUnauthorized,
+      controller.signal,
+    )
+      .then(() => {
+        if (mountedRef.current && !controller.signal.aborted) {
+          return reconcileAfterMutation()
+        }
+      })
+      .catch((error: unknown) => {
+        if (!mountedRef.current || controller.signal.aborted || isAbortError(error)) {
+          return
+        }
+        if (
+          error instanceof NotificationRequestError &&
+          error.failure === 'not-found'
+        ) {
+          return reconcileAfterMutation()
+        }
+        setFeedState({ status: 'success', feed: snapshot })
+        setMutationError(
+          'Não foi possível remover a notificação. Tente novamente.',
+        )
+        return reconcileAfterMutation()
+      })
+      .finally(() => {
+        mutationControllersRef.current.delete(controller)
+        dismissingNotificationIdRef.current = undefined
+        if (mountedRef.current) setDismissingNotificationId(undefined)
+      })
+  }
+
+  const dismissAll = () => {
+    if (
+      !feed ||
+      feed.items.length === 0 ||
+      clearingRef.current ||
+      dismissingNotificationIdRef.current ||
+      markingAllRef.current ||
+      markingNotificationIdsRef.current.size > 0
+    ) {
+      return
+    }
+
+    const snapshot = feed
+    clearingRef.current = true
+    setIsClearing(true)
+    setIsConfirmingClear(false)
+    setMutationError(undefined)
+    invalidateCurrentFetch()
+    setFeedState({ status: 'success', feed: { items: [], unreadCount: 0 } })
+
+    const controller = new AbortController()
+    mutationControllersRef.current.add(controller)
+    void dismissAllNotifications(
+      organizationId,
+      handleUnauthorized,
+      controller.signal,
+    )
+      .then(() => {
+        if (mountedRef.current && !controller.signal.aborted) {
+          return reconcileAfterMutation()
+        }
+      })
+      .catch((error: unknown) => {
+        if (!mountedRef.current || controller.signal.aborted || isAbortError(error)) {
+          return
+        }
+        setFeedState({ status: 'success', feed: snapshot })
+        setMutationError(
+          'Não foi possível limpar as notificações. Tente novamente.',
+        )
+        return reconcileAfterMutation()
+      })
+      .finally(() => {
+        mutationControllersRef.current.delete(controller)
+        clearingRef.current = false
+        if (mountedRef.current) setIsClearing(false)
+      })
+  }
+
   const panelContent = (
     <>
       <div className="notification-panel-header">
-        <div>
-          <span className="notification-panel-kicker">Central</span>
-          <h2 id={panelTitleId}>Notificações</h2>
-        </div>
+        <h2 id={panelTitleId}>Notificações</h2>
 
-        {feed && feed.unreadCount > 0 ? (
+        {feed && feed.items.length > 0 && feed.unreadCount > 0 ? (
           <button
             className="notification-mark-all"
             type="button"
-            disabled={isMarkingAll || pendingReadCount > 0}
+            disabled={
+              isMarkingAll ||
+              pendingReadCount > 0 ||
+              Boolean(dismissingNotificationId) ||
+              isClearing
+            }
             onClick={markAllAsRead}
           >
             {isMarkingAll
-              ? 'Marcando...'
+              ? 'Marcando…'
               : pendingReadCount > 0
-                ? 'Atualizando...'
-                : 'Marcar todas como lidas'}
+                ? 'Atualizando…'
+                : 'Marcar lidas'}
           </button>
         ) : null}
 
@@ -477,6 +614,54 @@ export function NotificationCenter({
         ) : null}
       </div>
 
+      {isConfirmingClear ? (
+        <div
+          className="notification-clear-confirmation"
+          role="alertdialog"
+          aria-labelledby={`${panelId}-clear-title`}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              event.stopPropagation()
+              setIsConfirmingClear(false)
+              clearTriggerRef.current?.focus()
+              return
+            }
+
+            if (event.key === 'Tab') {
+              if (event.shiftKey && event.target === clearCancelRef.current) {
+                event.preventDefault()
+                clearConfirmRef.current?.focus()
+              } else if (
+                !event.shiftKey &&
+                event.target === clearConfirmRef.current
+              ) {
+                event.preventDefault()
+                clearCancelRef.current?.focus()
+              }
+            }
+          }}
+        >
+          <p id={`${panelId}-clear-title`}>Limpar todas as notificações?</p>
+          <div>
+            <button
+              ref={clearCancelRef}
+              type="button"
+              autoFocus
+              onClick={() => {
+                setIsConfirmingClear(false)
+                clearTriggerRef.current?.focus()
+              }}
+            >
+              Cancelar
+            </button>
+            <button ref={clearConfirmRef} type="button" onClick={dismissAll}>
+              Confirmar limpeza
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {mutationError ? (
         <p className="notification-error" role="alert">
           {mutationError}
@@ -494,7 +679,7 @@ export function NotificationCenter({
 
       {feedState.status === 'loading' ? (
         <p className="notification-state" role="status" aria-live="polite">
-          Carregando notificações...
+          Carregando notificações…
         </p>
       ) : null}
 
@@ -511,7 +696,7 @@ export function NotificationCenter({
         <p className="notification-state">Nenhuma notificação por enquanto.</p>
       ) : null}
 
-      {feed && feed.items.length > 0 ? (
+      {feed && feed.items.length > 0 && !isConfirmingClear ? (
         <ul className="notification-list">
           {feed.items.map((item, index) => (
             <motion.li
@@ -542,18 +727,57 @@ export function NotificationCenter({
                   <span className="notification-kind">
                     {getNotificationKindLabel(item.kind)}
                   </span>
-                  {item.readAt === null ? (
-                    <span className="notification-unread-label">Não lida</span>
-                  ) : null}
                 </span>
-                <strong>{item.sourceTitle}</strong>
+                <strong id={`${panelId}-${item.id}-title`}>
+                  {item.sourceTitle}
+                </strong>
                 <time dateTime={item.occurrenceDate ?? item.occurrenceAt ?? undefined}>
                   {formatNotificationOccurrence(item)}
                 </time>
               </button>
+              <button
+                className="notification-dismiss"
+                type="button"
+                aria-label="Remover notificação"
+                aria-describedby={`${panelId}-${item.id}-title`}
+                disabled={
+                  isClearing ||
+                  Boolean(dismissingNotificationId) ||
+                  isMarkingAll ||
+                  pendingReadCount > 0
+                }
+                onClick={() => dismissOne(item)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+              </button>
             </motion.li>
           ))}
         </ul>
+      ) : null}
+
+      {feed && feed.items.length > 0 ? (
+        <div className="notification-panel-footer">
+          <button
+            ref={clearTriggerRef}
+            className="notification-clear-all"
+            type="button"
+            disabled={
+              isMarkingAll ||
+              pendingReadCount > 0 ||
+              Boolean(dismissingNotificationId) ||
+              isClearing
+            }
+            onClick={() => setIsConfirmingClear(true)}
+          >
+            {isClearing ? 'Limpando…' : 'Limpar todas'}
+          </button>
+        </div>
       ) : null}
     </>
   )

@@ -14,4 +14,17 @@ public interface INotificationMutationPersistence
         Guid recipientUserId,
         DateTimeOffset readAt,
         CancellationToken cancellationToken = default);
+
+    Task<bool> DismissAsync(
+        Guid notificationId,
+        Guid organizationId,
+        Guid recipientUserId,
+        DateTimeOffset dismissedAt,
+        CancellationToken cancellationToken = default);
+
+    Task DismissAllAsync(
+        Guid organizationId,
+        Guid recipientUserId,
+        DateTimeOffset dismissedAt,
+        CancellationToken cancellationToken = default);
 }

@@ -59,6 +59,8 @@ public sealed class NotificationTests
         Assert.Equal(occurrenceAt, notification.OccurrenceAt);
         Assert.Equal(GeneratedAt, notification.GeneratedAt);
         Assert.Null(notification.ReadAt);
+        Assert.Null(notification.DismissedAt);
+        Assert.Null(notification.DismissedAt);
     }
 
     [Theory]

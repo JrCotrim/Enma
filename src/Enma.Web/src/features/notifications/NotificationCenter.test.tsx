@@ -138,13 +138,16 @@ describe('NotificationCenter', () => {
     renderCenter()
 
     openCenter()
-    expect(screen.getByText('Carregando notificações...')).toBeVisible()
+    expect(screen.getByText('Carregando notificações…')).toBeVisible()
 
     await act(async () => {
       resolveRequest?.(response(200, feed()))
       await request
     })
     expect(await screen.findByText('Nenhuma notificação por enquanto.')).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Limpar todas' }),
+    ).not.toBeInTheDocument()
   })
 
   it('Panel_GetFailure_ShowsSafeErrorAndRetryRecovers', async () => {
@@ -186,11 +189,15 @@ describe('NotificationCenter', () => {
 
     const unread = screen.getByRole('button', { name: /apresentar contestação/i })
     const read = screen.getByRole('button', { name: /prazo já consultado/i })
+    expect(screen.queryByText('1 não lida')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tudo em dia')).not.toBeInTheDocument()
     expect(unread).toHaveClass('is-unread')
-    expect(unread).toHaveTextContent('Não lida')
     expect(unread).toHaveTextContent('03/09/2026')
     expect(read).not.toHaveClass('is-unread')
-    expect(screen.getByRole('button', { name: 'Marcar todas como lidas' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Marcar lidas' })).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Limpar todas' }).parentElement,
+    ).toHaveClass('notification-panel-footer')
   })
 
   it.each([
@@ -361,13 +368,187 @@ describe('NotificationCenter', () => {
     await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
     openCenter()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Marcar todas como lidas' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Marcar lidas' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
       `/api/organizations/${organizationA}/notifications/read-all`,
     )
-    expect(screen.queryByRole('button', { name: 'Marcar todas como lidas' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Marcar lidas' })).not.toBeInTheDocument()
+  })
+
+  it('DismissOne_RemovesTheItemAndReconcilesTheUnreadCount', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, feed([notification()], 1)))
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, feed()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderCenter()
+    await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
+    openCenter()
+
+    const dismiss = screen.getByRole('button', {
+      name: 'Remover notificação',
+    })
+    expect(
+      dismiss.querySelectorAll('svg path'),
+    ).toHaveLength(5)
+    fireEvent.click(dismiss)
+
+    expect(await screen.findByText('Nenhuma notificação por enquanto.')).toBeVisible()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      `/api/organizations/${organizationA}/notifications/${notificationId}`,
+    )
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ method: 'DELETE' })
+    expect(screen.getByRole('button', { name: 'Notificações' })).toBeVisible()
+  })
+
+  it('DismissOne_PendingStateDisablesTheRemainingDeleteAction', async () => {
+    let resolveDelete: ((value: Response) => void) | undefined
+    const pendingDelete = new Promise<Response>((resolve) => {
+      resolveDelete = resolve
+    })
+    const secondNotification = notification({
+      id: '77777777-7777-4777-8777-777777777777',
+      sourceId: '88888888-8888-4888-8888-888888888888',
+      sourceTitle: 'Revisar contrato',
+      readAt: '2026-09-01T13:00:00Z',
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(200, feed([notification(), secondNotification], 1)),
+      )
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockReturnValueOnce(pendingDelete)
+      .mockResolvedValueOnce(response(200, feed([secondNotification], 0)))
+    vi.stubGlobal('fetch', fetchMock)
+    renderCenter()
+    await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
+    openCenter()
+
+    const dismissButtons = screen.getAllByRole('button', {
+      name: 'Remover notificação',
+    })
+    fireEvent.click(dismissButtons[0])
+
+    expect(
+      screen.getByRole('button', { name: 'Remover notificação' }),
+    ).toBeDisabled()
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remover notificação' }),
+    )
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+
+    await act(async () => {
+      resolveDelete?.(response(204))
+      await pendingDelete
+    })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+  })
+
+  it('DismissAll_RequiresConfirmationSupportsEscapeAndClearsTheFeed', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, feed([notification()], 1)))
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, feed()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderCenter()
+    await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
+    openCenter()
+
+    const clear = screen.getByRole('button', { name: 'Limpar todas' })
+    fireEvent.click(clear)
+    const confirmation = screen.getByRole('alertdialog', {
+      name: 'Limpar todas as notificações?',
+    })
+    const cancel = screen.getByRole('button', { name: 'Cancelar' })
+    const confirm = screen.getByRole('button', { name: 'Confirmar limpeza' })
+    expect(cancel).toHaveFocus()
+    fireEvent.keyDown(cancel, { key: 'Tab', shiftKey: true })
+    expect(confirm).toHaveFocus()
+    fireEvent.keyDown(confirm, { key: 'Tab' })
+    expect(cancel).toHaveFocus()
+    fireEvent.keyDown(confirmation, { key: 'Escape' })
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(clear).toHaveFocus()
+
+    fireEvent.click(clear)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar limpeza' }))
+
+    expect(await screen.findByText('Nenhuma notificação por enquanto.')).toBeVisible()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      `/api/organizations/${organizationA}/notifications`,
+    )
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ method: 'DELETE' })
+  })
+
+  it('DismissAll_PendingStatePreventsASecondSubmission', async () => {
+    let resolveDelete: ((value: Response) => void) | undefined
+    const pendingDelete = new Promise<Response>((resolve) => {
+      resolveDelete = resolve
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, feed([notification()], 1)))
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockReturnValueOnce(pendingDelete)
+      .mockResolvedValueOnce(response(200, feed()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderCenter()
+    await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
+    openCenter()
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar todas' }))
+
+    const confirm = screen.getByRole('button', { name: 'Confirmar limpeza' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    expect(screen.queryByRole('button', { name: 'Confirmar limpeza' }))
+      .not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveDelete?.(response(204))
+      await pendingDelete
+    })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+  })
+
+  it('DismissOne_FailureRestoresTheItemAndKeepsThePanelRecoverable', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, feed([notification()], 1)))
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockResolvedValueOnce(response(500))
+      .mockResolvedValueOnce(response(200, feed([notification()], 1)))
+    vi.stubGlobal('fetch', fetchMock)
+    renderCenter()
+    await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
+    openCenter()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remover notificação' }),
+    )
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(
+      await screen.findByText(
+        'Não foi possível remover a notificação. Tente novamente.',
+      ),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: /apresentar contestação/i }),
+    ).toBeVisible()
+    expect(
+      screen.getByRole('button', { name: 'Remover notificação' }),
+    ).toBeEnabled()
   })
 
   it('MutationStart_PreexistingGetCannotOverwriteOptimismWhilePutPending', async () => {
@@ -399,7 +580,7 @@ describe('NotificationCenter', () => {
     await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
     openCenter()
     window.dispatchEvent(new Event('focus'))
-    fireEvent.click(screen.getByRole('button', { name: 'Marcar todas como lidas' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Marcar lidas' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
     expect(screen.getByRole('button', { name: 'Notificações' })).toBeVisible()
@@ -445,7 +626,7 @@ describe('NotificationCenter', () => {
     await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
     openCenter()
     window.dispatchEvent(new Event('focus'))
-    fireEvent.click(screen.getByRole('button', { name: 'Marcar todas como lidas' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Marcar lidas' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5))
     expect(screen.getByRole('button', { name: 'Notificações' })).toBeVisible()
@@ -469,13 +650,13 @@ describe('NotificationCenter', () => {
     await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
     openCenter()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Marcar todas como lidas' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Marcar lidas' }))
 
     expect(
       await screen.findByText(/não foi possível marcar todas as notificações/i),
     ).toBeVisible()
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
-    expect(screen.getByRole('button', { name: 'Marcar todas como lidas' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Marcar lidas' })).toBeVisible()
     expect(screen.getByRole('button', { name: /apresentar contestação/i })).toHaveClass(
       'is-unread',
     )
@@ -673,7 +854,7 @@ describe('NotificationCenter', () => {
     const view = renderCenter()
     await screen.findByRole('button', { name: 'Notificações, 1 não lidas' })
     openCenter()
-    fireEvent.click(screen.getByRole('button', { name: 'Marcar todas como lidas' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Marcar lidas' }))
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(

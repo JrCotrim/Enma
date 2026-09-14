@@ -40,6 +40,9 @@ public sealed class NotificationConfiguration
                 tableBuilder.HasCheckConstraint(
                     "ck_notifications_read_at",
                     "read_at IS NULL OR read_at >= generated_at");
+                tableBuilder.HasCheckConstraint(
+                    "ck_notifications_dismissed_at",
+                    "dismissed_at IS NULL OR dismissed_at >= generated_at");
             });
 
         builder.HasKey(notification => notification.Id)
@@ -97,6 +100,10 @@ public sealed class NotificationConfiguration
 
         builder.Property(notification => notification.ReadAt)
             .HasColumnName("read_at")
+            .HasColumnType("timestamp with time zone");
+
+        builder.Property(notification => notification.DismissedAt)
+            .HasColumnName("dismissed_at")
             .HasColumnType("timestamp with time zone");
 
         builder.HasIndex(notification => new

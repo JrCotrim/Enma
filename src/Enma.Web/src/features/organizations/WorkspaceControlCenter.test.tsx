@@ -89,6 +89,9 @@ describe('WorkspaceControlCenter', () => {
       }),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sair' })).toBeInTheDocument()
+    expect(
+      document.querySelector('.workspace-profile-current-icon'),
+    ).toHaveAttribute('aria-hidden', 'true')
     const panel = document.getElementById(profile.getAttribute('aria-controls')!)
     expect(panel).toHaveAttribute('aria-labelledby', profile.id)
     expect(profile).toHaveAttribute('aria-expanded', 'true')
