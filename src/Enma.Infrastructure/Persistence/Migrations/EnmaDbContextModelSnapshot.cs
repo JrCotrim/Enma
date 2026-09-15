@@ -230,6 +230,49 @@ namespace Enma.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Enma.Domain.Authentication.PasswordRecoveryChallenge", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("EmailAtIssue")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("email_at_issue");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("token_hash");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_password_recovery_challenges");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_password_recovery_challenges_expires_at");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ux_password_recovery_challenges_token_hash");
+
+                    b.ToTable("password_recovery_challenges", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_password_recovery_challenges_expiration", "expires_at > created_at");
+
+                            t.HasCheckConstraint("ck_password_recovery_challenges_token_hash_length", "octet_length(token_hash) = 32");
+                        });
+                });
+
             modelBuilder.Entity("Enma.Domain.CalendarEvents.CalendarEvent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1194,6 +1237,16 @@ namespace Enma.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_email_verification_challenges_users_user_id");
+                });
+
+            modelBuilder.Entity("Enma.Domain.Authentication.PasswordRecoveryChallenge", b =>
+                {
+                    b.HasOne("Enma.Domain.Users.User", null)
+                        .WithOne()
+                        .HasForeignKey("Enma.Domain.Authentication.PasswordRecoveryChallenge", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_password_recovery_challenges_users_user_id");
                 });
 
             modelBuilder.Entity("Enma.Domain.CalendarEvents.CalendarEvent", b =>

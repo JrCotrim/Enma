@@ -104,6 +104,7 @@ public sealed class OrganizationMembershipMigrationTests(
                 .Append("organization_invitations")
                 .Append("client_payment_plans")
                 .Append("payment_installments")
+                .Append("password_recovery_challenges")
                 .OrderBy(table => table),
             await GetPublicTablesAsync());
         await using EnmaDbContext dbContext = fixture.CreateDbContext();

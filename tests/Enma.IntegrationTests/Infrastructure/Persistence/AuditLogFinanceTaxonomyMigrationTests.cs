@@ -28,7 +28,7 @@ public sealed class AuditLogFinanceTaxonomyMigrationTests(
 
     public Task InitializeAsync() => fixture.ResetDatabaseAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() => MigrateAsync();
 
     [Fact]
     public async Task MigrateAsync_DownAndUp_PreservesAllLegacyTaxonomyRows()
@@ -196,7 +196,7 @@ public sealed class AuditLogFinanceTaxonomyMigrationTests(
         return Assert.IsType<int>(await command.ExecuteScalarAsync());
     }
 
-    private async Task MigrateAsync(string targetMigration)
+    private async Task MigrateAsync(string? targetMigration = null)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         IMigrator migrator = dbContext.GetService<IMigrator>();

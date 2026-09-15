@@ -33,6 +33,7 @@ public sealed class DevelopmentEmailVerificationDelivery
             Options.Create(new EmailVerificationDeliveryOptions
             {
                 VerificationPageUrl = options.Value.VerificationPageUrl,
+                PasswordRecoveryPageUrl = options.Value.PasswordRecoveryPageUrl,
                 SenderName = "ENMA Development",
                 SenderAddress = "no-reply@enma.local",
                 SmtpHost = "127.0.0.1",

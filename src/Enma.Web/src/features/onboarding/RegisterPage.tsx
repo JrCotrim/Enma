@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router-dom'
+import { PasswordInput } from '../../components/PasswordInput'
 import { useAuth } from '../authentication/AuthContext'
 import { SessionError, SessionLoading } from '../authentication/SessionStatus'
 import { useInvitationResume } from '../invitations/InvitationResumeState'
@@ -162,10 +163,9 @@ export function RegisterPage() {
         />
 
         <label htmlFor="register-password">Senha</label>
-        <input
+        <PasswordInput
           id="register-password"
           name="password"
-          type="password"
           autoComplete="new-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}

@@ -117,6 +117,47 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
+.app-shell:not(:has(.organization-workspace)) .password-input {
+  position: relative;
+  margin-bottom: 0.55rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form .password-input input {
+  margin-bottom: 0;
+  padding-inline-end: 3.5rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-visibility-toggle {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: 0.25rem;
+  display: grid;
+  inline-size: 2.75rem;
+  min-block-size: 2.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.55rem;
+  color: var(--enma-public-muted);
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+  transform: translateY(-50%);
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-visibility-toggle:hover:not(:disabled) {
+  color: #e1d4e7;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-visibility-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-visibility-toggle svg {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+}
+
 .app-shell:not(:has(.organization-workspace)) .auth-form input:hover:not(:disabled) {
   border-color: rgba(205, 162, 229, 0.44);
 }
@@ -137,6 +178,7 @@
 .app-shell:not(:has(.organization-workspace)) :where(
   .brand,
   .auth-form input,
+  .password-visibility-toggle,
   .primary-button,
   .secondary-button,
   .home-link,

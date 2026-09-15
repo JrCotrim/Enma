@@ -13,7 +13,29 @@ public sealed class DevelopmentEmailVerificationDeliveryOptionsValidator
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        string value = options.VerificationPageUrl;
+        var failures = new List<string>();
+        ValidatePageUrl(
+            options.VerificationPageUrl,
+            nameof(options.VerificationPageUrl),
+            "/verify-email",
+            failures);
+        ValidatePageUrl(
+            options.PasswordRecoveryPageUrl,
+            nameof(options.PasswordRecoveryPageUrl),
+            "/reset-password",
+            failures);
+
+        return failures.Count == 0
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void ValidatePageUrl(
+        string value,
+        string optionName,
+        string expectedPath,
+        ICollection<string> failures)
+    {
 
         if (string.IsNullOrWhiteSpace(value)
             || value.Length > MaximumVerificationPageUrlLength
@@ -29,16 +51,14 @@ public sealed class DevelopmentEmailVerificationDeliveryOptionsValidator
                     StringComparison.Ordinal))
             || !string.Equals(
                 uri.AbsolutePath,
-                "/verify-email",
+                expectedPath,
                 StringComparison.Ordinal)
             || !string.IsNullOrEmpty(uri.Query)
             || !string.IsNullOrEmpty(uri.Fragment)
             || !string.IsNullOrEmpty(uri.UserInfo))
         {
-            return ValidateOptionsResult.Fail(
-                $"{DevelopmentEmailVerificationDeliveryOptions.SectionName}:VerificationPageUrl must be an absolute HTTP(S) loopback URI for /verify-email without a query, fragment, or user information.");
+            failures.Add(
+                $"{DevelopmentEmailVerificationDeliveryOptions.SectionName}:{optionName} must be an absolute HTTP(S) loopback URI for {expectedPath} without a query, fragment, or user information.");
         }
-
-        return ValidateOptionsResult.Success;
     }
 }

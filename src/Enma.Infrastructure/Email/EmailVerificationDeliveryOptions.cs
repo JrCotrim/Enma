@@ -8,6 +8,8 @@ public sealed class EmailVerificationDeliveryOptions
 
     public string VerificationPageUrl { get; init; } = string.Empty;
 
+    public string PasswordRecoveryPageUrl { get; init; } = string.Empty;
+
     public string SenderName { get; init; } = string.Empty;
 
     public string SenderAddress { get; init; } = string.Empty;

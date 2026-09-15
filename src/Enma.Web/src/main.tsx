@@ -6,6 +6,7 @@ import { captureEmailVerificationHandoff } from './features/email-verification/e
 import { createEmailVerificationFlow } from './features/email-verification/emailVerificationService'
 import { InvitationResumeProvider } from './features/invitations/InvitationResumeContext'
 import { captureInvitationRecipientHandoff } from './features/invitations/invitationRecipientHandoff'
+import { capturePasswordRecoveryToken } from './features/password-recovery/passwordRecoveryHandoff'
 import './styles.css'
 import './phase3d-shell.css'
 import './phase3d-shell-final.css'
@@ -49,7 +50,12 @@ export function ApplicationRoot() {
       captureEmailVerificationHandoff(window.location, window.history).token,
     ),
   )
-  const [router] = useState(() => createAppRouter(emailVerificationFlow))
+  const [passwordRecoveryToken] = useState(() =>
+    capturePasswordRecoveryToken(window.location, window.history),
+  )
+  const [router] = useState(() =>
+    createAppRouter(emailVerificationFlow, passwordRecoveryToken),
+  )
   const clearInvitationToken = useCallback(() => {
     setInvitationToken(undefined)
   }, [])

@@ -153,6 +153,30 @@ builder.Services.AddRateLimiter(options =>
             }));
 
     options.AddPolicy(
+        PasswordRecoveryEndpoints.RequestRateLimitPolicy,
+        httpContext => RateLimitPartition.GetFixedWindowLimiter(
+            GetClientIpPartitionKey(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+
+    options.AddPolicy(
+        PasswordRecoveryEndpoints.ResetRateLimitPolicy,
+        httpContext => RateLimitPartition.GetFixedWindowLimiter(
+            GetClientIpPartitionKey(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+
+    options.AddPolicy(
         OrganizationInvitationEndpoints.SendRateLimitPolicy,
         httpContext => RateLimitPartition.GetFixedWindowLimiter(
             GetClientIpPartitionKey(httpContext),
@@ -228,6 +252,7 @@ app.UseAntiforgery();
 
 app.MapLoginEndpoints();
 app.MapEmailVerificationEndpoints();
+app.MapPasswordRecoveryEndpoints();
 app.MapCsrfEndpoint();
 app.MapLogoutEndpoint();
 app.MapRegisterOrganizationOwnerEndpoint();

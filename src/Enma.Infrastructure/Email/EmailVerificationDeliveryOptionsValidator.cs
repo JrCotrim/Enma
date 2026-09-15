@@ -19,7 +19,14 @@ public sealed class EmailVerificationDeliveryOptionsValidator
 
         var failures = new List<string>();
 
-        ValidateVerificationPageUrl(options.VerificationPageUrl, failures);
+        ValidatePageUrl(
+            options.VerificationPageUrl,
+            nameof(options.VerificationPageUrl),
+            failures);
+        ValidatePageUrl(
+            options.PasswordRecoveryPageUrl,
+            nameof(options.PasswordRecoveryPageUrl),
+            failures);
         ValidateSenderName(options.SenderName, failures);
         ValidateSenderAddress(options.SenderAddress, failures);
         ValidateSmtpHost(options.SmtpHost, failures);
@@ -54,14 +61,15 @@ public sealed class EmailVerificationDeliveryOptionsValidator
             : ValidateOptionsResult.Fail(failures);
     }
 
-    private static void ValidateVerificationPageUrl(
+    private static void ValidatePageUrl(
         string value,
+        string optionName,
         ICollection<string> failures)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             failures.Add(
-                $"{EmailVerificationDeliveryOptions.SectionName}:VerificationPageUrl is required.");
+                $"{EmailVerificationDeliveryOptions.SectionName}:{optionName} is required.");
             return;
         }
 
@@ -71,26 +79,26 @@ public sealed class EmailVerificationDeliveryOptionsValidator
             || string.IsNullOrEmpty(uri.Host))
         {
             failures.Add(
-                $"{EmailVerificationDeliveryOptions.SectionName}:VerificationPageUrl must be a reasonable absolute HTTPS URI.");
+                $"{EmailVerificationDeliveryOptions.SectionName}:{optionName} must be a reasonable absolute HTTPS URI.");
             return;
         }
 
         if (!string.IsNullOrEmpty(uri.Query))
         {
             failures.Add(
-                $"{EmailVerificationDeliveryOptions.SectionName}:VerificationPageUrl must not contain a query.");
+                $"{EmailVerificationDeliveryOptions.SectionName}:{optionName} must not contain a query.");
         }
 
         if (!string.IsNullOrEmpty(uri.Fragment))
         {
             failures.Add(
-                $"{EmailVerificationDeliveryOptions.SectionName}:VerificationPageUrl must not contain a fragment.");
+                $"{EmailVerificationDeliveryOptions.SectionName}:{optionName} must not contain a fragment.");
         }
 
         if (!string.IsNullOrEmpty(uri.UserInfo))
         {
             failures.Add(
-                $"{EmailVerificationDeliveryOptions.SectionName}:VerificationPageUrl must not contain user information.");
+                $"{EmailVerificationDeliveryOptions.SectionName}:{optionName} must not contain user information.");
         }
     }
 

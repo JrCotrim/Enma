@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router-dom'
+import { PasswordInput } from '../../components/PasswordInput'
 import { useInvitationResume } from '../invitations/InvitationResumeState'
 import { useAuth } from './AuthContext'
 import { SessionError, SessionLoading } from './SessionStatus'
@@ -101,10 +102,9 @@ export function LoginPage() {
         />
 
         <label htmlFor="password">Senha</label>
-        <input
+        <PasswordInput
           id="password"
           name="password"
-          type="password"
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
@@ -121,6 +121,9 @@ export function LoginPage() {
           {isSubmitting ? 'Entrando…' : 'Entrar'}
         </button>
       </form>
+      <p className="auth-switch">
+        <Link to="/forgot-password">Esqueci minha senha</Link>
+      </p>
       <p className="auth-switch">
         Ainda não tem uma conta? <Link to="/register">Criar conta</Link>
       </p>

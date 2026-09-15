@@ -44,6 +44,22 @@ public sealed class EmailVerificationDeliveryOptionsValidatorTests
 
     [Theory]
     [InlineData("")]
+    [InlineData("http://app.example/reset-password")]
+    [InlineData("https://app.example/reset-password?token=bad")]
+    public void Validate_InvalidPasswordRecoveryPageUrl_ReturnsFailure(string value)
+    {
+        ValidateOptionsResult result = validator.Validate(
+            null,
+            CreateOptions(passwordRecoveryPageUrl: value));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(
+            result.Failures ?? [],
+            failure => failure.Contains("PasswordRecoveryPageUrl", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("")]
     [InlineData("not-a-mailbox")]
     [InlineData("ENMA <no-reply@example.test>")]
     public void Validate_InvalidSenderAddress_ReturnsFailure(string value)
@@ -148,6 +164,7 @@ public sealed class EmailVerificationDeliveryOptionsValidatorTests
 
     private static EmailVerificationDeliveryOptions CreateOptions(
         string verificationPageUrl = "https://app.example/verify-email",
+        string passwordRecoveryPageUrl = "https://app.example/reset-password",
         string senderName = "ENMA",
         string senderAddress = "no-reply@example.test",
         string smtpHost = "smtp.example.test",
@@ -159,6 +176,7 @@ public sealed class EmailVerificationDeliveryOptionsValidatorTests
         return new EmailVerificationDeliveryOptions
         {
             VerificationPageUrl = verificationPageUrl,
+            PasswordRecoveryPageUrl = passwordRecoveryPageUrl,
             SenderName = senderName,
             SenderAddress = senderAddress,
             SmtpHost = smtpHost,

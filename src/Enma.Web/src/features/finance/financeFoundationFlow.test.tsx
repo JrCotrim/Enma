@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -104,10 +104,12 @@ describe('Finance foundation routing and access', () => {
       'href',
       `/organizations/${organizationId}/finance`,
     )
-    expect(fetchMock).toHaveBeenCalledWith(
-      `/api/organizations/${organizationId}/finance/payment-plans/${paymentPlanId}`,
-      expect.objectContaining({ method: 'GET', cache: 'no-store' }),
-    )
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/organizations/${organizationId}/finance/payment-plans/${paymentPlanId}`,
+        expect.objectContaining({ method: 'GET', cache: 'no-store' }),
+      )
+    })
   })
 
   it.each([

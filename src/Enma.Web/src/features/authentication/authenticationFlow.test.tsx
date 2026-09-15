@@ -45,6 +45,46 @@ afterEach(() => {
 })
 
 describe('authentication flow', () => {
+  it('Login_PasswordVisibility_TogglesWithoutSubmittingOrClearing', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(401))
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute('/login')
+
+    const password = await screen.findByLabelText('Senha')
+    fireEvent.change(password, { target: { value: 'secret-value' } })
+
+    expect(password).toHaveAttribute('type', 'password')
+    const showPassword = screen.getByRole('button', { name: 'Mostrar senha' })
+    expect(showPassword).toHaveAttribute('type', 'button')
+
+    fireEvent.click(showPassword)
+
+    expect(password).toHaveAttribute('type', 'text')
+    expect(password).toHaveValue('secret-value')
+    expect(screen.getByRole('button', { name: 'Ocultar senha' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar senha' }))
+
+    expect(password).toHaveAttribute('type', 'password')
+    expect(password).toHaveValue('secret-value')
+    expect(screen.getByRole('button', { name: 'Mostrar senha' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('Registration_PasswordVisibility_IsAvailable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(401)))
+    renderRoute('/register')
+
+    const password = await screen.findByLabelText('Senha')
+    expect(password).toHaveAttribute('type', 'password')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar senha' }))
+
+    expect(password).toHaveAttribute('type', 'text')
+    expect(screen.getByRole('button', { name: 'Ocultar senha' })).toBeInTheDocument()
+  })
+
   it('Login_ValidCredentials_SubmitsBackendContractAndShowsWorkspace', async () => {
     const localStorageSpy = vi.spyOn(Storage.prototype, 'setItem')
     const fetchMock = vi

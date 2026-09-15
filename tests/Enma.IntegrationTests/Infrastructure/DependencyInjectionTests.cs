@@ -1153,6 +1153,9 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
             .Value;
 
         Assert.Equal("https://app.example/verify-email", options.VerificationPageUrl);
+        Assert.Equal(
+            "https://app.example/reset-password",
+            options.PasswordRecoveryPageUrl);
         Assert.Equal("ENMA", options.SenderName);
         Assert.Equal("no-reply@example.test", options.SenderAddress);
         Assert.Equal("smtp.example.test", options.SmtpHost);
@@ -1233,6 +1236,8 @@ public sealed class DependencyInjectionTests(PostgreSqlFixture fixture)
         {
             [$"{section}:VerificationPageUrl"] =
                 "https://app.example/verify-email",
+            [$"{section}:PasswordRecoveryPageUrl"] =
+                "https://app.example/reset-password",
             [$"{section}:SenderName"] = "ENMA",
             [$"{section}:SenderAddress"] = "no-reply@example.test",
             [$"{section}:SmtpHost"] = "smtp.example.test",

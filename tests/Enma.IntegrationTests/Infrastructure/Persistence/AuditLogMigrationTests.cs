@@ -65,6 +65,7 @@ public sealed class AuditLogMigrationTests(
                 .Append("organization_invitations")
                 .Append("client_payment_plans")
                 .Append("payment_installments")
+                .Append("password_recovery_challenges")
                 .Order(StringComparer.Ordinal),
             await GetPublicTablesAsync());
         await using EnmaDbContext dbContext = fixture.CreateDbContext();

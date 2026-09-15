@@ -18,6 +18,8 @@ import { PaymentPlanDetailsPage } from '../features/finance/PaymentPlanDetailsPa
 import { AcceptInvitationPage } from '../features/invitations/AcceptInvitationPage'
 import { InvitationsPage } from '../features/invitations/InvitationsPage'
 import { RegisterPage } from '../features/onboarding/RegisterPage'
+import { RequestPasswordRecoveryPage } from '../features/password-recovery/RequestPasswordRecoveryPage'
+import { ResetPasswordPage } from '../features/password-recovery/ResetPasswordPage'
 import { OrganizationProvider } from '../features/organizations/OrganizationProvider'
 import { OrganizationRoute } from '../features/organizations/OrganizationRoute'
 import { OrganizationsPage } from '../features/organizations/OrganizationsPage'
@@ -32,6 +34,7 @@ import { App } from './App'
 
 export function createAppRoutes(
   emailVerificationFlow: EmailVerificationFlow,
+  passwordRecoveryToken?: string,
 ): RouteObject[] {
   return [
     {
@@ -45,6 +48,14 @@ export function createAppRoutes(
         {
           path: 'verify-email',
           element: <VerifyEmailPage flow={emailVerificationFlow} />,
+        },
+        {
+          path: 'forgot-password',
+          element: <RequestPasswordRecoveryPage />,
+        },
+        {
+          path: 'reset-password',
+          element: <ResetPasswordPage token={passwordRecoveryToken} />,
         },
         {
           element: <AuthProvider />,
@@ -161,6 +172,11 @@ export function createAppRoutes(
   ]
 }
 
-export function createAppRouter(emailVerificationFlow: EmailVerificationFlow) {
-  return createBrowserRouter(createAppRoutes(emailVerificationFlow))
+export function createAppRouter(
+  emailVerificationFlow: EmailVerificationFlow,
+  passwordRecoveryToken?: string,
+) {
+  return createBrowserRouter(
+    createAppRoutes(emailVerificationFlow, passwordRecoveryToken),
+  )
 }

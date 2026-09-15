@@ -209,11 +209,15 @@ public static class DependencyInjection
             IEmailVerificationTokenService,
             CryptographicEmailVerificationTokenService>();
         services.AddSingleton<
+            IPasswordRecoveryTokenService,
+            CryptographicPasswordRecoveryTokenService>();
+        services.AddSingleton<
             IOrganizationInvitationTokenService,
             CryptographicOrganizationInvitationTokenService>();
         if (isDevelopment)
         {
             services.AddSingleton<DevelopmentEmailVerificationDelivery>();
+            services.AddSingleton<DevelopmentPasswordRecoveryDelivery>();
             services.AddSingleton<
                 IOrganizationInvitationDelivery,
                 DevelopmentOrganizationInvitationDelivery>();
@@ -222,6 +226,8 @@ public static class DependencyInjection
         {
             services.AddSingleton<EmailVerificationLinkBuilder>();
             services.AddSingleton<MailKitEmailVerificationDelivery>();
+            services.AddSingleton<PasswordRecoveryLinkBuilder>();
+            services.AddSingleton<MailKitPasswordRecoveryDelivery>();
             services.AddSingleton<OrganizationInvitationLinkBuilder>();
             services.AddSingleton<
                 IOrganizationInvitationDelivery,
@@ -241,6 +247,17 @@ public static class DependencyInjection
                 serviceProvider.GetRequiredService<
                     Microsoft.Extensions.Logging.ILogger<
                         BudgetedEmailVerificationDelivery>>()));
+        services.AddScoped<IPasswordRecoveryDelivery>(serviceProvider =>
+            new BudgetedPasswordRecoveryDelivery(
+                serviceProvider.GetRequiredService<IEmailVerificationSendBudget>(),
+                isDevelopment
+                    ? serviceProvider.GetRequiredService<
+                        DevelopmentPasswordRecoveryDelivery>()
+                    : serviceProvider.GetRequiredService<
+                        MailKitPasswordRecoveryDelivery>(),
+                serviceProvider.GetRequiredService<
+                    Microsoft.Extensions.Logging.ILogger<
+                        BudgetedPasswordRecoveryDelivery>>()));
         services.AddTransient<PwnedPasswordsTelemetryHandler>();
         services
             .AddHttpClient<
@@ -285,6 +302,7 @@ public static class DependencyInjection
         services.AddScoped<
             IEmailVerificationChallengePersistence,
             EmailVerificationChallengePersistence>();
+        services.AddScoped<IPasswordRecoveryPersistence, PasswordRecoveryPersistence>();
         services.AddScoped<
             IClientOrganizationOwnershipLookup,
             ClientOrganizationOwnershipLookup>();
@@ -386,6 +404,8 @@ public static class DependencyInjection
         services.AddScoped<RevokeSessionUseCase>();
         services.AddScoped<RequestEmailVerificationUseCase>();
         services.AddScoped<VerifyEmailUseCase>();
+        services.AddScoped<RequestPasswordRecoveryUseCase>();
+        services.AddScoped<ResetPasswordUseCase>();
         services.AddScoped<OrganizationAccessAuthorization>();
         services.AddScoped<OrganizationAdministrationAuthorization>();
         services.AddScoped<ListAuditLogsUseCase>();

@@ -253,6 +253,7 @@ public sealed class MailKitEmailVerificationDeliveryTests
         return new EmailVerificationDeliveryOptions
         {
             VerificationPageUrl = "https://app.example/verify-email",
+            PasswordRecoveryPageUrl = "https://app.example/reset-password",
             SenderName = "ENMA",
             SenderAddress = "no-reply@example.test",
             SmtpHost = "127.0.0.1",
