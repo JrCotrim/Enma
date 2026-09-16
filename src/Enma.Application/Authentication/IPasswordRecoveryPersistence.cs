@@ -13,6 +13,7 @@ public interface IPasswordRecoveryPersistence
 
     Task<PasswordRecoveryResetPersistenceResult> TryResetPasswordAsync(
         PasswordRecoveryTokenHash tokenHash,
+        string newPassword,
         string newPasswordHash,
         CancellationToken cancellationToken = default);
 }

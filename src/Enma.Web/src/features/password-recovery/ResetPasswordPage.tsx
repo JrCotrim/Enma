@@ -10,6 +10,7 @@ interface ResetPasswordPageProps {
 const errorMessages: Partial<Record<PasswordResetResult, string>> = {
   invalid: 'Este link é inválido, expirou ou já foi usado.',
   invalidPassword: 'A nova senha não atende aos requisitos de segurança.',
+  currentPasswordReuse: 'A nova senha deve ser diferente da senha atual.',
   compromisedPassword: 'Essa senha já foi identificada como comprometida. Escolha uma senha diferente.',
   screeningUnavailable: 'Não foi possível verificar a segurança da senha agora. Tente novamente mais tarde.',
   rateLimited: 'Muitas tentativas. Aguarde um pouco e tente novamente.',

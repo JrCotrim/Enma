@@ -1,5 +1,6 @@
 using System.Data;
 using Enma.Application.Authentication;
+using Enma.Application.Security;
 using Enma.Domain.Authentication;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
@@ -11,16 +12,20 @@ public sealed class PasswordRecoveryPersistence : IPasswordRecoveryPersistence
 {
     private readonly DbContextOptions<EnmaDbContext> dbContextOptions;
     private readonly TimeProvider timeProvider;
+    private readonly IPasswordHasher passwordHasher;
 
     public PasswordRecoveryPersistence(
         DbContextOptions<EnmaDbContext> dbContextOptions,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IPasswordHasher passwordHasher)
     {
         ArgumentNullException.ThrowIfNull(dbContextOptions);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(passwordHasher);
 
         this.dbContextOptions = dbContextOptions;
         this.timeProvider = timeProvider;
+        this.passwordHasher = passwordHasher;
     }
 
     public async Task<PasswordRecoveryChallengeIssuanceResult> TryIssueOrRotateAsync(
@@ -114,10 +119,12 @@ public sealed class PasswordRecoveryPersistence : IPasswordRecoveryPersistence
 
     public async Task<PasswordRecoveryResetPersistenceResult> TryResetPasswordAsync(
         PasswordRecoveryTokenHash tokenHash,
+        string newPassword,
         string newPasswordHash,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(tokenHash);
+        ArgumentNullException.ThrowIfNull(newPassword);
 
         await using var dbContext = new EnmaDbContext(dbContextOptions);
         Guid? candidateUserId = await dbContext.PasswordRecoveryChallenges
@@ -170,6 +177,17 @@ public sealed class PasswordRecoveryPersistence : IPasswordRecoveryPersistence
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return PasswordRecoveryResetPersistenceResult.Rejected;
+        }
+
+        PasswordVerificationResult verificationResult =
+            passwordHasher.VerifyHashedPassword(
+                credential.PasswordHash,
+                newPassword);
+
+        if (verificationResult != PasswordVerificationResult.Failed)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return PasswordRecoveryResetPersistenceResult.CurrentPasswordReuse;
         }
 
         credential.ChangePasswordHash(newPasswordHash, now);

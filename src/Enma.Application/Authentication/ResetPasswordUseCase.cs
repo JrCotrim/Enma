@@ -56,12 +56,18 @@ public sealed class ResetPasswordUseCase
         PasswordRecoveryResetPersistenceResult result =
             await persistence.TryResetPasswordAsync(
                 tokenHash,
+                newPassword!,
                 passwordHash,
                 cancellationToken);
 
-        return result == PasswordRecoveryResetPersistenceResult.Succeeded
-            ? ResetPasswordResult.Succeeded
-            : ResetPasswordResult.Invalid;
+        return result switch
+        {
+            PasswordRecoveryResetPersistenceResult.Succeeded =>
+                ResetPasswordResult.Succeeded,
+            PasswordRecoveryResetPersistenceResult.CurrentPasswordReuse =>
+                ResetPasswordResult.CurrentPasswordReuse,
+            _ => ResetPasswordResult.Invalid
+        };
     }
 
     private void ValidatePassword(string? password)

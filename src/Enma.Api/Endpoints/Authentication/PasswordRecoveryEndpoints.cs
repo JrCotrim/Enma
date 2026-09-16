@@ -58,14 +58,24 @@ public static class PasswordRecoveryEndpoints
                             request.NewPassword,
                             cancellationToken);
 
-                        return result == ResetPasswordResult.Succeeded
-                            ? TypedResults.NoContent()
-                            : CreateProblem(
+                        return result switch
+                        {
+                            ResetPasswordResult.Succeeded =>
+                                TypedResults.NoContent(),
+                            ResetPasswordResult.CurrentPasswordReuse =>
+                                CreateProblem(
+                                    httpContext,
+                                    StatusCodes.Status400BadRequest,
+                                    "Invalid password",
+                                    "A nova senha deve ser diferente da senha atual.",
+                                    "password_current_reuse"),
+                            _ => CreateProblem(
                                 httpContext,
                                 StatusCodes.Status400BadRequest,
                                 "Invalid password recovery",
                                 "The password recovery request is invalid or expired.",
-                                "password_recovery_invalid");
+                                "password_recovery_invalid")
+                        };
                     }
                     catch (CompromisedPasswordException exception)
                     {

@@ -105,6 +105,52 @@ public sealed class PasswordRecoveryEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Accepted, request.StatusCode);
         string rawToken = Assert.IsType<string>(delivery.RawToken);
 
+        string originalPasswordHash;
+        long originalCredentialVersion;
+        await using (EnmaDbContext beforeContext = fixture.CreateDbContext())
+        {
+            UserCredential before = await beforeContext.UserCredentials
+                .AsNoTracking()
+                .SingleAsync();
+            originalPasswordHash = before.PasswordHash;
+            originalCredentialVersion = before.CredentialVersion;
+        }
+
+        using HttpResponseMessage reused = await client.PostAsJsonAsync(
+            ResetPath,
+            new { Token = rawToken, NewPassword = OldPassword });
+        Assert.Equal(HttpStatusCode.BadRequest, reused.StatusCode);
+        string reusedBody = await reused.Content.ReadAsStringAsync();
+        ProblemDetails? reusedProblem = JsonSerializer.Deserialize<ProblemDetails>(
+            reusedBody,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(reusedProblem);
+        Assert.Equal(
+            "A nova senha deve ser diferente da senha atual.",
+            reusedProblem.Detail);
+        Assert.True(reusedProblem.Extensions.TryGetValue("code", out object? code));
+        Assert.Equal(
+            "password_current_reuse",
+            Assert.IsType<JsonElement>(code).GetString());
+        Assert.DoesNotContain(rawToken, reusedBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(OldPassword, reusedBody, StringComparison.Ordinal);
+        Assert.DoesNotContain(originalPasswordHash, reusedBody, StringComparison.Ordinal);
+
+        await using (EnmaDbContext rejectedContext = fixture.CreateDbContext())
+        {
+            UserCredential unchanged = await rejectedContext.UserCredentials
+                .AsNoTracking()
+                .SingleAsync();
+            Assert.Equal(originalPasswordHash, unchanged.PasswordHash);
+            Assert.Equal(originalCredentialVersion, unchanged.CredentialVersion);
+            Assert.Single(await rejectedContext.PasswordRecoveryChallenges
+                .AsNoTracking()
+                .ToListAsync());
+        }
+        using HttpResponseMessage sessionAfterRejection = await client.GetAsync(
+            "/api/me/organizations");
+        Assert.Equal(HttpStatusCode.OK, sessionAfterRejection.StatusCode);
+
         using HttpResponseMessage reset = await client.PostAsJsonAsync(
             ResetPath,
             new { Token = rawToken, NewPassword });

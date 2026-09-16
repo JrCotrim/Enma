@@ -79,7 +79,29 @@ public sealed class PasswordRecoveryUseCaseTests
         Assert.Equal("new synthetic password", policy.Password);
         Assert.Equal("new synthetic password", checker.Password);
         Assert.Equal("new synthetic password", hasher.Password);
+        Assert.Equal("new synthetic password", persistence.Password);
         Assert.Equal("new-hash", persistence.PasswordHash);
+    }
+
+    [Fact]
+    public async Task Reset_CurrentPasswordReuseReturnsSpecificResult()
+    {
+        var persistence = new StubPersistence
+        {
+            ResetResult = PasswordRecoveryResetPersistenceResult.CurrentPasswordReuse
+        };
+        var useCase = new ResetPasswordUseCase(
+            new StubTokenService { HashSucceeds = true },
+            new StubPasswordPolicy(),
+            new StubCompromisedPasswordChecker(),
+            new StubPasswordHasher(),
+            persistence);
+
+        ResetPasswordResult result = await useCase.ExecuteAsync(
+            RawToken,
+            "current synthetic password");
+
+        Assert.Equal(ResetPasswordResult.CurrentPasswordReuse, result);
     }
 
     [Fact]
@@ -160,6 +182,7 @@ public sealed class PasswordRecoveryUseCaseTests
         public int IssueCallCount { get; private set; }
         public int ResetCallCount { get; private set; }
         public string? Email { get; private set; }
+        public string? Password { get; private set; }
         public string? PasswordHash { get; private set; }
         public TimeSpan TokenLifetime { get; private set; }
         public TimeSpan ResendCooldown { get; private set; }
@@ -180,10 +203,12 @@ public sealed class PasswordRecoveryUseCaseTests
 
         public Task<PasswordRecoveryResetPersistenceResult> TryResetPasswordAsync(
             PasswordRecoveryTokenHash tokenHash,
+            string newPassword,
             string newPasswordHash,
             CancellationToken cancellationToken = default)
         {
             ResetCallCount++;
+            Password = newPassword;
             PasswordHash = newPasswordHash;
             return Task.FromResult(ResetResult);
         }

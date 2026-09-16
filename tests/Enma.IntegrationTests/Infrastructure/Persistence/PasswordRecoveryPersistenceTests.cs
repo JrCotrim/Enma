@@ -31,7 +31,10 @@ public sealed class PasswordRecoveryPersistenceTests(
         tokenService.GenerateToken(out var secondHash);
         tokenService.GenerateToken(out var thirdHash);
         var time = new MutableTimeProvider(CreatedAt.AddMinutes(1));
-        var persistence = new PasswordRecoveryPersistence(CreateOptions(), time);
+        var persistence = new PasswordRecoveryPersistence(
+            CreateOptions(),
+            time,
+            CreateHasher());
 
         PasswordRecoveryChallengeIssuanceResult issued =
             await persistence.TryIssueOrRotateAsync(
@@ -102,7 +105,8 @@ public sealed class PasswordRecoveryPersistenceTests(
         var tokenService = new CryptographicPasswordRecoveryTokenService();
         var persistence = new PasswordRecoveryPersistence(
             CreateOptions(),
-            new FixedTimeProvider(CreatedAt.AddMinutes(1)));
+            new FixedTimeProvider(CreatedAt.AddMinutes(1)),
+            CreateHasher());
 
         foreach (string email in new[]
                  {
@@ -162,11 +166,37 @@ public sealed class PasswordRecoveryPersistenceTests(
         var hasher = CreateHasher();
         var persistence = new PasswordRecoveryPersistence(
             CreateOptions(),
-            new FixedTimeProvider(CreatedAt.AddMinutes(2)));
+            new FixedTimeProvider(CreatedAt.AddMinutes(2)),
+            hasher);
+
+        PasswordRecoveryResetPersistenceResult reused =
+            await persistence.TryResetPasswordAsync(
+                lookupHash!,
+                OldPassword,
+                hasher.HashPassword(OldPassword));
+
+        Assert.Equal(
+            PasswordRecoveryResetPersistenceResult.CurrentPasswordReuse,
+            reused);
+        await using (EnmaDbContext rejectionContext = fixture.CreateDbContext())
+        {
+            UserCredential unchanged = await rejectionContext.UserCredentials
+                .AsNoTracking()
+                .SingleAsync();
+            Assert.Equal(credential.PasswordHash, unchanged.PasswordHash);
+            Assert.Equal(credential.CredentialVersion, unchanged.CredentialVersion);
+            Assert.Single(await rejectionContext.PasswordRecoveryChallenges
+                .AsNoTracking()
+                .ToListAsync());
+        }
+        Assert.Equal(user.Id, await runtime.TryValidateAndRenewAsync(
+            sessionHash,
+            CreatedAt.AddMinutes(3)));
 
         PasswordRecoveryResetPersistenceResult result =
             await persistence.TryResetPasswordAsync(
                 lookupHash!,
+                NewPassword,
                 hasher.HashPassword(NewPassword));
 
         Assert.Equal(PasswordRecoveryResetPersistenceResult.Succeeded, result);
@@ -187,6 +217,7 @@ public sealed class PasswordRecoveryPersistenceTests(
             PasswordRecoveryResetPersistenceResult.Rejected,
             await persistence.TryResetPasswordAsync(
                 lookupHash!,
+                "Another-Synthetic-Password-789!",
                 hasher.HashPassword("Another-Synthetic-Password-789!")));
     }
 
@@ -212,11 +243,13 @@ public sealed class PasswordRecoveryPersistenceTests(
 
         var persistence = new PasswordRecoveryPersistence(
             CreateOptions(),
-            new FixedTimeProvider(CreatedAt.AddMinutes(1)));
+            new FixedTimeProvider(CreatedAt.AddMinutes(1)),
+            CreateHasher());
         Assert.Equal(
             PasswordRecoveryResetPersistenceResult.Succeeded,
             await persistence.TryResetPasswordAsync(
                 firstUserTokenHash,
+                NewPassword,
                 CreateHasher().HashPassword(NewPassword)));
 
         await using EnmaDbContext assertionContext = fixture.CreateDbContext();
@@ -248,10 +281,16 @@ public sealed class PasswordRecoveryPersistenceTests(
         var time = new FixedTimeProvider(CreatedAt.AddMinutes(5));
         Task<PasswordRecoveryResetPersistenceResult>[] attempts =
         [
-            new PasswordRecoveryPersistence(CreateOptions(), time)
-                .TryResetPasswordAsync(tokenHash, hasher.HashPassword(NewPassword)),
-            new PasswordRecoveryPersistence(CreateOptions(), time)
-                .TryResetPasswordAsync(tokenHash, hasher.HashPassword("Other-Synthetic-Password-789!"))
+            new PasswordRecoveryPersistence(CreateOptions(), time, hasher)
+                .TryResetPasswordAsync(
+                    tokenHash,
+                    NewPassword,
+                    hasher.HashPassword(NewPassword)),
+            new PasswordRecoveryPersistence(CreateOptions(), time, hasher)
+                .TryResetPasswordAsync(
+                    tokenHash,
+                    "Other-Synthetic-Password-789!",
+                    hasher.HashPassword("Other-Synthetic-Password-789!"))
         ];
 
         PasswordRecoveryResetPersistenceResult[] results = await Task.WhenAll(attempts);
@@ -284,9 +323,13 @@ public sealed class PasswordRecoveryPersistenceTests(
 
         var persistence = new PasswordRecoveryPersistence(
             CreateOptions(),
-            new FixedTimeProvider(CreatedAt.AddMinutes(5)));
+            new FixedTimeProvider(CreatedAt.AddMinutes(5)),
+            CreateHasher());
         PasswordRecoveryResetPersistenceResult result =
-            await persistence.TryResetPasswordAsync(tokenHash, "replacement-hash");
+            await persistence.TryResetPasswordAsync(
+                tokenHash,
+                NewPassword,
+                "replacement-hash");
 
         Assert.Equal(PasswordRecoveryResetPersistenceResult.Rejected, result);
         await using EnmaDbContext assertionContext = fixture.CreateDbContext();

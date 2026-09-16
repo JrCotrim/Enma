@@ -7,6 +7,7 @@ export type PasswordResetResult =
   | 'reset'
   | 'invalid'
   | 'invalidPassword'
+  | 'currentPasswordReuse'
   | 'compromisedPassword'
   | 'screeningUnavailable'
   | 'rateLimited'
@@ -55,6 +56,7 @@ export async function resetPassword(
     if (response.status === 400) {
       const code = await readProblemCode(response)
       if (code === 'password_invalid') return 'invalidPassword'
+      if (code === 'password_current_reuse') return 'currentPasswordReuse'
       if (code === 'password_compromised') return 'compromisedPassword'
       return 'invalid'
     }

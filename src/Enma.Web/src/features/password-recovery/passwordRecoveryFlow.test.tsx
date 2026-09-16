@@ -173,6 +173,20 @@ describe('password recovery flow', () => {
     )
   })
 
+  it('reset explains when the new password matches the current password', async () => {
+    vi.stubGlobal('fetch', vi.fn(() =>
+      Promise.resolve(response(400, 'password_current_reuse')),
+    ))
+    renderRoute('/reset-password', validToken)
+
+    fillMatchingPasswords()
+    fireEvent.submit(screen.getByRole('button', { name: 'Redefinir senha' }).closest('form')!)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'A nova senha deve ser diferente da senha atual.',
+    )
+  })
+
   it('reset success shows a login call to action', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(response(204)))
     vi.stubGlobal('fetch', fetchMock)
