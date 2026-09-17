@@ -136,7 +136,13 @@ public sealed class RegisterOrganizationOwnerHandler
             cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        var result = new RegisterOrganizationOwnerResult(
+        EmailVerificationDeliveryResult deliveryResult =
+            await emailVerificationDelivery.DeliverAsync(
+                user.Email,
+                rawToken,
+                cancellationToken);
+
+        return new RegisterOrganizationOwnerResult(
             organization.Id,
             organization.Name,
             organization.Slug,
@@ -145,14 +151,8 @@ public sealed class RegisterOrganizationOwnerHandler
             user.Email,
             membership.Id,
             membership.Role,
-            membership.CreatedAt);
-
-        _ = await emailVerificationDelivery.DeliverAsync(
-            result.UserEmail,
-            rawToken,
-            cancellationToken);
-
-        return result;
+            membership.CreatedAt,
+            deliveryResult == EmailVerificationDeliveryResult.Delivered);
     }
 
     private static Organization CreateOrganization(

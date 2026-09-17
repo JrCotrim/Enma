@@ -28,6 +28,9 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
     private const string SafeDuplicateEmailMessage =
         "A user with the provided email already exists.";
     private const string RequestPath = "/api/onboarding/register";
+    private const string ResendPath = "/api/auth/email-verification/resend";
+    private const string VerifyPath = "/api/auth/email-verification/verify";
+    private const string LoginPath = "/api/auth/login";
 
     private static readonly DateTimeOffset SeedCreatedAt = new(
         2026,
@@ -43,6 +46,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
     private readonly WebApplicationFactory<Program> testFactory;
     private readonly TestCompromisedPasswordChecker compromisedPasswordChecker;
     private readonly TestEmailVerificationDelivery emailVerificationDelivery;
+    private readonly MutableTimeProvider timeProvider = new(SeedCreatedAt);
     private readonly HttpClient client;
 
     public RegisterOrganizationOwnerEndpointTests(PostgreSqlFixture fixture)
@@ -63,6 +67,8 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
                 services.RemoveAll<IEmailVerificationDelivery>();
                 services.AddSingleton<IEmailVerificationDelivery>(
                     emailVerificationDelivery);
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(timeProvider);
             });
         });
         client = testFactory.CreateClient(new WebApplicationFactoryClientOptions
@@ -75,6 +81,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
     {
         compromisedPasswordChecker.Reset();
         emailVerificationDelivery.Reset();
+        timeProvider.SetUtcNow(SeedCreatedAt);
         return fixture.ResetDatabaseAsync();
     }
 
@@ -120,6 +127,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal("Owner", onboarding.Role);
         Assert.NotEqual(default, onboarding.CreatedAt);
         Assert.Equal(TimeSpan.Zero, onboarding.CreatedAt.Offset);
+        Assert.True(onboarding.VerificationEmailSent);
 
         Uri? location = response.Headers.Location;
         Assert.NotNull(location);
@@ -155,6 +163,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             .ReadFromJsonAsync<RegisterOrganizationOwnerResponse>();
         Assert.NotNull(onboarding);
         Assert.Equal("owner@example.com", onboarding.UserEmail);
+        Assert.False(onboarding.VerificationEmailSent);
         Assert.Equal(1, emailVerificationDelivery.CallCount);
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -163,6 +172,66 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(1, await dbContext.UserCredentials.CountAsync());
         Assert.Equal(1, await dbContext.OrganizationMemberships.CountAsync());
         Assert.Equal(1, await dbContext.EmailVerificationChallenges.CountAsync());
+    }
+
+    [Fact]
+    public async Task Post_WhenInitialDeliveryFails_ResendRotatesAndRecoversAccount()
+    {
+        emailVerificationDelivery.Result = EmailVerificationDeliveryResult.Failed;
+
+        using HttpResponseMessage registrationResponse = await client.PostAsJsonAsync(
+            RequestPath,
+            CreateValidRequest());
+
+        Assert.Equal(HttpStatusCode.Created, registrationResponse.StatusCode);
+        RegisterOrganizationOwnerResponse? onboarding = await registrationResponse
+            .Content
+            .ReadFromJsonAsync<RegisterOrganizationOwnerResponse>();
+        Assert.NotNull(onboarding);
+        Assert.False(onboarding.VerificationEmailSent);
+        string firstToken = Assert.IsType<string>(
+            emailVerificationDelivery.RawToken);
+
+        timeProvider.SetUtcNow(
+            SeedCreatedAt.Add(EmailVerificationPolicy.ResendCooldown));
+        emailVerificationDelivery.Result = EmailVerificationDeliveryResult.Delivered;
+
+        using HttpResponseMessage resendResponse = await client.PostAsJsonAsync(
+            ResendPath,
+            new { Email = "  OWNER@EXAMPLE.COM  " });
+
+        Assert.Equal(HttpStatusCode.Accepted, resendResponse.StatusCode);
+        Assert.True(resendResponse.Headers.CacheControl?.NoStore);
+        Assert.Equal(string.Empty, await resendResponse.Content.ReadAsStringAsync());
+        Assert.Equal(2, emailVerificationDelivery.CallCount);
+        string secondToken = Assert.IsType<string>(
+            emailVerificationDelivery.RawToken);
+        Assert.NotEqual(firstToken, secondToken);
+
+        using HttpResponseMessage oldTokenResponse = await client.PostAsJsonAsync(
+            VerifyPath,
+            new { Token = firstToken });
+        Assert.Equal(HttpStatusCode.BadRequest, oldTokenResponse.StatusCode);
+
+        using HttpResponseMessage newTokenResponse = await client.PostAsJsonAsync(
+            VerifyPath,
+            new { Token = secondToken });
+        Assert.Equal(HttpStatusCode.NoContent, newTokenResponse.StatusCode);
+
+        using HttpResponseMessage loginResponse = await client.PostAsJsonAsync(
+            LoginPath,
+            new { Email = "owner@example.com", Password = SyntheticPassword });
+        Assert.Equal(HttpStatusCode.NoContent, loginResponse.StatusCode);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        User user = await dbContext.Users
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == onboarding.UserId);
+        Assert.NotNull(user.EmailVerifiedAt);
+        Assert.Equal(
+            0,
+            await dbContext.EmailVerificationChallenges.CountAsync(
+                candidate => candidate.UserId == onboarding.UserId));
     }
 
     [Fact]
@@ -671,6 +740,21 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             Email = null;
             RawToken = null;
             Result = EmailVerificationDeliveryResult.Delivered;
+        }
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private DateTimeOffset currentUtcNow = utcNow;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            return currentUtcNow;
+        }
+
+        public void SetUtcNow(DateTimeOffset value)
+        {
+            currentUtcNow = value;
         }
     }
 }

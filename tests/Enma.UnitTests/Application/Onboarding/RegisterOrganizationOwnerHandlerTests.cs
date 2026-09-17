@@ -42,6 +42,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.Equal(dependencies.OrganizationRepository.AddedOrganization?.Id, result.OrganizationId);
         Assert.Equal(dependencies.UserRepository.AddedUser?.Id, result.UserId);
         Assert.Equal(dependencies.MembershipRepository.AddedMembership?.Id, result.MembershipId);
+        Assert.True(result.VerificationEmailSent);
     }
 
     [Fact]
@@ -249,6 +250,7 @@ public sealed class RegisterOrganizationOwnerHandlerTests
         Assert.Equal(
             dependencies.OrganizationRepository.AddedOrganization?.Id,
             result.OrganizationId);
+        Assert.False(result.VerificationEmailSent);
         Assert.Equal(1, dependencies.UnitOfWork.SaveChangesCallCount);
         Assert.Equal(1, dependencies.EmailVerificationDelivery.CallCount);
     }

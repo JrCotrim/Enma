@@ -46,7 +46,8 @@ public static class RegisterOrganizationOwnerEndpoint
                             result.UserEmail,
                             result.MembershipId,
                             result.Role.ToString(),
-                            result.CreatedAt);
+                            result.CreatedAt,
+                            result.VerificationEmailSent);
 
                         return TypedResults.CreatedAtRoute(
                             response,

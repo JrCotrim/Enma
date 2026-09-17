@@ -1,5 +1,6 @@
 export type RegistrationResult =
-  | 'registered'
+  | 'registeredEmailSent'
+  | 'registeredEmailDeliveryFailed'
   | 'invalid'
   | 'conflict'
   | 'unavailable'
@@ -11,6 +12,10 @@ export interface RegistrationInput {
   readonly ownerName: string
   readonly ownerEmail: string
   readonly password: string
+}
+
+interface RegistrationResponse {
+  readonly verificationEmailSent?: boolean
 }
 
 export async function registerOrganizationOwner(
@@ -28,8 +33,12 @@ export async function registerOrganizationOwner(
     })
 
     switch (response.status) {
-      case 201:
-        return 'registered'
+      case 201: {
+        const registration = (await response.json()) as RegistrationResponse
+        return registration.verificationEmailSent === false
+          ? 'registeredEmailDeliveryFailed'
+          : 'registeredEmailSent'
+      }
       case 400:
         return 'invalid'
       case 409:

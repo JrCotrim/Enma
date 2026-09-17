@@ -3,6 +3,7 @@ import type {
   EmailVerificationFlow,
   EmailVerificationState,
 } from './emailVerificationService'
+import { ResendEmailVerificationForm } from './ResendEmailVerificationForm'
 
 interface VerifyEmailPageProps {
   readonly flow: EmailVerificationFlow
@@ -22,7 +23,8 @@ const stateContent: Record<
   },
   invalid: {
     title: 'Link inválido ou expirado',
-    message: 'Solicite um novo link de verificação para continuar.',
+    message:
+      'Este link de verificação expirou ou não é mais válido. Solicite um novo link para continuar.',
   },
   rateLimited: {
     title: 'Muitas tentativas',
@@ -56,11 +58,16 @@ export function VerifyEmailPage({ flow }: VerifyEmailPageProps) {
   }, [flow])
 
   const content = stateContent[state]
+  const canRequestNewLink =
+    state === 'invalid' ||
+    state === 'rateLimited' ||
+    state === 'temporaryFailure'
 
   return (
     <section className="page public-status-card" aria-live="polite">
       <h1>{content.title}</h1>
       <p className="page-copy">{content.message}</p>
+      {canRequestNewLink ? <ResendEmailVerificationForm /> : null}
     </section>
   )
 }

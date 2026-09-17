@@ -32,6 +32,27 @@ function fillAndSubmitLogin(email: string, password: string) {
   fireEvent.submit(screen.getByRole('button', { name: 'Entrar' }).closest('form')!)
 }
 
+function fillAndSubmitRegistration() {
+  fireEvent.change(screen.getByLabelText('Nome da organização'), {
+    target: { value: 'Enma Legal' },
+  })
+  fireEvent.change(screen.getByLabelText('Nome curto da organização'), {
+    target: { value: 'enma-legal' },
+  })
+  fireEvent.change(screen.getByLabelText('Seu nome'), {
+    target: { value: 'Ana Silva' },
+  })
+  fireEvent.change(screen.getByLabelText('E-mail'), {
+    target: { value: 'owner@example.com' },
+  })
+  fireEvent.change(screen.getByLabelText('Senha'), {
+    target: { value: 'Synthetic!Password42' },
+  })
+  fireEvent.submit(
+    screen.getByRole('button', { name: 'Criar conta' }).closest('form')!,
+  )
+}
+
 beforeEach(() => {
   clearCsrfToken()
   window.localStorage.clear()
@@ -45,6 +66,37 @@ afterEach(() => {
 })
 
 describe('authentication flow', () => {
+  it('Login_ShowsFocusedEntryActionsWithoutVerificationResend', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(401)))
+    renderRoute('/login')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Entrar no ENMA' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Acesse seu espaço de trabalho.')).toBeInTheDocument()
+    expect(screen.getByLabelText('E-mail')).toBeInTheDocument()
+    expect(screen.getByLabelText('Senha')).toHaveAttribute('type', 'password')
+    expect(
+      screen.getByRole('link', { name: 'Esqueci minha senha' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Criar conta' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Reenviar e-mail de verificação' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('Registration_ExplainsOrganizationShortName', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(401)))
+    renderRoute('/register')
+
+    const shortName = await screen.findByLabelText('Nome curto da organização')
+    const helper = screen.getByText(
+      'Use letras, números e hífens. Ex.: escritorio-teste',
+    )
+
+    expect(shortName).toHaveAttribute('aria-describedby', helper.id)
+  })
+
   it('Login_PasswordVisibility_TogglesWithoutSubmittingOrClearing', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(response(401))
     vi.stubGlobal('fetch', fetchMock)
@@ -83,6 +135,62 @@ describe('authentication flow', () => {
 
     expect(password).toHaveAttribute('type', 'text')
     expect(screen.getByRole('button', { name: 'Ocultar senha' })).toBeInTheDocument()
+  })
+
+  it('Registration_DeliverySucceeded_ShowsTruthfulVerificationState', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(
+          response(201, { verificationEmailSent: true }),
+        ),
+    )
+    renderRoute('/register')
+
+    await screen.findByRole('heading', { name: 'Criar conta' })
+    fillAndSubmitRegistration()
+
+    expect(
+      await screen.findByText(
+        'Enviamos um link de verificação para o seu e-mail.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('E-mail')).toHaveValue('owner@example.com')
+    expect(
+      screen.getByRole('button', { name: 'Reenviar e-mail' }),
+    ).toBeInTheDocument()
+  })
+
+  it('Registration_DeliveryFailed_ShowsRecoveryAndCanResend', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(201, { verificationEmailSent: false }))
+      .mockResolvedValueOnce(response(202))
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute('/register')
+
+    await screen.findByRole('heading', { name: 'Criar conta' })
+    fillAndSubmitRegistration()
+
+    expect(
+      await screen.findByText(
+        'Não foi possível enviar o e-mail de verificação agora.',
+      ),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reenviar e-mail' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Se houver uma conta pendente de verificação para este e-mail, enviaremos um novo link.',
+    )
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/auth/email-verification/resend',
+      expect.objectContaining({
+        body: JSON.stringify({ email: 'owner@example.com' }),
+      }),
+    )
   })
 
   it('Login_ValidCredentials_SubmitsBackendContractAndShowsWorkspace', async () => {

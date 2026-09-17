@@ -70,6 +70,190 @@
   width: min(100%, 38rem);
 }
 
+.app-shell:not(:has(.organization-workspace)) .app-main:has(.login-layout) {
+  padding: clamp(2rem, 4vw, 4rem) clamp(1.5rem, 6vw, 6rem);
+  place-items: stretch center;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-layout {
+  display: grid;
+  width: min(100%, 82rem);
+  min-height: min(44rem, calc(100dvh - 12.5rem));
+  grid-template-columns: minmax(22rem, 0.82fr) minmax(30rem, 1.18fr);
+  gap: clamp(3rem, 7vw, 7rem);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-form-panel {
+  display: grid;
+  align-items: center;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-form-content {
+  width: min(100%, 25rem);
+  margin-inline: auto;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-form-content h1 {
+  color: var(--enma-public-text);
+  font-size: clamp(2.65rem, 4vw, 3.25rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  text-wrap: balance;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-form {
+  margin-top: 2.25rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-forgot-link {
+  min-height: 2.75rem;
+  margin-top: -0.55rem;
+  color: #cf96eb;
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 2.75rem;
+  text-align: end;
+  text-underline-offset: 0.22em;
+  justify-self: end;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-forgot-link:hover {
+  color: #edcdfb;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-register-link {
+  margin-top: 1.75rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-visual-panel {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  padding: clamp(3rem, 6vw, 5.5rem);
+  overflow: hidden;
+  border: 1px solid rgba(205, 162, 229, 0.16);
+  border-radius: 1.25rem;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(172, 91, 214, 0.22), transparent 18rem),
+    radial-gradient(circle at 8% 92%, rgba(116, 54, 148, 0.18), transparent 22rem),
+    linear-gradient(145deg, #281731 0%, #1d1323 52%, #161019 100%);
+  box-shadow: 0 2rem 5rem rgba(0, 0, 0, 0.28);
+  isolation: isolate;
+  place-items: end start;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-visual-content {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 33rem);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-visual-content h2 {
+  max-width: 16ch;
+  margin-top: clamp(2rem, 4vh, 3rem);
+  color: var(--enma-public-text);
+  font-size: clamp(2rem, 3.2vw, 3.25rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-visual-content > p {
+  max-width: 34rem;
+  margin-top: 1.25rem;
+  color: #c7b7ce;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-visual-orbit,
+.app-shell:not(:has(.organization-workspace)) .login-visual-orbit span {
+  position: absolute;
+  border: 1px solid rgba(218, 180, 238, 0.12);
+  border-radius: 50%;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-visual-orbit {
+  inset: -12rem -10rem auto auto;
+  width: 34rem;
+  aspect-ratio: 1;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-visual-orbit span:nth-child(1) {
+  inset: 4.5rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-visual-orbit span:nth-child(2) {
+  inset: 9rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-visual-orbit span:nth-child(3) {
+  inset: 13.5rem;
+  border-color: rgba(218, 180, 238, 0.24);
+  background: rgba(164, 91, 214, 0.12);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-workspace-preview {
+  position: relative;
+  width: min(100%, 29rem);
+  height: 13rem;
+  overflow: hidden;
+  border: 1px solid rgba(218, 180, 238, 0.16);
+  border-radius: 0.9rem;
+  background: rgba(14, 10, 17, 0.62);
+  box-shadow: 0 1.5rem 3.5rem rgba(0, 0, 0, 0.24);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-workspace-preview span {
+  position: absolute;
+  display: block;
+  border-radius: 0.35rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-preview-rail {
+  inset: 0 auto 0 0;
+  width: 3.25rem;
+  border-radius: 0;
+  background: rgba(150, 76, 197, 0.12);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-preview-heading {
+  inset: 1.7rem auto auto 5rem;
+  width: 8.5rem;
+  height: 0.75rem;
+  background: rgba(243, 237, 246, 0.78);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-preview-line {
+  inset: 4rem auto auto 5rem;
+  width: 7.5rem;
+  height: 0.42rem;
+  background: rgba(199, 183, 206, 0.24);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-preview-line-long {
+  width: 12rem;
+  transform: translateY(-1rem);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-preview-panel {
+  inset: 6.25rem 1.5rem 1.5rem 5rem;
+  border: 1px solid rgba(205, 162, 229, 0.12);
+  background: rgba(44, 32, 51, 0.72);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-preview-panel-secondary {
+  inset-inline-start: auto;
+  width: 7.5rem;
+  background: rgba(150, 76, 197, 0.13);
+}
+
+.app-shell:not(:has(.organization-workspace)) .login-preview-panel-primary {
+  inset-inline-end: 10rem;
+}
+
 .app-shell:not(:has(.organization-workspace)) :where(.page, .auth-card, .organization-directory) h1 {
   color: var(--enma-public-text);
   font-size: clamp(2rem, 6vw, 3.25rem);
@@ -115,6 +299,14 @@
   caret-color: #d8a9ef;
   background: var(--enma-public-surface-solid);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form input:focus-visible {
+  border-color: #b96fe0;
+  background: #261c2c;
 }
 
 .app-shell:not(:has(.organization-workspace)) .password-input {
@@ -184,6 +376,7 @@
   .home-link,
   .public-text-link,
   .auth-switch a,
+  .login-forgot-link,
   .organization-link
 ):focus-visible {
   outline: 3px solid #c77fe9;
@@ -267,6 +460,13 @@
   text-align: center;
 }
 
+.app-shell:not(:has(.organization-workspace)) .auth-field-help {
+  margin: -0.55rem 0 0.55rem;
+  color: var(--enma-public-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .app-shell:not(:has(.organization-workspace)) .form-error {
   color: var(--enma-public-danger);
 }
@@ -348,6 +548,44 @@
   .app-shell:not(:has(.organization-workspace)) .invitation-recipient-actions > * {
     width: 100%;
     text-align: center;
+  }
+}
+
+@media (max-width: 62rem) {
+  .app-shell:not(:has(.organization-workspace)) .app-main:has(.login-layout) {
+    min-height: calc(100dvh - 4.5rem);
+    padding: clamp(2rem, 8vw, 4.5rem) 1.25rem;
+    place-items: center;
+  }
+
+  .app-shell:not(:has(.organization-workspace)) .login-layout {
+    display: block;
+    width: min(100%, 28rem);
+    min-height: auto;
+  }
+
+  .app-shell:not(:has(.organization-workspace)) .login-visual-panel {
+    display: none;
+  }
+
+  .app-shell:not(:has(.organization-workspace)) .login-form-content {
+    width: 100%;
+  }
+}
+
+@media (max-width: 40rem) {
+  .app-shell:not(:has(.organization-workspace)) .app-main:has(.login-layout) {
+    min-height: calc(100dvh - 4rem);
+    padding: 2.25rem 1.25rem 2.75rem;
+    place-items: start center;
+  }
+
+  .app-shell:not(:has(.organization-workspace)) .login-form-content h1 {
+    font-size: clamp(2.4rem, 12vw, 3.15rem);
+  }
+
+  .app-shell:not(:has(.organization-workspace)) .login-form {
+    margin-top: 2rem;
   }
 }
 

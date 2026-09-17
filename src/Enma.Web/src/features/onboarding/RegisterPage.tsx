@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router-dom'
 import { PasswordInput } from '../../components/PasswordInput'
 import { useAuth } from '../authentication/AuthContext'
 import { SessionError, SessionLoading } from '../authentication/SessionStatus'
+import { ResendEmailVerificationForm } from '../email-verification/ResendEmailVerificationForm'
 import { useInvitationResume } from '../invitations/InvitationResumeState'
 import {
   registerOrganizationOwner,
@@ -10,7 +11,10 @@ import {
 } from './onboardingService'
 
 const registrationMessages: Record<
-  Exclude<RegistrationResult, 'registered'>,
+  Exclude<
+    RegistrationResult,
+    'registeredEmailSent' | 'registeredEmailDeliveryFailed'
+  >,
   string
 > = {
   invalid: 'Revise os dados informados e tente novamente.',
@@ -28,7 +32,9 @@ export function RegisterPage() {
   const [ownerEmail, setOwnerEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isRegistered, setIsRegistered] = useState(false)
+  const [registrationDelivery, setRegistrationDelivery] = useState<
+    'sent' | 'failed'
+  >()
   const [errorMessage, setErrorMessage] = useState<string>()
   const isSubmittingRef = useRef(false)
   const requestControllerRef = useRef<AbortController | undefined>(undefined)
@@ -57,17 +63,19 @@ export function RegisterPage() {
     )
   }
 
-  if (isRegistered) {
+  if (registrationDelivery) {
     return (
       <section className="auth-card" aria-live="polite">
         <h1>Verifique seu e-mail</h1>
         <p className="page-copy">
-          Enviamos um link de verificação. Abra-o em outra aba e, depois da
-          confirmação, volte aqui para entrar e concluir o convite.
+          {registrationDelivery === 'sent'
+            ? 'Enviamos um link de verificação para o seu e-mail.'
+            : 'Não foi possível enviar o e-mail de verificação agora.'}
         </p>
-        <Link className="primary-button invitation-recipient-link" to="/login">
-          Já verifiquei, entrar
-        </Link>
+        <ResendEmailVerificationForm initialEmail={ownerEmail} />
+        <p className="auth-switch">
+          <Link to="/login">Já verifiquei, entrar</Link>
+        </p>
       </section>
     )
   }
@@ -94,9 +102,14 @@ export function RegisterPage() {
         controller.signal,
       )
 
-      if (result === 'registered') {
+      if (
+        result === 'registeredEmailSent' ||
+        result === 'registeredEmailDeliveryFailed'
+      ) {
         setPassword('')
-        setIsRegistered(true)
+        setRegistrationDelivery(
+          result === 'registeredEmailSent' ? 'sent' : 'failed',
+        )
       } else {
         setErrorMessage(registrationMessages[result])
       }
@@ -129,16 +142,20 @@ export function RegisterPage() {
           required
         />
 
-        <label htmlFor="organization-slug">Identificador da organização</label>
+        <label htmlFor="organization-slug">Nome curto da organização</label>
         <input
           id="organization-slug"
           name="organizationSlug"
           autoComplete="off"
+          aria-describedby="organization-slug-help"
           value={organizationSlug}
           onChange={(event) => setOrganizationSlug(event.target.value)}
           pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
           required
         />
+        <p id="organization-slug-help" className="auth-field-help">
+          Use letras, números e hífens. Ex.: escritorio-teste
+        </p>
 
         <label htmlFor="owner-name">Seu nome</label>
         <input

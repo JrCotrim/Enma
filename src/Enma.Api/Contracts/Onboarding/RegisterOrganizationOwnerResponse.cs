@@ -9,4 +9,5 @@ public sealed record RegisterOrganizationOwnerResponse(
     string UserEmail,
     Guid MembershipId,
     string Role,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    bool VerificationEmailSent);

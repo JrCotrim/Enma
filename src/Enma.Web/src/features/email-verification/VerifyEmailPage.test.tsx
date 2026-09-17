@@ -1,5 +1,5 @@
 import { StrictMode } from 'react'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAppRoutes } from '../../app/router'
@@ -81,6 +81,67 @@ describe('verify email page', () => {
     expect(
       screen.getByRole('heading', { name: 'Link inválido ou expirado' }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Reenviar e-mail' }),
+    ).toBeInTheDocument()
+  })
+
+  it('Resend_Accepted_ShowsGenericConfirmationAndExactPublicContract', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(response(202)))
+    vi.stubGlobal('fetch', fetchMock)
+    renderVerificationPage()
+
+    fireEvent.change(screen.getByLabelText('E-mail'), {
+      target: { value: 'person@example.com' },
+    })
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Reenviar e-mail' }).closest('form')!,
+    )
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Se houver uma conta pendente de verificação para este e-mail, enviaremos um novo link.',
+    )
+    expect(document.body).not.toHaveTextContent(
+      /conta encontrada|conta não encontrada|já verificada/i,
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/email-verification/resend',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'person@example.com' }),
+        credentials: 'same-origin',
+        cache: 'no-store',
+        signal: expect.any(AbortSignal),
+      },
+    )
+  })
+
+  it('Resend_PendingRequest_PreventsImmediateDoubleSubmit', async () => {
+    let resolveRequest: ((value: Response) => void) | undefined
+    const pendingRequest = new Promise<Response>((resolve) => {
+      resolveRequest = resolve
+    })
+    const fetchMock = vi.fn(() => pendingRequest)
+    vi.stubGlobal('fetch', fetchMock)
+    renderVerificationPage()
+
+    fireEvent.change(screen.getByLabelText('E-mail'), {
+      target: { value: 'person@example.com' },
+    })
+    const form = screen
+      .getByRole('button', { name: 'Reenviar e-mail' })
+      .closest('form')!
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+
+    expect(screen.getByRole('button', { name: 'Reenviando…' })).toBeDisabled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveRequest?.(response(202))
+      await pendingRequest
+    })
   })
 
   it('Render_MalformedToken_ScrubsWithoutPostAndShowsInvalid', () => {

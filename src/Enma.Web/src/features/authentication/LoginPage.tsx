@@ -82,51 +82,75 @@ export function LoginPage() {
   }
 
   return (
-    <section className="auth-card" aria-labelledby="login-title">
-      <h1 id="login-title">Entrar no ENMA</h1>
-      <p className="page-copy">
-        Use as credenciais da sua conta para acessar o espaço de trabalho.
-      </p>
+    <section className="login-layout" aria-labelledby="login-title">
+      <div className="login-form-panel">
+        <div className="login-form-content">
+          <h1 id="login-title">Entrar no ENMA</h1>
+          <p className="page-copy">Acesse seu espaço de trabalho.</p>
 
-      <form className="auth-form" onSubmit={handleSubmit}>
-        <label htmlFor="email">E-mail</label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="username"
-          spellCheck={false}
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          required
-        />
+          <form className="auth-form login-form" onSubmit={handleSubmit}>
+            <label htmlFor="email">E-mail</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="username"
+              spellCheck={false}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
 
-        <label htmlFor="password">Senha</label>
-        <PasswordInput
-          id="password"
-          name="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          required
-        />
+            <label htmlFor="password">Senha</label>
+            <PasswordInput
+              id="password"
+              name="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+            <Link className="login-forgot-link" to="/forgot-password">
+              Esqueci minha senha
+            </Link>
 
-        {errorMessage ? (
-          <p className="form-error" role="alert">
-            {errorMessage}
+            {errorMessage ? (
+              <p className="form-error" role="alert">
+                {errorMessage}
+              </p>
+            ) : null}
+
+            <button className="primary-button" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Entrando…' : 'Entrar'}
+            </button>
+          </form>
+          <p className="auth-switch login-register-link">
+            Ainda não tem uma conta? <Link to="/register">Criar conta</Link>
           </p>
-        ) : null}
+        </div>
+      </div>
 
-        <button className="primary-button" type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Entrando…' : 'Entrar'}
-        </button>
-      </form>
-      <p className="auth-switch">
-        <Link to="/forgot-password">Esqueci minha senha</Link>
-      </p>
-      <p className="auth-switch">
-        Ainda não tem uma conta? <Link to="/register">Criar conta</Link>
-      </p>
+      <aside className="login-visual-panel" aria-labelledby="login-visual-title">
+        <div className="login-visual-orbit" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="login-visual-content">
+          <div className="login-workspace-preview" aria-hidden="true">
+            <span className="login-preview-rail" />
+            <span className="login-preview-heading" />
+            <span className="login-preview-line login-preview-line-long" />
+            <span className="login-preview-line" />
+            <span className="login-preview-panel login-preview-panel-primary" />
+            <span className="login-preview-panel login-preview-panel-secondary" />
+          </div>
+          <h2 id="login-visual-title">
+            Seu escritório, organizado em um único espaço.
+          </h2>
+          <p>Clientes, processos, prazos, documentos e financeiro.</p>
+        </div>
+      </aside>
     </section>
   )
 }

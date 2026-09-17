@@ -11,4 +11,5 @@ public sealed record RegisterOrganizationOwnerResult(
     string UserEmail,
     Guid MembershipId,
     OrganizationRole Role,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    bool VerificationEmailSent);

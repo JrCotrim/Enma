@@ -32,6 +32,7 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
     private const ushort ApiContainerPort = 8025;
     private const string MailpitImage = "axllent/mailpit:v1.30.7";
     private const string OnboardingPath = "/api/onboarding/register";
+    private const string ResendPath = "/api/auth/email-verification/resend";
     private const string VerifyPath = "/api/auth/email-verification/verify";
     private const string VerificationPageUrl =
         "https://app.example/verify-email";
@@ -42,10 +43,19 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
     private static readonly Regex VerificationTokenPattern = new(
         "^[A-Za-z0-9_-]{43}$",
         RegexOptions.CultureInvariant);
+    private static readonly DateTimeOffset TestUtcNow = new(
+        2026,
+        9,
+        17,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
 
     private readonly PostgreSqlFixture fixture;
     private readonly SafeCompromisedPasswordChecker compromisedPasswordChecker =
         new();
+    private readonly MutableTimeProvider timeProvider = new(TestUtcNow);
     private readonly IContainer mailpit = new ContainerBuilder(MailpitImage)
         .WithPortBinding(SmtpContainerPort, true)
         .WithPortBinding(ApiContainerPort, true)
@@ -104,6 +114,8 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
                 services.RemoveAll<ICompromisedPasswordChecker>();
                 services.AddSingleton<ICompromisedPasswordChecker>(
                     compromisedPasswordChecker);
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(timeProvider);
 
                 // The isolated Mailpit fixture has no publicly trusted TLS
                 // certificate. Production option validation is covered
@@ -163,6 +175,7 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
                 timeout.Token);
         Assert.NotNull(onboarding);
         Assert.Equal(ownerEmail, onboarding.UserEmail);
+        Assert.True(onboarding.VerificationEmailSent);
         Assert.Equal(1, compromisedPasswordChecker.CallCount);
 
         await AssertPreVerificationStateAsync(
@@ -171,9 +184,10 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
             ownerEmail,
             timeout.Token);
 
-        MimeMessage message = await GetMessageForRecipientAsync(
+        MimeMessage message = Assert.Single(await GetMessagesForRecipientAsync(
             ownerEmail,
-            timeout.Token);
+            1,
+            timeout.Token));
         MailboxAddress recipient = Assert.IsType<MailboxAddress>(
             Assert.Single(message.To));
         Assert.Equal(ownerEmail, recipient.Address);
@@ -276,6 +290,86 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
             onboarding,
             ownerEmail,
             timeout.Token);
+        await AssertPostVerificationStateAsync(onboarding, timeout.Token);
+    }
+
+    [Fact(Timeout = 120_000)]
+    public async Task PostResend_MailpitRotatesTokenAndOnlyNewLinkVerifies()
+    {
+        HttpClient httpClient = client
+            ?? throw new InvalidOperationException(
+                "The test HTTP client has not been initialized.");
+        string uniqueValue = Guid.NewGuid().ToString("N");
+        string ownerEmail = $"resend-{uniqueValue}@example.test";
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+        using HttpResponseMessage onboardingResponse = await httpClient
+            .PostAsJsonAsync(
+                OnboardingPath,
+                new RegisterOrganizationOwnerRequest
+                {
+                    OrganizationName = $"Resend {uniqueValue}",
+                    OrganizationSlug = $"resend-{uniqueValue}",
+                    OwnerName = "Resend Owner",
+                    OwnerEmail = ownerEmail,
+                    Password = "EndToEnd!Owner42"
+                },
+                timeout.Token);
+
+        Assert.Equal(HttpStatusCode.Created, onboardingResponse.StatusCode);
+        RegisterOrganizationOwnerResponse? onboarding = await onboardingResponse
+            .Content
+            .ReadFromJsonAsync<RegisterOrganizationOwnerResponse>(timeout.Token);
+        Assert.NotNull(onboarding);
+        Assert.True(onboarding.VerificationEmailSent);
+        MimeMessage firstMessage = Assert.Single(await GetMessagesForRecipientAsync(
+            ownerEmail,
+            1,
+            timeout.Token));
+        string firstToken = ExtractRawToken(firstMessage);
+
+        timeProvider.SetUtcNow(
+            TestUtcNow.Add(EmailVerificationPolicy.ResendCooldown));
+
+        using HttpResponseMessage resendResponse = await httpClient.PostAsJsonAsync(
+            ResendPath,
+            new { Email = $"  {ownerEmail.ToUpperInvariant()}  " },
+            timeout.Token);
+
+        Assert.Equal(HttpStatusCode.Accepted, resendResponse.StatusCode);
+        Assert.True(resendResponse.Headers.CacheControl?.NoStore);
+        Assert.Equal(
+            string.Empty,
+            await resendResponse.Content.ReadAsStringAsync(timeout.Token));
+        IReadOnlyList<MimeMessage> messages = await GetMessagesForRecipientAsync(
+            ownerEmail,
+            2,
+            timeout.Token);
+        string secondToken = messages
+            .Select(ExtractRawToken)
+            .Single(token => !string.Equals(
+                token,
+                firstToken,
+                StringComparison.Ordinal));
+
+        using HttpResponseMessage oldTokenResponse = await httpClient
+            .PostAsJsonAsync(
+                VerifyPath,
+                new { Token = firstToken },
+                timeout.Token);
+        await AssertGenericInvalidResponseAsync(
+            oldTokenResponse,
+            firstToken,
+            onboarding,
+            ownerEmail,
+            timeout.Token);
+
+        using HttpResponseMessage newTokenResponse = await httpClient
+            .PostAsJsonAsync(
+                VerifyPath,
+                new { Token = secondToken },
+                timeout.Token);
+        Assert.Equal(HttpStatusCode.NoContent, newTokenResponse.StatusCode);
         await AssertPostVerificationStateAsync(onboarding, timeout.Token);
     }
 
@@ -418,8 +512,9 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
                 StringComparer.Ordinal)));
     }
 
-    private async Task<MimeMessage> GetMessageForRecipientAsync(
+    private async Task<IReadOnlyList<MimeMessage>> GetMessagesForRecipientAsync(
         string recipient,
+        int expectedCount,
         CancellationToken cancellationToken)
     {
         using var mailpitClient = new HttpClient
@@ -441,30 +536,56 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
                 cancellationToken: cancellationToken);
             JsonElement messages = searchResult.RootElement.GetProperty("messages");
 
-            if (messages.GetArrayLength() > 1)
+            if (messages.GetArrayLength() > expectedCount)
             {
                 throw new InvalidOperationException(
-                    "Mailpit returned more than one message for the unique recipient.");
+                    "Mailpit returned more messages than expected for the unique recipient.");
             }
 
-            if (messages.GetArrayLength() == 1)
+            if (messages.GetArrayLength() == expectedCount)
             {
-                string? messageId = messages[0].GetProperty("ID").GetString();
+                var result = new List<MimeMessage>(expectedCount);
 
-                if (string.IsNullOrEmpty(messageId))
+                foreach (JsonElement message in messages.EnumerateArray())
                 {
-                    throw new InvalidOperationException(
-                        "Mailpit returned a message without an identifier.");
+                    string? messageId = message.GetProperty("ID").GetString();
+
+                    if (string.IsNullOrEmpty(messageId))
+                    {
+                        throw new InvalidOperationException(
+                            "Mailpit returned a message without an identifier.");
+                    }
+
+                    await using Stream rawMessage = await mailpitClient.GetStreamAsync(
+                        $"api/v1/message/{Uri.EscapeDataString(messageId)}/raw",
+                        cancellationToken);
+                    result.Add(await MimeMessage.LoadAsync(
+                        rawMessage,
+                        cancellationToken));
                 }
 
-                await using Stream rawMessage = await mailpitClient.GetStreamAsync(
-                    $"api/v1/message/{Uri.EscapeDataString(messageId)}/raw",
-                    cancellationToken);
-                return await MimeMessage.LoadAsync(rawMessage, cancellationToken);
+                return result;
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
         }
+    }
+
+    private static string ExtractRawToken(MimeMessage message)
+    {
+        string textBody = Assert.IsType<string>(message.TextBody);
+        Match urlMatch = Assert.Single(VerificationUrlPattern.Matches(textBody));
+        Assert.True(Uri.TryCreate(
+            urlMatch.Value,
+            UriKind.Absolute,
+            out Uri? verificationUri));
+        Assert.StartsWith(
+            "#token=",
+            verificationUri.Fragment,
+            StringComparison.Ordinal);
+        string rawToken = verificationUri.Fragment["#token=".Length..];
+        Assert.Matches(VerificationTokenPattern, rawToken);
+        return rawToken;
     }
 
     private static int CountOccurrences(string value, string searchValue)
@@ -512,6 +633,21 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
         {
             CallCount++;
             return Task.FromResult(false);
+        }
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private DateTimeOffset currentUtcNow = utcNow;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            return currentUtcNow;
+        }
+
+        public void SetUtcNow(DateTimeOffset value)
+        {
+            currentUtcNow = value;
         }
     }
 }

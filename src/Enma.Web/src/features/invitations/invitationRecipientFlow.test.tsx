@@ -298,7 +298,7 @@ describe('invitation recipient flow', () => {
     fireEvent.change(screen.getByLabelText('Nome da organização'), {
       target: { value: ownerOrganization.name },
     })
-    fireEvent.change(screen.getByLabelText('Identificador da organização'), {
+    fireEvent.change(screen.getByLabelText('Nome curto da organização'), {
       target: { value: 'espaco-inicial' },
     })
     fireEvent.change(screen.getByLabelText('Seu nome'), {
