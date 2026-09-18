@@ -41,14 +41,23 @@ if (!rootElement) {
 }
 
 export function ApplicationRoot() {
+  const [initialHandoff] = useState(() => {
+    const invitation = captureInvitationRecipientHandoff(
+      window.location,
+      window.history,
+    )
+    const verification = captureEmailVerificationHandoff(
+      window.location,
+      window.history,
+    )
+    return { invitation, verification }
+  })
   const [invitationToken, setInvitationToken] = useState(
-    () =>
-      captureInvitationRecipientHandoff(window.location, window.history).token,
+    initialHandoff.invitation.token ??
+      initialHandoff.verification.invitationToken,
   )
   const [emailVerificationFlow] = useState(() =>
-    createEmailVerificationFlow(
-      captureEmailVerificationHandoff(window.location, window.history).token,
-    ),
+    createEmailVerificationFlow(initialHandoff.verification.token),
   )
   const [passwordRecoveryToken] = useState(() =>
     capturePasswordRecoveryToken(window.location, window.history),

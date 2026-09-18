@@ -445,7 +445,7 @@ describe('organization discovery and routing', () => {
     ).toBeInTheDocument()
 
     await act(async () => {
-      await router.navigate('/')
+      await router.navigate('/missing-page')
     })
 
     await act(async () => {
@@ -454,7 +454,7 @@ describe('organization discovery and routing', () => {
     })
 
     expect(
-      screen.getByRole('heading', { name: 'Bem-vindo ao ENMA' }),
+      screen.getByRole('heading', { name: 'Página não encontrada' }),
     ).toBeInTheDocument()
     expect(screen.queryByText(organizationA.name)).not.toBeInTheDocument()
   })

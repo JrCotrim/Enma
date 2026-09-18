@@ -24,7 +24,7 @@ public sealed class EmailVerificationLinkBuilder
         this.verificationPageUri = verificationPageUri;
     }
 
-    public Uri Build(string rawToken)
+    public Uri Build(string rawToken, string? invitationToken = null)
     {
         if (!IsValidRawToken(rawToken))
         {
@@ -33,9 +33,18 @@ public sealed class EmailVerificationLinkBuilder
                 nameof(rawToken));
         }
 
+        if (invitationToken is not null && !IsValidRawToken(invitationToken))
+        {
+            throw new ArgumentException(
+                "The organization invitation token has an invalid format.",
+                nameof(invitationToken));
+        }
+
         return new UriBuilder(verificationPageUri)
         {
-            Fragment = $"token={rawToken}"
+            Fragment = invitationToken is null
+                ? $"token={rawToken}"
+                : $"token={rawToken}&invitation={invitationToken}"
         }.Uri;
     }
 

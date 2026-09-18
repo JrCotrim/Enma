@@ -6,13 +6,17 @@ using System.Text.RegularExpressions;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using Enma.Api.Contracts.Onboarding;
+using Enma.Api.Contracts.Organizations;
 using Enma.Application.Authentication;
+using Enma.Application.Organizations.Invitations;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Security;
 using Enma.Domain.Authentication;
+using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
+using Enma.Infrastructure.Security;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -37,8 +41,12 @@ public sealed class DevelopmentOwnerOnboardingEmailVerificationEndToEndTests
     private const ushort ApiContainerPort = 8025;
     private const string MailpitImage = "axllent/mailpit:v1.30.7";
     private const string OnboardingPath = "/api/onboarding/register";
+    private const string InvitedOnboardingPath = "/api/onboarding/register-invited";
     private const string LoginPath = "/api/auth/login";
     private const string VerifyPath = "/api/auth/email-verification/verify";
+    private const string CsrfPath = "/api/auth/csrf";
+    private const string AcceptInvitationPath = "/api/invitations/accept";
+    private const string CsrfHeaderName = "X-CSRF-TOKEN";
     private const string Password = "Development!Owner42";
 
     private static readonly Regex VerificationUrlPattern = new(
@@ -245,6 +253,175 @@ public sealed class DevelopmentOwnerOnboardingEmailVerificationEndToEndTests
             await verifiedDbContext.EmailVerificationChallenges.CountAsync(
                 candidate => candidate.UserId == onboarding.UserId,
                 timeout.Token));
+    }
+
+    [Fact]
+    public async Task InvitedRegistration_MailpitContinuation_AcceptsIntoExistingOrganization()
+    {
+        HttpClient httpClient = client
+            ?? throw new InvalidOperationException(
+                "The test HTTP client has not been initialized.");
+        string uniqueValue = Guid.NewGuid().ToString("N");
+        string ownerEmail = $"owner-{uniqueValue}@example.test";
+        string inviteeEmail = $"invitee-{uniqueValue}@example.test";
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        var organization = new Organization(
+            $"Inviting Organization {uniqueValue}",
+            $"inviting-{uniqueValue}",
+            now);
+        var owner = new User("Inviting Owner", ownerEmail, now);
+        var ownerMembership = new OrganizationMembership(
+            organization.Id,
+            owner.Id,
+            OrganizationRole.Owner,
+            now);
+        var invitationTokenService =
+            new CryptographicOrganizationInvitationTokenService();
+        string rawInvitationToken = invitationTokenService.GenerateToken(
+            out OrganizationInvitationTokenHash invitationTokenHash);
+        var invitation = new OrganizationInvitation(
+            organization.Id,
+            inviteeEmail,
+            OrganizationRole.Administrator,
+            ownerMembership.Id,
+            invitationTokenHash,
+            now,
+            now,
+            now.AddDays(1));
+        await using (EnmaDbContext seedContext = fixture.CreateDbContext())
+        {
+            seedContext.AddRange(
+                organization,
+                owner,
+                ownerMembership,
+                invitation);
+            await seedContext.SaveChangesAsync();
+        }
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using HttpResponseMessage registrationResponse = await httpClient
+            .PostAsJsonAsync(
+                InvitedOnboardingPath,
+                new
+                {
+                    InvitationToken = rawInvitationToken,
+                    Name = "Invited Administrator",
+                    Email = inviteeEmail,
+                    Password
+                },
+                timeout.Token);
+
+        Assert.Equal(HttpStatusCode.Created, registrationResponse.StatusCode);
+        RegisterInvitedUserResponse registration = Assert.IsType<
+            RegisterInvitedUserResponse>(await registrationResponse.Content
+                .ReadFromJsonAsync<RegisterInvitedUserResponse>(timeout.Token));
+        Assert.True(registration.VerificationEmailSent);
+        Guid inviteeUserId;
+
+        await using (EnmaDbContext preVerificationContext =
+            fixture.CreateDbContext())
+        {
+            inviteeUserId = await preVerificationContext.Users
+                .Where(user => user.Email == inviteeEmail)
+                .Select(user => user.Id)
+                .SingleAsync(timeout.Token);
+            Assert.Equal(1, await preVerificationContext.Organizations
+                .CountAsync(timeout.Token));
+            Assert.False(await preVerificationContext.OrganizationMemberships
+                .AnyAsync(
+                    membership => membership.UserId == inviteeUserId,
+                    timeout.Token));
+            Assert.Equal(
+                OrganizationInvitationState.Pending,
+                (await preVerificationContext.OrganizationInvitations
+                    .SingleAsync(timeout.Token)).GetState(DateTimeOffset.UtcNow));
+        }
+
+        MimeMessage message = await GetMessageForRecipientAsync(
+            inviteeEmail,
+            timeout.Token);
+        Match verificationUrl = Assert.Single(
+            VerificationUrlPattern.Matches(
+                Assert.IsType<string>(message.TextBody)));
+        Uri verificationUri = new(verificationUrl.Value, UriKind.Absolute);
+        Dictionary<string, string> fragmentValues = verificationUri.Fragment
+            .TrimStart('#')
+            .Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(component => component.Split('=', 2))
+            .ToDictionary(
+                component => component[0],
+                component => Uri.UnescapeDataString(component[1]),
+                StringComparer.Ordinal);
+        string rawVerificationToken = fragmentValues["token"];
+        Assert.Equal(rawInvitationToken, fragmentValues["invitation"]);
+        Assert.DoesNotContain(rawInvitationToken, message.Subject);
+        Assert.DoesNotContain(
+            message.Headers,
+            header => header.Value.Contains(
+                rawInvitationToken,
+                StringComparison.Ordinal));
+
+        using HttpResponseMessage verifyResponse = await httpClient
+            .PostAsJsonAsync(
+                VerifyPath,
+                new { Token = rawVerificationToken },
+                timeout.Token);
+        Assert.Equal(HttpStatusCode.NoContent, verifyResponse.StatusCode);
+
+        using HttpResponseMessage loginResponse = await httpClient
+            .PostAsJsonAsync(
+                LoginPath,
+                new { Email = inviteeEmail, Password },
+                timeout.Token);
+        Assert.Equal(HttpStatusCode.NoContent, loginResponse.StatusCode);
+
+        using HttpResponseMessage csrfResponse = await httpClient.GetAsync(
+            CsrfPath,
+            timeout.Token);
+        Assert.Equal(HttpStatusCode.OK, csrfResponse.StatusCode);
+        using JsonDocument csrfPayload = await JsonDocument.ParseAsync(
+            await csrfResponse.Content.ReadAsStreamAsync(timeout.Token),
+            cancellationToken: timeout.Token);
+        string csrfToken = Assert.IsType<string>(csrfPayload.RootElement
+            .GetProperty("requestToken")
+            .GetString());
+        using var acceptRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            AcceptInvitationPath)
+        {
+            Content = JsonContent.Create(new { Token = rawInvitationToken })
+        };
+        acceptRequest.Headers.Add(CsrfHeaderName, csrfToken);
+        using HttpResponseMessage acceptResponse = await httpClient.SendAsync(
+            acceptRequest,
+            timeout.Token);
+
+        Assert.Equal(HttpStatusCode.NoContent, acceptResponse.StatusCode);
+        using HttpResponseMessage organizationsResponse = await httpClient.GetAsync(
+            "/api/me/organizations",
+            timeout.Token);
+        Assert.Equal(HttpStatusCode.OK, organizationsResponse.StatusCode);
+        CurrentUserOrganizationResponse availableOrganization = Assert.Single(
+            Assert.IsType<GetCurrentUserOrganizationsResponse>(
+                await organizationsResponse.Content.ReadFromJsonAsync<
+                    GetCurrentUserOrganizationsResponse>(timeout.Token)).Items);
+        Assert.Equal(organization.Id, availableOrganization.Id);
+        Assert.Equal("Administrator", availableOrganization.Role);
+        await using EnmaDbContext acceptedContext = fixture.CreateDbContext();
+        Assert.Equal(1, await acceptedContext.Organizations.CountAsync(
+            timeout.Token));
+        OrganizationMembership inviteeMembership = await acceptedContext
+            .OrganizationMemberships
+            .SingleAsync(
+                membership => membership.UserId == inviteeUserId,
+                timeout.Token);
+        Assert.Equal(organization.Id, inviteeMembership.OrganizationId);
+        Assert.Equal(OrganizationRole.Administrator, inviteeMembership.Role);
+        Assert.NotEqual(OrganizationRole.Owner, inviteeMembership.Role);
+        Assert.Equal(
+            OrganizationInvitationState.Accepted,
+            (await acceptedContext.OrganizationInvitations.SingleAsync(
+                timeout.Token)).GetState(DateTimeOffset.UtcNow));
     }
 
     private async Task<MimeMessage> GetMessageForRecipientAsync(

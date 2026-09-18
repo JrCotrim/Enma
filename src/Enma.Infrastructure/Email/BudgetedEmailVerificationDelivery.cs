@@ -48,4 +48,25 @@ public sealed class BudgetedEmailVerificationDelivery
             rawToken,
             cancellationToken);
     }
+
+    public async Task<EmailVerificationDeliveryResult> DeliverAsync(
+        string email,
+        string rawToken,
+        string invitationToken,
+        CancellationToken cancellationToken = default)
+    {
+        bool admitted = await sendBudget.TryAcquireAsync(email, cancellationToken);
+
+        if (!admitted)
+        {
+            LogSuppressed(logger, null);
+            return EmailVerificationDeliveryResult.Failed;
+        }
+
+        return await innerDelivery.DeliverAsync(
+            email,
+            rawToken,
+            invitationToken,
+            cancellationToken);
+    }
 }

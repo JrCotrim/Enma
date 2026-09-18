@@ -12,19 +12,38 @@ interface HandoffHistory {
 
 export interface EmailVerificationHandoff {
   readonly token?: string
+  readonly invitationToken?: string
 }
 
 export function parseEmailVerificationFragment(
   fragment: string,
-): string | undefined {
+): EmailVerificationHandoff {
   const prefix = '#token='
 
   if (!fragment.startsWith(prefix)) {
-    return undefined
+    return {}
   }
 
-  const token = fragment.slice(prefix.length)
-  return verificationTokenPattern.test(token) ? token : undefined
+  const [token, invitationPart, ...unexpected] = fragment
+    .slice(prefix.length)
+    .split('&')
+
+  if (!verificationTokenPattern.test(token) || unexpected.length > 0) {
+    return {}
+  }
+
+  if (invitationPart === undefined) {
+    return { token }
+  }
+
+  const invitationPrefix = 'invitation='
+  const invitationToken = invitationPart.startsWith(invitationPrefix)
+    ? invitationPart.slice(invitationPrefix.length)
+    : undefined
+
+  return invitationToken && verificationTokenPattern.test(invitationToken)
+    ? { token, invitationToken }
+    : {}
 }
 
 export function captureEmailVerificationHandoff(
@@ -35,11 +54,11 @@ export function captureEmailVerificationHandoff(
     return {}
   }
 
-  const token = parseEmailVerificationFragment(location.hash)
+  const handoff = parseEmailVerificationFragment(location.hash)
 
   if (location.hash) {
     history.replaceState(null, '', `${location.pathname}${location.search}`)
   }
 
-  return token ? { token } : {}
+  return handoff
 }

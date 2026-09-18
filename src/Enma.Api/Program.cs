@@ -21,6 +21,7 @@ using Enma.Api.Endpoints.Tasks;
 using Enma.Api.ExceptionHandling;
 using Enma.Api.Notifications;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
+using Enma.Application.Onboarding.RegisterInvitedUser;
 using Enma.Application.Organizations.GetById;
 using Enma.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
@@ -214,6 +215,7 @@ builder.Services.AddRateLimiter(options =>
 });
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddScoped<RegisterOrganizationOwnerHandler>();
+builder.Services.AddScoped<RegisterInvitedUserHandler>();
 builder.Services.AddScoped<GetOrganizationByIdHandler>();
 builder.Services.AddInfrastructure(
     connectionString,
@@ -256,6 +258,7 @@ app.MapPasswordRecoveryEndpoints();
 app.MapCsrfEndpoint();
 app.MapLogoutEndpoint();
 app.MapRegisterOrganizationOwnerEndpoint();
+app.MapRegisterInvitedUserEndpoint();
 app.MapOrganizationEndpoints();
 app.MapCurrentUserOrganizationEndpoints();
 app.MapOrganizationMemberEndpoints();

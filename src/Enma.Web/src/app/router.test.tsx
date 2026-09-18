@@ -16,18 +16,6 @@ function renderRoute(path: string) {
 }
 
 describe('application router', () => {
-  it('Render_HomeRoute_ShowsApplicationShell', async () => {
-    renderRoute('/')
-
-    expect(
-      await screen.findByRole('heading', { name: 'Bem-vindo ao ENMA' }),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Página inicial do ENMA' })).toHaveAttribute(
-      'href',
-      '/',
-    )
-  })
-
   it('Render_UnknownRoute_ShowsNotFoundPage', async () => {
     renderRoute('/missing-page')
 

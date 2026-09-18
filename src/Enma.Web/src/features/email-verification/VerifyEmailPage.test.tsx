@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAppRoutes } from '../../app/router'
+import { InvitationResumeProvider } from '../invitations/InvitationResumeContext'
 import { captureEmailVerificationHandoff } from './emailVerificationHandoff'
 import { createEmailVerificationFlow } from './emailVerificationService'
 
@@ -24,9 +25,14 @@ function renderVerificationPage(fragment = '') {
   })
 
   render(
-    <StrictMode>
-      <RouterProvider router={router} />
-    </StrictMode>,
+    <InvitationResumeProvider
+      token={handoff.invitationToken}
+      onTokenConsumed={() => undefined}
+    >
+      <StrictMode>
+        <RouterProvider router={router} />
+      </StrictMode>
+    </InvitationResumeProvider>,
   )
 }
 
@@ -84,6 +90,44 @@ describe('verify email page', () => {
     expect(
       screen.getByRole('button', { name: 'Reenviar e-mail' }),
     ).toBeInTheDocument()
+  })
+
+  it('Render_InvitedVerification_PreservesContextAndOffersContinuation', async () => {
+    const invitationToken = 'Zbcdefghijklmnopqrstuvwxyz0123456789_-ABCDE'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          input === '/api/auth/email-verification/verify'
+            ? response(204)
+            : new Response(
+                JSON.stringify({
+                  status: 'usable',
+                  organizationName: 'Almeida Advocacia',
+                  role: 'Member',
+                  invitedEmail: 'p***@example.com',
+                }),
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+        ),
+      ),
+    )
+
+    renderVerificationPage(
+      `#token=${validToken}&invitation=${invitationToken}`,
+    )
+
+    expect(
+      await screen.findByRole('link', {
+        name: 'Entrar e continuar convite',
+      }),
+    ).toHaveAttribute('href', '/login')
+    expect(window.location.hash).toBe('')
+    expect(document.body).not.toHaveTextContent(validToken)
+    expect(document.body).not.toHaveTextContent(invitationToken)
   })
 
   it('Resend_Accepted_ShowsGenericConfirmationAndExactPublicContract', async () => {

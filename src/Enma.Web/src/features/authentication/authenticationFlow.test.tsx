@@ -48,6 +48,9 @@ function fillAndSubmitRegistration() {
   fireEvent.change(screen.getByLabelText('Senha'), {
     target: { value: 'Synthetic!Password42' },
   })
+  fireEvent.change(screen.getByLabelText('Confirmar senha'), {
+    target: { value: 'Synthetic!Password42' },
+  })
   fireEvent.submit(
     screen.getByRole('button', { name: 'Criar conta' }).closest('form')!,
   )
@@ -66,6 +69,29 @@ afterEach(() => {
 })
 
 describe('authentication flow', () => {
+  it('Root_Unauthenticated_RedirectsToLogin', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response(401))))
+    const router = renderRoute('/')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Entrar no ENMA' }),
+    ).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/login')
+  })
+
+  it('Root_Authenticated_PreservesOrganizationsEntrypoint', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(response(200, { items: [] }))),
+    )
+    const router = renderRoute('/')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Suas organizações' }),
+    ).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/organizations')
+  })
+
   it('Login_ShowsFocusedEntryActionsWithoutVerificationResend', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(401)))
     renderRoute('/login')
@@ -131,10 +157,12 @@ describe('authentication flow', () => {
     const password = await screen.findByLabelText('Senha')
     expect(password).toHaveAttribute('type', 'password')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mostrar senha' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Mostrar senha' })[0])
 
     expect(password).toHaveAttribute('type', 'text')
-    expect(screen.getByRole('button', { name: 'Ocultar senha' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Ocultar senha' }),
+    ).toHaveAttribute('aria-controls', 'register-password')
   })
 
   it('Registration_DeliverySucceeded_ShowsTruthfulVerificationState', async () => {

@@ -41,6 +41,22 @@ public sealed class EmailVerificationLinkBuilderTests
         Assert.Contains("-_", result.Fragment, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Build_InvitationContinuation_PlacesBothTokensOnlyInFragment()
+    {
+        const string invitationToken =
+            "ZBCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno-_";
+        var builder = CreateBuilder("https://app.example/verify-email");
+
+        Uri result = builder.Build(SyntheticToken, invitationToken);
+
+        Assert.Equal(string.Empty, result.Query);
+        Assert.Equal(
+            $"#token={SyntheticToken}&invitation={invitationToken}",
+            result.Fragment);
+        Assert.DoesNotContain(invitationToken, result.PathAndQuery);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("short")]

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useInvitationResume } from '../invitations/InvitationResumeState'
 import type {
   EmailVerificationFlow,
   EmailVerificationState,
@@ -38,6 +40,7 @@ const stateContent: Record<
 
 export function VerifyEmailPage({ flow }: VerifyEmailPageProps) {
   const [state, setState] = useState(flow.initialState)
+  const { hasPendingInvitation } = useInvitationResume()
 
   useEffect(() => {
     if (!flow.completion) {
@@ -67,6 +70,11 @@ export function VerifyEmailPage({ flow }: VerifyEmailPageProps) {
     <section className="page public-status-card" aria-live="polite">
       <h1>{content.title}</h1>
       <p className="page-copy">{content.message}</p>
+      {state === 'verified' && hasPendingInvitation ? (
+        <Link className="primary-button invitation-recipient-link" to="/login">
+          Entrar e continuar convite
+        </Link>
+      ) : null}
       {canRequestNewLink ? <ResendEmailVerificationForm /> : null}
     </section>
   )

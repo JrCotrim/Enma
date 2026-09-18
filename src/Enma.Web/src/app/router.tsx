@@ -1,4 +1,4 @@
-import { createBrowserRouter, type RouteObject } from 'react-router-dom'
+import { createBrowserRouter, Navigate, type RouteObject } from 'react-router-dom'
 import { AgendaPage } from '../features/agenda/AgendaPage'
 import { AuditLogPage } from '../features/audit-log/AuditLogPage'
 import { AuthProvider } from '../features/authentication/AuthProvider'
@@ -28,7 +28,6 @@ import { ProcessDetailsPage } from '../features/processes/ProcessDetailsPage'
 import { TasksPage } from '../features/tasks/TasksPage'
 import { TaskDetailsPage } from '../features/tasks/TaskDetailsPage'
 import { TeamPage } from '../features/team/TeamPage'
-import { HomePage } from '../pages/HomePage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { App } from './App'
 
@@ -41,10 +40,6 @@ export function createAppRoutes(
       path: '/',
       element: <App />,
       children: [
-        {
-          index: true,
-          element: <HomePage />,
-        },
         {
           path: 'verify-email',
           element: <VerifyEmailPage flow={emailVerificationFlow} />,
@@ -75,6 +70,10 @@ export function createAppRoutes(
             {
               element: <ProtectedRoute />,
               children: [
+                {
+                  index: true,
+                  element: <Navigate replace to="/organizations" />,
+                },
                 {
                   path: 'organizations',
                   element: <OrganizationProvider />,

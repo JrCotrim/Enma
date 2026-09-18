@@ -53,4 +53,17 @@ public sealed class DevelopmentEmailVerificationDelivery
     {
         return delivery.DeliverAsync(email, rawToken, cancellationToken);
     }
+
+    public Task<EmailVerificationDeliveryResult> DeliverAsync(
+        string email,
+        string rawToken,
+        string invitationToken,
+        CancellationToken cancellationToken = default)
+    {
+        return delivery.DeliverAsync(
+            email,
+            rawToken,
+            invitationToken,
+            cancellationToken);
+    }
 }

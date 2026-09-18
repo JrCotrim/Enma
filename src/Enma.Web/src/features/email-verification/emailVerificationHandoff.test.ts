@@ -12,9 +12,9 @@ afterEach(() => {
 
 describe('email verification fragment handoff', () => {
   it('Parse_ExactValidFragment_ReturnsExactToken', () => {
-    expect(parseEmailVerificationFragment(`#token=${validToken}`)).toBe(
-      validToken,
-    )
+    expect(parseEmailVerificationFragment(`#token=${validToken}`)).toEqual({
+      token: validToken,
+    })
   })
 
   it.each([
@@ -27,7 +27,24 @@ describe('email verification fragment handoff', () => {
     '#token=%41',
     `#TOKEN=${validToken}`,
   ])('Parse_InvalidFragment_ReturnsNoToken (%s)', (fragment) => {
-    expect(parseEmailVerificationFragment(fragment)).toBeUndefined()
+    expect(parseEmailVerificationFragment(fragment)).toEqual({})
+  })
+
+  it('Capture_InvitationContinuation_ReturnsBothAndScrubsFragment', () => {
+    const invitationToken = 'Zbcdefghijklmnopqrstuvwxyz0123456789_-ABCDE'
+    window.history.replaceState(
+      null,
+      '',
+      `/verify-email#token=${validToken}&invitation=${invitationToken}`,
+    )
+
+    const handoff = captureEmailVerificationHandoff(
+      window.location,
+      window.history,
+    )
+
+    expect(handoff).toEqual({ token: validToken, invitationToken })
+    expect(window.location.hash).toBe('')
   })
 
   it('Capture_VerificationFragment_PreservesPathAndSearchAndRemovesHash', () => {

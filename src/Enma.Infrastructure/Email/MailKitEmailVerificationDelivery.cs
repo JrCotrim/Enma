@@ -49,7 +49,35 @@ public sealed class MailKitEmailVerificationDelivery
         string rawToken,
         CancellationToken cancellationToken = default)
     {
-        MimeMessage message = CreateMessage(email, linkBuilder.Build(rawToken));
+        return await DeliverAsyncCore(
+            email,
+            rawToken,
+            invitationToken: null,
+            cancellationToken);
+    }
+
+    public async Task<EmailVerificationDeliveryResult> DeliverAsync(
+        string email,
+        string rawToken,
+        string invitationToken,
+        CancellationToken cancellationToken = default)
+    {
+        return await DeliverAsyncCore(
+            email,
+            rawToken,
+            invitationToken,
+            cancellationToken);
+    }
+
+    private async Task<EmailVerificationDeliveryResult> DeliverAsyncCore(
+        string email,
+        string rawToken,
+        string? invitationToken,
+        CancellationToken cancellationToken)
+    {
+        MimeMessage message = CreateMessage(
+            email,
+            linkBuilder.Build(rawToken, invitationToken));
 
         using var smtpClient = new SmtpClient();
 

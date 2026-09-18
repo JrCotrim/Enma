@@ -47,6 +47,7 @@ using Enma.Application.Notifications;
 using Enma.Application.Notifications.Dismiss;
 using Enma.Application.Notifications.DismissAll;
 using Enma.Application.Notifications.List;
+using Enma.Application.Onboarding.RegisterInvitedUser;
 using Enma.Application.Notifications.MarkAllRead;
 using Enma.Application.Notifications.MarkRead;
 using Enma.Application.Organizations;
@@ -388,6 +389,9 @@ public static class DependencyInjection
         services.AddScoped<
             IOrganizationInvitationMutationPersistence,
             OrganizationInvitationMutationPersistence>();
+        services.AddScoped<
+            IInvitedUserRegistrationPersistence,
+            InvitedUserRegistrationPersistence>();
         services.AddScoped<
             IOrganizationInvitationReadQueries,
             OrganizationInvitationReadQueries>();

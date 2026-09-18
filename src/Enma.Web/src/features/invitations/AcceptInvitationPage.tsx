@@ -90,7 +90,7 @@ export function AcceptInvitationPage() {
         : state.kind === 'organization-refresh'
           ? 'O convite foi aceito, mas não foi possível abrir a organização. Acesse suas organizações para continuar.'
           : state.kind === 'rejected'
-            ? 'Não foi possível aceitar este convite. Solicite um novo link à organização.'
+            ? 'Não foi possível aceitar este convite. Confirme que entrou com o e-mail convidado ou solicite um novo link à organização.'
             : 'Não foi possível continuar agora. Verifique sua conexão e tente novamente.'
 
     return (

@@ -7,6 +7,10 @@ import {
   type ReactNode,
 } from 'react'
 import type { UnauthorizedHandler } from '../authentication/sessionClient'
+import {
+  registerInvitedUser,
+  type InvitedRegistrationInput,
+} from '../onboarding/onboardingService'
 import { getCurrentUserOrganizations } from '../organizations/organizationService'
 import type { OrganizationNavigationItem } from '../organizations/organizationTypes'
 import {
@@ -194,6 +198,14 @@ export function InvitationResumeProvider({
     setPreviewVersion((version) => version + 1)
   }, [])
 
+  const registerInvitee = useCallback(
+    (input: InvitedRegistrationInput, signal?: AbortSignal) =>
+      token && state.status === 'usable'
+        ? registerInvitedUser(token, input, signal)
+        : Promise.resolve<'invalidInvitation'>('invalidInvitation'),
+    [state.status, token],
+  )
+
   const value = useMemo(
     () => ({
       state,
@@ -202,9 +214,10 @@ export function InvitationResumeProvider({
         state.status !== 'expired' &&
         state.status !== 'invalid',
       accept,
+      registerInvitee,
       retry,
     }),
-    [accept, retry, state, token],
+    [accept, registerInvitee, retry, state, token],
   )
 
   return (

@@ -1,27 +1,29 @@
 import { StrictMode, useCallback, useState } from 'react'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAppRoutes } from '../../app/router'
 import { clearCsrfToken } from '../authentication/csrfClient'
+import { captureEmailVerificationHandoff } from '../email-verification/emailVerificationHandoff'
 import { createEmailVerificationFlow } from '../email-verification/emailVerificationService'
 import { InvitationResumeProvider } from './InvitationResumeContext'
 import { captureInvitationRecipientHandoff } from './invitationRecipientHandoff'
 
 const validToken = 'Abcdefghijklmnopqrstuvwxyz0123456789_-ABCDE'
+const verificationToken = 'Zbcdefghijklmnopqrstuvwxyz0123456789_-ABCDE'
 const invitedOrganization = {
   id: '8d2d115d-2b50-49a4-afdf-43cc4a32b127',
   membershipId: '506d5664-cc19-4779-b9a9-c683196f1401',
   name: 'Almeida Advocacia',
   role: 'Member',
 }
-const ownerOrganization = {
-  id: '2d09b885-3ae1-4dca-80bf-d1d114ea4aaf',
-  membershipId: '18fb5903-dd38-49b3-8315-7ba2c1144158',
-  name: 'Espaço inicial',
-  role: 'Owner',
-}
-
 function response(status: number, body?: unknown): Response {
   return new Response(body === undefined ? null : JSON.stringify(body), {
     status,
@@ -63,6 +65,35 @@ function renderInvitation(fragment = `#token=${validToken}`) {
   }
 
   render(<TestRoot />)
+
+  return router
+}
+
+function renderVerificationContinuation(fragment: string) {
+  window.history.replaceState(null, '', `/verify-email${fragment}`)
+  const handoff = captureEmailVerificationHandoff(
+    window.location,
+    window.history,
+  )
+  const router = createMemoryRouter(
+    createAppRoutes(createEmailVerificationFlow(handoff.token)),
+    { initialEntries: ['/verify-email'] },
+  )
+
+  function FreshTabRoot() {
+    const [token, setToken] = useState(handoff.invitationToken)
+    const clearToken = useCallback(() => setToken(undefined), [])
+
+    return (
+      <InvitationResumeProvider token={token} onTokenConsumed={clearToken}>
+        <StrictMode>
+          <RouterProvider router={router} />
+        </StrictMode>
+      </InvitationResumeProvider>
+    )
+  }
+
+  render(<FreshTabRoot />)
 
   return router
 }
@@ -257,7 +288,7 @@ describe('invitation recipient flow', () => {
     expect(screen.getByRole('link', { name: 'Criar conta' })).toBeInTheDocument()
   })
 
-  it('Registration_PreservesInviteThroughVerificationAndLoginResume', async () => {
+  it('Registration_FreshVerificationTabResumesInviteAfterLogin', async () => {
     let loggedIn = false
     let accepted = false
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -265,7 +296,12 @@ describe('invitation recipient flow', () => {
       if (url === '/api/invitations/preview') {
         return Promise.resolve(response(200, usablePreview()))
       }
-      if (url === '/api/onboarding/register') return Promise.resolve(response(201, {}))
+      if (url === '/api/onboarding/register-invited') {
+        return Promise.resolve(response(201, { verificationEmailSent: true }))
+      }
+      if (url === '/api/auth/email-verification/verify') {
+        return Promise.resolve(response(204))
+      }
       if (url === '/api/auth/login') {
         loggedIn = true
         return Promise.resolve(response(204))
@@ -282,25 +318,27 @@ describe('invitation recipient flow', () => {
         return Promise.resolve(
           response(200, {
             items: accepted
-              ? [ownerOrganization, invitedOrganization]
-              : [ownerOrganization],
+              ? [invitedOrganization]
+              : [],
           }),
         )
       }
       return Promise.resolve(response(500))
     })
     vi.stubGlobal('fetch', fetchMock)
-    const router = renderInvitation()
+    renderInvitation()
 
     fireEvent.click(await screen.findByRole('link', { name: 'Criar conta' }))
     expect(await screen.findByRole('heading', { name: 'Criar conta' })).toBeInTheDocument()
-
-    fireEvent.change(screen.getByLabelText('Nome da organização'), {
-      target: { value: ownerOrganization.name },
-    })
-    fireEvent.change(screen.getByLabelText('Nome curto da organização'), {
-      target: { value: 'espaco-inicial' },
-    })
+    expect(screen.queryByLabelText('Nome da organização')).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText('Nome curto da organização'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        `Você foi convidado para entrar em ${invitedOrganization.name}.`,
+      ),
+    ).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Seu nome'), {
       target: { value: 'Pessoa Convidada' },
     })
@@ -310,15 +348,29 @@ describe('invitation recipient flow', () => {
     fireEvent.change(screen.getByLabelText('Senha'), {
       target: { value: 'Synthetic!Password42' },
     })
+    fireEvent.change(screen.getByLabelText('Confirmar senha'), {
+      target: { value: 'Synthetic!Password42' },
+    })
     fireEvent.submit(
-      screen.getByRole('button', { name: 'Criar conta' }).closest('form')!,
+      screen
+        .getByRole('button', { name: 'Criar conta e continuar' })
+        .closest('form')!,
     )
 
     expect(
       await screen.findByRole('heading', { name: 'Verifique seu e-mail' }),
     ).toBeInTheDocument()
     expect(document.body).not.toHaveTextContent(validToken)
-    fireEvent.click(screen.getByRole('link', { name: 'Já verifiquei, entrar' }))
+
+    cleanup()
+    const router = renderVerificationContinuation(
+      `#token=${verificationToken}&invitation=${validToken}`,
+    )
+    fireEvent.click(
+      await screen.findByRole('link', {
+        name: 'Entrar e continuar convite',
+      }),
+    )
 
     await screen.findByRole('heading', { name: 'Entrar no ENMA' })
     fireEvent.change(screen.getByLabelText('E-mail'), {
@@ -334,20 +386,86 @@ describe('invitation recipient flow', () => {
         `/organizations/${invitedOrganization.id}`,
       )
     })
-    expect(fetchMock).toHaveBeenCalledWith('/api/onboarding/register', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/onboarding/register-invited', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        organizationName: ownerOrganization.name,
-        organizationSlug: 'espaco-inicial',
-        ownerName: 'Pessoa Convidada',
-        ownerEmail: 'person@example.com',
+        invitationToken: validToken,
+        name: 'Pessoa Convidada',
+        email: 'person@example.com',
         password: 'Synthetic!Password42',
       }),
       credentials: 'same-origin',
       cache: 'no-store',
       signal: expect.any(AbortSignal),
     })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/email-verification/verify',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: verificationToken }),
+        cache: 'no-store',
+      },
+    )
+    expect(window.location.hash).toBe('')
+    expect(document.body).not.toHaveTextContent(validToken)
+    expect(document.body).not.toHaveTextContent(verificationToken)
+  })
+
+  it('Registration_WrongRecipientShowsSpecificCopyAndKeepsInviteUsable', async () => {
+    let registrationAttempt = 0
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = requestUrl(input)
+      if (url === '/api/invitations/preview') {
+        return Promise.resolve(response(200, usablePreview()))
+      }
+      if (url === '/api/me/organizations') return Promise.resolve(response(401))
+      if (url === '/api/onboarding/register-invited') {
+        registrationAttempt += 1
+        return Promise.resolve(
+          registrationAttempt === 1
+            ? response(400, {
+                code: 'invited_registration_wrong_recipient',
+              })
+            : response(201, { verificationEmailSent: true }),
+        )
+      }
+      return Promise.resolve(response(500))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderInvitation()
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Criar conta' }))
+    fireEvent.change(screen.getByLabelText('Seu nome'), {
+      target: { value: 'Pessoa Convidada' },
+    })
+    fireEvent.change(screen.getByLabelText('E-mail'), {
+      target: { value: 'wrong@example.com' },
+    })
+    fireEvent.change(screen.getByLabelText('Senha'), {
+      target: { value: 'Synthetic!Password42' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirmar senha'), {
+      target: { value: 'Synthetic!Password42' },
+    })
+    const form = screen
+      .getByRole('button', { name: 'Criar conta e continuar' })
+      .closest('form')!
+    fireEvent.submit(form)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Use o e-mail que recebeu este convite para continuar.',
+    )
+    fireEvent.change(screen.getByLabelText('E-mail'), {
+      target: { value: 'person@example.com' },
+    })
+    fireEvent.submit(form)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Verifique seu e-mail' }),
+    ).toBeInTheDocument()
+    expect(registrationAttempt).toBe(2)
   })
 
   it('ReloadWithoutFragment_FailsClosedAndDoesNotCallRecipientApis', () => {

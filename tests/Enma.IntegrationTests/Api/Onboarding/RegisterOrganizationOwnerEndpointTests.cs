@@ -8,6 +8,7 @@ using Enma.Domain.Authentication;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
+using Enma.Infrastructure.Security;
 using Enma.IntegrationTests.Api;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
@@ -28,6 +29,7 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
     private const string SafeDuplicateEmailMessage =
         "A user with the provided email already exists.";
     private const string RequestPath = "/api/onboarding/register";
+    private const string InvitedRequestPath = "/api/onboarding/register-invited";
     private const string ResendPath = "/api/auth/email-verification/resend";
     private const string VerifyPath = "/api/auth/email-verification/verify";
     private const string LoginPath = "/api/auth/login";
@@ -90,6 +92,225 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         client.Dispose();
         await testFactory.DisposeAsync();
         await factory.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task InvitedPost_ValidInvite_CreatesOnlyUnverifiedIdentity()
+    {
+        (Organization organization, string token) = await SeedInvitationAsync(
+            "invitee@example.test",
+            OrganizationRole.Member);
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            InvitedRequestPath,
+            new RegisterInvitedUserRequest
+            {
+                InvitationToken = token,
+                Name = "  Invited User  ",
+                Email = "  INVITEE@example.test ",
+                Password = SyntheticPassword
+            });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        RegisterInvitedUserResponse? registration = await response.Content
+            .ReadFromJsonAsync<RegisterInvitedUserResponse>();
+        Assert.NotNull(registration);
+        Assert.True(registration.VerificationEmailSent);
+        Assert.Equal("/login", response.Headers.Location?.OriginalString);
+        Assert.Equal("invitee@example.test", emailVerificationDelivery.Email);
+        Assert.Equal(token, emailVerificationDelivery.InvitationToken);
+        Assert.DoesNotContain(
+            token,
+            await response.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(1, await dbContext.Organizations.CountAsync());
+        Assert.Equal(organization.Id, await dbContext.Organizations
+            .Select(candidate => candidate.Id)
+            .SingleAsync());
+        Assert.Equal(1, await dbContext.OrganizationMemberships.CountAsync());
+        User invitee = await dbContext.Users.SingleAsync(
+            user => user.Email == "invitee@example.test");
+        Assert.Null(invitee.EmailVerifiedAt);
+        Assert.False(await dbContext.OrganizationMemberships.AnyAsync(
+            membership => membership.UserId == invitee.Id));
+        Assert.True(await dbContext.UserCredentials.AnyAsync(
+            credential => credential.UserId == invitee.Id));
+        Assert.True(await dbContext.EmailVerificationChallenges.AnyAsync(
+            challenge => challenge.UserId == invitee.Id));
+    }
+
+    [Fact]
+    public async Task InvitedPost_WrongEmail_ReturnsSpecificFailureAndSameTokenRemainsUsable()
+    {
+        (_, string token) = await SeedInvitationAsync(
+            "intended@example.test",
+            OrganizationRole.Administrator);
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            InvitedRequestPath,
+            new RegisterInvitedUserRequest
+            {
+                InvitationToken = token,
+                Name = "Wrong User",
+                Email = "wrong@example.test",
+                Password = SyntheticPassword
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        string body = await response.Content.ReadAsStringAsync();
+        using JsonDocument problem = JsonDocument.Parse(body);
+        Assert.Equal(
+            "invited_registration_wrong_recipient",
+            problem.RootElement.GetProperty("code").GetString());
+        Assert.DoesNotContain("intended@example.test", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("wrong@example.test", body, StringComparison.Ordinal);
+        Assert.DoesNotContain(token, body, StringComparison.Ordinal);
+        Assert.Equal(0, emailVerificationDelivery.CallCount);
+
+        using HttpResponseMessage retry = await client.PostAsJsonAsync(
+            InvitedRequestPath,
+            new RegisterInvitedUserRequest
+            {
+                InvitationToken = token,
+                Name = "Intended User",
+                Email = "intended@example.test",
+                Password = SyntheticPassword
+            });
+
+        Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
+        Assert.Equal(1, emailVerificationDelivery.CallCount);
+        Assert.Equal("intended@example.test", emailVerificationDelivery.Email);
+        Assert.Equal(token, emailVerificationDelivery.InvitationToken);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(1, await dbContext.Organizations.CountAsync());
+        Assert.Equal(2, await dbContext.Users.CountAsync());
+        Assert.Equal(1, await dbContext.OrganizationMemberships.CountAsync());
+        OrganizationInvitation invitation = await dbContext
+            .OrganizationInvitations.SingleAsync();
+        Assert.Equal(
+            OrganizationInvitationState.Pending,
+            invitation.GetState(SeedCreatedAt));
+        Assert.NotNull(invitation.TokenHash);
+    }
+
+    [Fact]
+    public async Task InvitedPost_ExistingUser_ReturnsConflictWithoutDuplicate()
+    {
+        (_, string token) = await SeedInvitationAsync(
+            "existing@example.test",
+            OrganizationRole.Member);
+        await SeedAsync(new User(
+            "Existing User",
+            "existing@example.test",
+            SeedCreatedAt));
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            InvitedRequestPath,
+            new RegisterInvitedUserRequest
+            {
+                InvitationToken = token,
+                Name = "Existing User",
+                Email = "existing@example.test",
+                Password = SyntheticPassword
+            });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(0, emailVerificationDelivery.CallCount);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(1, await dbContext.Users.CountAsync(
+            user => user.Email == "existing@example.test"));
+        Assert.Equal(1, await dbContext.OrganizationMemberships.CountAsync());
+    }
+
+    [Fact]
+    public async Task InvitedPost_MalformedOrExpiredToken_ReturnSameSafeFailure()
+    {
+        (_, string expiredToken) = await SeedInvitationAsync(
+            "expired@example.test",
+            OrganizationRole.Member,
+            SeedCreatedAt.AddMinutes(30));
+        timeProvider.SetUtcNow(SeedCreatedAt.AddHours(1));
+        RegisterInvitedUserRequest CreateRequest(string token) => new()
+        {
+            InvitationToken = token,
+            Name = "Invited User",
+            Email = "expired@example.test",
+            Password = SyntheticPassword
+        };
+
+        HttpResponseMessage malformed = await client.PostAsJsonAsync(
+            InvitedRequestPath,
+            CreateRequest("invalid"));
+        HttpResponseMessage expired = await client.PostAsJsonAsync(
+            InvitedRequestPath,
+            CreateRequest(expiredToken));
+
+        Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, expired.StatusCode);
+        Assert.Equal(
+            (await malformed.Content.ReadFromJsonAsync<ProblemDetails>())?.Title,
+            (await expired.Content.ReadFromJsonAsync<ProblemDetails>())?.Title);
+        Assert.Equal(0, emailVerificationDelivery.CallCount);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(1, await dbContext.Users.CountAsync());
+        Assert.Equal(1, await dbContext.OrganizationMemberships.CountAsync());
+    }
+
+    [Fact]
+    public async Task InvitedPost_RevokedOrAcceptedToken_CannotCreateAccount()
+    {
+        (_, string revokedToken) = await SeedInvitationAsync(
+            "revoked@example.test",
+            OrganizationRole.Member);
+        (_, string acceptedToken) = await SeedInvitationAsync(
+            "accepted@example.test",
+            OrganizationRole.Administrator);
+        var acceptedUser = new User(
+            "Accepted User",
+            "accepted@example.test",
+            SeedCreatedAt);
+        acceptedUser.VerifyEmail(SeedCreatedAt);
+        await SeedAsync(acceptedUser);
+
+        await using (EnmaDbContext mutationContext = fixture.CreateDbContext())
+        {
+            OrganizationInvitation revoked = await mutationContext
+                .OrganizationInvitations.SingleAsync(invitation =>
+                    invitation.InvitedEmail == "revoked@example.test");
+            OrganizationInvitation accepted = await mutationContext
+                .OrganizationInvitations.SingleAsync(invitation =>
+                    invitation.InvitedEmail == "accepted@example.test");
+            revoked.Revoke(SeedCreatedAt.AddMinutes(1));
+            accepted.Accept(acceptedUser.Id, SeedCreatedAt.AddMinutes(1));
+            await mutationContext.SaveChangesAsync();
+        }
+
+        RegisterInvitedUserRequest CreateRequest(string token, string email) =>
+            new()
+            {
+                InvitationToken = token,
+                Name = "Invited User",
+                Email = email,
+                Password = SyntheticPassword
+            };
+
+        HttpResponseMessage revokedResponse = await client.PostAsJsonAsync(
+            InvitedRequestPath,
+            CreateRequest(revokedToken, "revoked@example.test"));
+        HttpResponseMessage acceptedResponse = await client.PostAsJsonAsync(
+            InvitedRequestPath,
+            CreateRequest(acceptedToken, "accepted@example.test"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, revokedResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, acceptedResponse.StatusCode);
+        Assert.Equal(0, emailVerificationDelivery.CallCount);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.False(await dbContext.UserCredentials.AnyAsync(credential =>
+            credential.UserId == acceptedUser.Id));
+        Assert.False(await dbContext.Users.AnyAsync(user =>
+            user.Email == "revoked@example.test"));
     }
 
     [Fact]
@@ -669,10 +890,45 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(0, await dbContext.EmailVerificationChallenges.CountAsync());
     }
 
-    private async Task SeedAsync(object entity)
+    private async Task<(Organization Organization, string RawToken)>
+        SeedInvitationAsync(
+            string email,
+            OrganizationRole role,
+            DateTimeOffset? expiresAt = null)
+    {
+        string suffix = Guid.NewGuid().ToString("N");
+        var organization = new Organization(
+            "Inviting Organization",
+            $"inviting-{suffix}",
+            SeedCreatedAt);
+        var owner = new User(
+            "Inviting Owner",
+            $"owner-{suffix}@example.test",
+            SeedCreatedAt);
+        var membership = new OrganizationMembership(
+            organization.Id,
+            owner.Id,
+            OrganizationRole.Owner,
+            SeedCreatedAt);
+        var tokenService = new CryptographicOrganizationInvitationTokenService();
+        string rawToken = tokenService.GenerateToken(out var tokenHash);
+        var invitation = new OrganizationInvitation(
+            organization.Id,
+            email,
+            role,
+            membership.Id,
+            tokenHash,
+            SeedCreatedAt,
+            SeedCreatedAt,
+            expiresAt ?? SeedCreatedAt.AddDays(1));
+        await SeedAsync(organization, owner, membership, invitation);
+        return (organization, rawToken);
+    }
+
+    private async Task SeedAsync(params object[] entities)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
-        dbContext.Add(entity);
+        dbContext.AddRange(entities);
         await dbContext.SaveChangesAsync();
     }
 
@@ -723,6 +979,8 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
 
         public string? RawToken { get; private set; }
 
+        public string? InvitationToken { get; private set; }
+
         public Task<EmailVerificationDeliveryResult> DeliverAsync(
             string email,
             string rawToken,
@@ -734,11 +992,22 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             return Task.FromResult(Result);
         }
 
+        public Task<EmailVerificationDeliveryResult> DeliverAsync(
+            string email,
+            string rawToken,
+            string invitationToken,
+            CancellationToken cancellationToken = default)
+        {
+            InvitationToken = invitationToken;
+            return DeliverAsync(email, rawToken, cancellationToken);
+        }
+
         public void Reset()
         {
             CallCount = 0;
             Email = null;
             RawToken = null;
+            InvitationToken = null;
             Result = EmailVerificationDeliveryResult.Delivered;
         }
     }
