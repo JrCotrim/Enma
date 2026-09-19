@@ -40,24 +40,24 @@ public sealed class DefaultPasswordPolicyTests
     }
 
     [Fact]
-    public void Validate_WithFourteenCharacters_ThrowsArgumentException()
+    public void Validate_WithSevenCharacters_ThrowsArgumentException()
     {
         var policy = new DefaultPasswordPolicy();
 
         var exception = Assert.Throws<ArgumentException>(
-            () => policy.Validate(new string('x', 14)));
+            () => policy.Validate("Abcdef1"));
 
         Assert.Equal("password", exception.ParamName);
         Assert.Contains(PasswordPolicyErrors.PasswordTooShort, exception.Message);
     }
 
     [Fact]
-    public void Validate_WithFifteenCharacters_Succeeds()
+    public void Validate_WithEightCharactersAndRequiredComposition_Succeeds()
     {
         var policy = new DefaultPasswordPolicy();
 
         Exception? exception = Record.Exception(
-            () => policy.Validate(new string('x', 15)));
+            () => policy.Validate("Abcdefg1"));
 
         Assert.Null(exception);
     }
@@ -68,7 +68,7 @@ public sealed class DefaultPasswordPolicyTests
         var policy = new DefaultPasswordPolicy();
 
         Exception? exception = Record.Exception(
-            () => policy.Validate(new string('x', 128)));
+            () => policy.Validate($"Aa1{new string('x', 125)}"));
 
         Assert.Null(exception);
     }
@@ -79,52 +79,55 @@ public sealed class DefaultPasswordPolicyTests
         var policy = new DefaultPasswordPolicy();
 
         var exception = Assert.Throws<ArgumentException>(
-            () => policy.Validate(new string('x', 129)));
+            () => policy.Validate($"Aa1{new string('x', 126)}"));
 
         Assert.Equal("password", exception.ParamName);
         Assert.Contains(PasswordPolicyErrors.PasswordTooLong, exception.Message);
     }
 
     [Fact]
-    public void Validate_WithOnlyLowercaseCharactersAtValidLength_Succeeds()
+    public void Validate_WithoutUppercaseLetter_ThrowsArgumentException()
     {
         var policy = new DefaultPasswordPolicy();
 
-        Exception? exception = Record.Exception(
-            () => policy.Validate("abcdefghijklmno"));
+        var exception = Assert.Throws<ArgumentException>(
+            () => policy.Validate("abcdefg1"));
 
-        Assert.Null(exception);
+        Assert.Equal("password", exception.ParamName);
+        Assert.Contains(PasswordPolicyErrors.PasswordMissingUppercase, exception.Message);
     }
 
     [Fact]
-    public void Validate_WithOnlyUppercaseCharactersAtValidLength_Succeeds()
+    public void Validate_WithoutLowercaseLetter_ThrowsArgumentException()
     {
         var policy = new DefaultPasswordPolicy();
 
-        Exception? exception = Record.Exception(
-            () => policy.Validate("ABCDEFGHIJKLMNO"));
+        var exception = Assert.Throws<ArgumentException>(
+            () => policy.Validate("ABCDEFG1"));
 
-        Assert.Null(exception);
+        Assert.Equal("password", exception.ParamName);
+        Assert.Contains(PasswordPolicyErrors.PasswordMissingLowercase, exception.Message);
     }
 
     [Fact]
-    public void Validate_WithOnlyNumericCharactersAtValidLength_Succeeds()
+    public void Validate_WithoutNumber_ThrowsArgumentException()
     {
         var policy = new DefaultPasswordPolicy();
 
-        Exception? exception = Record.Exception(
-            () => policy.Validate("123456789012345"));
+        var exception = Assert.Throws<ArgumentException>(
+            () => policy.Validate("Abcdefgh"));
 
-        Assert.Null(exception);
+        Assert.Equal("password", exception.ParamName);
+        Assert.Contains(PasswordPolicyErrors.PasswordMissingNumber, exception.Message);
     }
 
     [Fact]
-    public void Validate_WithOnlyNonWhitespaceSymbolsAtValidLength_Succeeds()
+    public void Validate_WithoutSymbol_Succeeds()
     {
         var policy = new DefaultPasswordPolicy();
 
         Exception? exception = Record.Exception(
-            () => policy.Validate("!@#$%^&*()[]{}?"));
+            () => policy.Validate("Abcdefg1"));
 
         Assert.Null(exception);
     }
@@ -135,7 +138,7 @@ public sealed class DefaultPasswordPolicyTests
         var policy = new DefaultPasswordPolicy();
 
         Exception? exception = Record.Exception(
-            () => policy.Validate(" synthetic!042 "));
+            () => policy.Validate(" Synthetic042 "));
 
         Assert.Null(exception);
     }

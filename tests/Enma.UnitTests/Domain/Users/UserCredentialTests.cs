@@ -28,6 +28,16 @@ public sealed class UserCredentialTests
     }
 
     [Fact]
+    public void Constructor_WithoutPassword_CreatesVersionedExternalCredential()
+    {
+        var credential = new UserCredential(UserId, passwordHash: null, CreatedAt);
+
+        Assert.Null(credential.PasswordHash);
+        Assert.Equal(1, credential.CredentialVersion);
+        Assert.Equal(CreatedAt, credential.PasswordChangedAt);
+    }
+
+    [Fact]
     public void Constructor_WithValidData_StoresCreatedAt()
     {
         UserCredential credential = CreateCredential();
@@ -185,7 +195,7 @@ public sealed class UserCredentialTests
     {
         UserCredential credential = CreateCredential();
         credential.ChangePasswordHash(ChangedHash, ChangedAt);
-        string storedPasswordHash = credential.PasswordHash;
+        string storedPasswordHash = credential.PasswordHash!;
         DateTimeOffset storedPasswordChangedAt = credential.PasswordChangedAt;
         long storedCredentialVersion = credential.CredentialVersion;
         DateTimeOffset earlierChangedAt = CreatedAt.AddHours(1);
@@ -266,7 +276,7 @@ public sealed class UserCredentialTests
     public void UpgradePasswordHash_WithInvalidHash_ThrowsAndPreservesState()
     {
         UserCredential credential = CreateCredential();
-        string originalPasswordHash = credential.PasswordHash;
+        string originalPasswordHash = credential.PasswordHash!;
         DateTimeOffset originalPasswordChangedAt = credential.PasswordChangedAt;
         long originalCredentialVersion = credential.CredentialVersion;
 

@@ -14,6 +14,7 @@ export interface AuthContextValue {
     email: string,
     password: string,
     signal?: AbortSignal,
+    completeGoogleLink?: boolean,
   ): Promise<LoginResult>
   logout(): Promise<void>
   retrySessionCheck(): void

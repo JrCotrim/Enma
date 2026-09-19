@@ -106,6 +106,82 @@
   margin-top: 2.25rem;
 }
 
+.app-shell:not(:has(.organization-workspace)) .google-auth-choice {
+  margin-top: 2rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .google-auth-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 3.15rem;
+  padding: 0.75rem 2.75rem;
+  border: 1px solid #747775;
+  border-radius: 0.72rem;
+  color: #1f1f1f;
+  background: #fff;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.25rem;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.app-shell:not(:has(.organization-workspace)) .google-auth-icon {
+  position: absolute;
+  left: 0.75rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  pointer-events: none;
+}
+
+.app-shell:not(:has(.organization-workspace)) .google-auth-button:hover:not(:disabled) {
+  border-color: #5f6368;
+  background: #f8f9fa;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.16);
+}
+
+.app-shell:not(:has(.organization-workspace)) .google-auth-button:active:not(:disabled) {
+  background: #f1f3f4;
+  box-shadow: none;
+  transform: scale(0.99);
+}
+
+.app-shell:not(:has(.organization-workspace)) .google-auth-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+  transform: none;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-separator {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.85rem;
+  margin-top: 1.35rem;
+  color: var(--enma-public-muted);
+  font-size: 0.82rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-separator::before,
+.app-shell:not(:has(.organization-workspace)) .auth-separator::after {
+  height: 1px;
+  background: var(--enma-public-border);
+  content: '';
+}
+
+.app-shell:not(:has(.organization-workspace)) .google-auth-notice {
+  margin: 1.25rem 0 0;
+  line-height: 1.55;
+}
+
 .app-shell:not(:has(.organization-workspace)) .login-forgot-link {
   min-height: 2.75rem;
   margin-top: -0.55rem;
@@ -309,6 +385,14 @@
   background: #261c2c;
 }
 
+.app-shell:not(:has(.organization-workspace)) .auth-form input[aria-invalid='true'] {
+  border-color: var(--enma-public-danger);
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form input[aria-invalid='true']:focus-visible {
+  outline-color: var(--enma-public-danger);
+}
+
 .app-shell:not(:has(.organization-workspace)) .password-input {
   position: relative;
   margin-bottom: 0.55rem;
@@ -377,10 +461,19 @@
   .public-text-link,
   .auth-switch a,
   .login-forgot-link,
-  .organization-link
+  .organization-link,
+  .google-auth-button
 ):focus-visible {
   outline: 3px solid #c77fe9;
   outline-offset: 3px;
+}
+
+.app-shell:not(:has(.organization-workspace)) .initial-organization-onboarding {
+  max-width: 32rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .initial-organization-onboarding > p {
+  color: var(--enma-public-muted);
 }
 
 .app-shell:not(:has(.organization-workspace)) :where(.primary-button, .secondary-button) {
@@ -465,6 +558,100 @@
   color: var(--enma-public-muted);
   font-size: 0.82rem;
   line-height: 1.5;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-field-error {
+  margin: -0.55rem 0 0;
+  font-size: 0.82rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-requirements {
+  margin: 0.35rem 0 0.85rem;
+  color: var(--enma-public-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-strength-meter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.3rem;
+  margin-bottom: 0.35rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-strength-segment {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: rgba(238, 215, 250, 0.14);
+  transition:
+    background-color 180ms ease,
+    transform 180ms ease;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-strength-segment.is-met {
+  background: #a96ddd;
+  transform: scaleY(1.2);
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-requirements-title,
+.app-shell:not(:has(.organization-workspace)) .password-requirements-summary,
+.app-shell:not(:has(.organization-workspace)) .password-requirements-note {
+  margin: 0;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-requirements-summary {
+  min-height: 1.15em;
+  color: #d5c5dd;
+  font-weight: 650;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-requirements-title {
+  margin-top: 0.55rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-requirements ul {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.35rem 0 0.45rem;
+  padding: 0;
+  list-style: none;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-requirements li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form input.password-requirement-checkbox {
+  flex: 0 0 auto;
+  width: 0.9rem;
+  height: 0.9rem;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  border: 1px solid rgba(238, 215, 250, 0.36);
+  border-radius: 0.22rem;
+  background-color: rgba(238, 215, 250, 0.04);
+  cursor: default;
+  opacity: 1;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease;
+}
+
+.app-shell:not(:has(.organization-workspace)) .auth-form input.password-requirement-checkbox:checked {
+  border-color: #8fd6b1;
+  background-color: #8fd6b1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%231d1025' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m2.25 6.15 2.2 2.2 5.3-5.3'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 0.68rem;
+}
+
+.app-shell:not(:has(.organization-workspace)) .password-requirements .is-met {
+  color: #c5ead6;
 }
 
 .app-shell:not(:has(.organization-workspace)) .form-error {
@@ -593,7 +780,10 @@
   .app-shell:not(:has(.organization-workspace)) :where(
     .primary-button,
     .secondary-button,
-    .organization-link
+    .organization-link,
+    .google-auth-button,
+    .password-strength-segment,
+    .password-requirement-checkbox
   ) {
     transition: none;
   }

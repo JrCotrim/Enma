@@ -4,7 +4,11 @@ import {
   type UnauthorizedHandler,
 } from './sessionClient'
 
-export type LoginResult = 'authenticated' | 'invalidCredentials' | 'failure'
+export type LoginResult =
+  | 'authenticated'
+  | 'invalidCredentials'
+  | 'googleLinkFailure'
+  | 'failure'
 
 export async function checkSession(
   signal: AbortSignal,
@@ -35,6 +39,7 @@ export async function login(
   email: string,
   password: string,
   signal?: AbortSignal,
+  completeGoogleLink = false,
 ): Promise<LoginResult> {
   try {
     const response = await fetch('/api/auth/login', {
@@ -42,7 +47,7 @@ export async function login(
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, completeGoogleLink }),
       credentials: 'same-origin',
       cache: 'no-store',
       signal,
@@ -55,6 +60,10 @@ export async function login(
 
     if (response.status === 401) {
       return 'invalidCredentials'
+    }
+
+    if (response.status === 409 && completeGoogleLink) {
+      return 'googleLinkFailure'
     }
 
     return 'failure'

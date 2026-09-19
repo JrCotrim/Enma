@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { PasswordInput } from '../../components/PasswordInput'
+import { PasswordRequirements } from '../../components/PasswordRequirements'
+import {
+  getPasswordPolicyError,
+  maximumPasswordLength,
+  minimumPasswordLength,
+} from '../../components/passwordPolicy'
 import { useAuth } from '../authentication/AuthContext'
+import { GoogleAuthenticationButton } from '../authentication/GoogleAuthenticationButton'
 import { SessionError, SessionLoading } from '../authentication/SessionStatus'
 import { ResendEmailVerificationForm } from '../email-verification/ResendEmailVerificationForm'
 import { useInvitationResume } from '../invitations/InvitationResumeState'
@@ -9,11 +16,14 @@ import {
   registerOrganizationOwner,
   type RegistrationResult,
 } from './onboardingService'
+import { GoogleProfileCompletionForm } from './GoogleProfileCompletionForm'
 
 const registrationMessages: Record<
   Exclude<
     RegistrationResult,
-    'registeredEmailSent' | 'registeredEmailDeliveryFailed'
+    | 'registeredEmailSent'
+    | 'registeredEmailDeliveryFailed'
+    | 'compromisedPassword'
   >,
   string
 > = {
@@ -24,10 +34,14 @@ const registrationMessages: Record<
     'Use o e-mail que recebeu este convite para continuar.',
   existingAccount:
     'Já existe uma conta para este convite. Entre com ela para continuar.',
+  slugConflict: 'Este nome curto já está em uso. Escolha outro.',
   conflict: 'Não foi possível criar a conta com os dados informados.',
   unavailable: 'A validação da senha está indisponível. Tente novamente mais tarde.',
   failure: 'Não foi possível criar a conta agora. Tente novamente mais tarde.',
 }
+
+const compromisedPasswordMessage =
+  'Essa senha já foi identificada como comprometida. Escolha uma senha diferente.'
 
 export function RegisterPage() {
   const { state: authState } = useAuth()
@@ -36,6 +50,8 @@ export function RegisterPage() {
     hasPendingInvitation,
     registerInvitee,
   } = useInvitationResume()
+  const [searchParams] = useSearchParams()
+  const googleStatus = searchParams.get('google')
   const [organizationName, setOrganizationName] = useState('')
   const [organizationSlug, setOrganizationSlug] = useState('')
   const [ownerName, setOwnerName] = useState('')
@@ -46,11 +62,26 @@ export function RegisterPage() {
   const [registrationDelivery, setRegistrationDelivery] = useState<
     'sent' | 'failed'
   >()
+  const [passwordTouched, setPasswordTouched] = useState(false)
+  const [confirmationTouched, setConfirmationTouched] = useState(false)
+  const [passwordServerError, setPasswordServerError] = useState<string>()
+  const [organizationSlugError, setOrganizationSlugError] = useState<string>()
   const [errorMessage, setErrorMessage] = useState<string>()
+  const organizationSlugRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
+  const passwordConfirmationRef = useRef<HTMLInputElement>(null)
   const isSubmittingRef = useRef(false)
   const requestControllerRef = useRef<AbortController | undefined>(undefined)
   const invitedPreview =
     invitationState.status === 'usable' ? invitationState.preview : undefined
+  const localPasswordError = passwordTouched
+    ? getPasswordPolicyError(password)
+    : undefined
+  const passwordError = passwordServerError ?? localPasswordError
+  const confirmationError =
+    confirmationTouched && password !== passwordConfirmation
+      ? 'As senhas não coincidem.'
+      : undefined
 
   useEffect(
     () => () => {
@@ -76,6 +107,10 @@ export function RegisterPage() {
     )
   }
 
+  if (googleStatus === 'profile-required') {
+    return <GoogleProfileCompletionForm />
+  }
+
   if (registrationDelivery) {
     return (
       <section className="auth-card" aria-live="polite">
@@ -97,17 +132,25 @@ export function RegisterPage() {
     event.preventDefault()
     if (isSubmittingRef.current) return
 
-    isSubmittingRef.current = true
-    setIsSubmitting(true)
     setErrorMessage(undefined)
+    setOrganizationSlugError(undefined)
+    setPasswordServerError(undefined)
+    setPasswordTouched(true)
+    setConfirmationTouched(true)
 
-    if (password !== passwordConfirmation) {
-      setErrorMessage('As senhas informadas não coincidem.')
-      isSubmittingRef.current = false
-      setIsSubmitting(false)
+    const nextPasswordError = getPasswordPolicyError(password)
+    if (nextPasswordError) {
+      passwordRef.current?.focus()
       return
     }
 
+    if (password !== passwordConfirmation) {
+      passwordConfirmationRef.current?.focus()
+      return
+    }
+
+    isSubmittingRef.current = true
+    setIsSubmitting(true)
     const controller = new AbortController()
     requestControllerRef.current = controller
 
@@ -137,6 +180,12 @@ export function RegisterPage() {
         setRegistrationDelivery(
           result === 'registeredEmailSent' ? 'sent' : 'failed',
         )
+      } else if (result === 'slugConflict') {
+        setOrganizationSlugError(registrationMessages.slugConflict)
+        organizationSlugRef.current?.focus()
+      } else if (result === 'compromisedPassword') {
+        setPasswordServerError(compromisedPasswordMessage)
+        passwordRef.current?.focus()
       } else {
         setErrorMessage(registrationMessages[result])
       }
@@ -166,6 +215,18 @@ export function RegisterPage() {
         </p>
       ) : null}
 
+      {googleStatus === 'wrong-invitation' ? (
+        <p className="form-error google-auth-notice" role="alert">
+          Use a conta Google correspondente ao e-mail que recebeu este convite.
+        </p>
+      ) : googleStatus === 'invalid-invitation' ? (
+        <p className="form-error google-auth-notice" role="alert">
+          Este convite não é mais válido. Solicite um novo convite para continuar.
+        </p>
+      ) : null}
+
+      <GoogleAuthenticationButton />
+
       <form className="auth-form" onSubmit={handleSubmit}>
         {!invitedPreview ? (
           <>
@@ -181,15 +242,33 @@ export function RegisterPage() {
 
             <label htmlFor="organization-slug">Nome curto da organização</label>
             <input
+              ref={organizationSlugRef}
               id="organization-slug"
               name="organizationSlug"
               autoComplete="off"
-              aria-describedby="organization-slug-help"
+              aria-describedby={
+                organizationSlugError
+                  ? 'organization-slug-error organization-slug-help'
+                  : 'organization-slug-help'
+              }
+              aria-invalid={organizationSlugError ? true : undefined}
               value={organizationSlug}
-              onChange={(event) => setOrganizationSlug(event.target.value)}
+              onChange={(event) => {
+                setOrganizationSlug(event.target.value)
+                setOrganizationSlugError(undefined)
+              }}
               pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
               required
             />
+            {organizationSlugError ? (
+              <p
+                id="organization-slug-error"
+                className="form-error auth-field-error"
+                role="alert"
+              >
+                {organizationSlugError}
+              </p>
+            ) : null}
             <p id="organization-slug-help" className="auth-field-help">
               Use letras, números e hífens. Ex.: escritorio-teste
             </p>
@@ -220,23 +299,65 @@ export function RegisterPage() {
 
         <label htmlFor="register-password">Senha</label>
         <PasswordInput
+          ref={passwordRef}
           id="register-password"
           name="password"
           autoComplete="new-password"
+          aria-describedby={
+            passwordError
+              ? 'register-password-error register-password-requirements'
+              : 'register-password-requirements'
+          }
+          aria-invalid={passwordError ? true : undefined}
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
+          onChange={(event) => {
+            setPassword(event.target.value)
+            setPasswordServerError(undefined)
+          }}
+          onBlur={() => setPasswordTouched(true)}
+          minLength={minimumPasswordLength}
+          maxLength={maximumPasswordLength}
           required
+        />
+        {passwordError ? (
+          <p
+            id="register-password-error"
+            className="form-error auth-field-error"
+            role="alert"
+          >
+            {passwordError}
+          </p>
+        ) : null}
+        <PasswordRequirements
+          id="register-password-requirements"
+          password={password}
         />
 
         <label htmlFor="register-password-confirmation">Confirmar senha</label>
         <PasswordInput
+          ref={passwordConfirmationRef}
           id="register-password-confirmation"
           name="passwordConfirmation"
           autoComplete="new-password"
+          aria-describedby={
+            confirmationError ? 'register-password-confirmation-error' : undefined
+          }
+          aria-invalid={confirmationError ? true : undefined}
           value={passwordConfirmation}
           onChange={(event) => setPasswordConfirmation(event.target.value)}
+          onBlur={() => setConfirmationTouched(true)}
+          maxLength={maximumPasswordLength}
           required
         />
+        {confirmationError ? (
+          <p
+            id="register-password-confirmation-error"
+            className="form-error auth-field-error"
+            role="alert"
+          >
+            {confirmationError}
+          </p>
+        ) : null}
 
         {errorMessage ? (
           <p className="form-error" role="alert">

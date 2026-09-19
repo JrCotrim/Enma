@@ -48,6 +48,7 @@ using Enma.Application.Notifications.Dismiss;
 using Enma.Application.Notifications.DismissAll;
 using Enma.Application.Notifications.List;
 using Enma.Application.Onboarding.RegisterInvitedUser;
+using Enma.Application.Onboarding;
 using Enma.Application.Notifications.MarkAllRead;
 using Enma.Application.Notifications.MarkRead;
 using Enma.Application.Organizations;
@@ -305,6 +306,12 @@ public static class DependencyInjection
             EmailVerificationChallengePersistence>();
         services.AddScoped<IPasswordRecoveryPersistence, PasswordRecoveryPersistence>();
         services.AddScoped<
+            IExternalAuthenticationPersistence,
+            ExternalAuthenticationPersistence>();
+        services.AddScoped<
+            IInitialOrganizationPersistence,
+            InitialOrganizationPersistence>();
+        services.AddScoped<
             IClientOrganizationOwnershipLookup,
             ClientOrganizationOwnershipLookup>();
         services.AddScoped<
@@ -410,6 +417,8 @@ public static class DependencyInjection
         services.AddScoped<VerifyEmailUseCase>();
         services.AddScoped<RequestPasswordRecoveryUseCase>();
         services.AddScoped<ResetPasswordUseCase>();
+        services.AddScoped<ExternalAuthenticationUseCase>();
+        services.AddScoped<CreateInitialOrganizationUseCase>();
         services.AddScoped<OrganizationAccessAuthorization>();
         services.AddScoped<OrganizationAdministrationAuthorization>();
         services.AddScoped<ListAuditLogsUseCase>();

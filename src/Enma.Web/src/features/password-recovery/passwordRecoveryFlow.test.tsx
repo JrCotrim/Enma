@@ -49,6 +49,8 @@ describe('password recovery flow', () => {
     expect(screen.getByText(
       'Informe o e-mail da sua conta para receber um link de recuperação.',
     )).toBeInTheDocument()
+    expect(screen.getByLabelText('E-mail')).toBeRequired()
+    expect(screen.getByLabelText('E-mail')).toHaveAttribute('type', 'email')
     fireEvent.change(screen.getByLabelText('E-mail'), {
       target: { value: 'person@example.test' },
     })
@@ -94,7 +96,34 @@ describe('password recovery flow', () => {
     expect(document.body).not.toHaveTextContent('private detail')
   })
 
-  it('reset rejects mismatched confirmation without sending the token', () => {
+  it('reset shows the real policy and blocks a short password locally', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute('/reset-password', validToken)
+
+    const password = screen.getByLabelText('Nova senha')
+    fireEvent.change(password, { target: { value: 'curta' } })
+    fireEvent.change(screen.getByLabelText('Confirmar nova senha'), {
+      target: { value: 'curta' },
+    })
+
+    expect(password).toHaveAttribute('minlength', '8')
+    expect(password).toHaveAttribute('maxlength', '128')
+    expect(screen.getByText('Sua senha deve ter:').parentElement).toHaveTextContent(
+      '8 caracteres ou mais',
+    )
+    expect(screen.getByText(/verificada contra vazamentos conhecidos/)).toBeInTheDocument()
+    fireEvent.submit(screen.getByRole('button', { name: 'Redefinir senha' }).closest('form')!)
+
+    const error = screen.getByRole('alert')
+    expect(error).toHaveTextContent('Use pelo menos 8 caracteres.')
+    expect(password).toHaveFocus()
+    expect(password).toHaveAttribute('aria-invalid', 'true')
+    expect(password.getAttribute('aria-describedby')).toContain(error.id)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('reset rejects mismatched confirmation and clears the field error on correction', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     renderRoute('/reset-password', validToken)
@@ -107,9 +136,21 @@ describe('password recovery flow', () => {
     })
     fireEvent.submit(screen.getByRole('button', { name: 'Redefinir senha' }).closest('form')!)
 
-    expect(screen.getByRole('alert')).toHaveTextContent('não coincidem')
+    const confirmation = screen.getByLabelText('Confirmar nova senha')
+    const error = screen.getByText('As senhas não coincidem.')
+    expect(confirmation).toHaveFocus()
+    expect(confirmation).toHaveAttribute('aria-invalid', 'true')
+    expect(confirmation.getAttribute('aria-describedby')).toContain(error.id)
     expect(fetchMock).not.toHaveBeenCalled()
     expect(document.body).not.toHaveTextContent(validToken)
+
+    fireEvent.change(confirmation, {
+      target: { value: 'New-Synthetic-Password-456!' },
+    })
+    expect(screen.queryByText('As senhas não coincidem.')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Nova senha')).toHaveValue(
+      'New-Synthetic-Password-456!',
+    )
   })
 
   it('reset keeps password visibility independent and preserves both values', () => {
@@ -168,9 +209,14 @@ describe('password recovery flow', () => {
     fillMatchingPasswords()
     fireEvent.submit(screen.getByRole('button', { name: 'Redefinir senha' }).closest('form')!)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    const password = screen.getByLabelText('Nova senha')
+    const error = await screen.findByRole('alert')
+    expect(error).toHaveTextContent(
       'Essa senha já foi identificada como comprometida. Escolha uma senha diferente.',
     )
+    expect(password).toHaveFocus()
+    expect(password).toHaveAttribute('aria-invalid', 'true')
+    expect(password.getAttribute('aria-describedby')).toContain(error.id)
   })
 
   it('reset explains when the new password matches the current password', async () => {
@@ -182,9 +228,13 @@ describe('password recovery flow', () => {
     fillMatchingPasswords()
     fireEvent.submit(screen.getByRole('button', { name: 'Redefinir senha' }).closest('form')!)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    const password = screen.getByLabelText('Nova senha')
+    const error = await screen.findByRole('alert')
+    expect(error).toHaveTextContent(
       'A nova senha deve ser diferente da senha atual.',
     )
+    expect(password).toHaveFocus()
+    expect(password).toHaveAttribute('aria-invalid', 'true')
   })
 
   it('reset success shows a login call to action', async () => {

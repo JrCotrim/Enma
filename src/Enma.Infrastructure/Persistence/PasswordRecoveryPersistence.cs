@@ -179,8 +179,9 @@ public sealed class PasswordRecoveryPersistence : IPasswordRecoveryPersistence
             return PasswordRecoveryResetPersistenceResult.Rejected;
         }
 
-        PasswordVerificationResult verificationResult =
-            passwordHasher.VerifyHashedPassword(
+        PasswordVerificationResult verificationResult = credential.PasswordHash is null
+            ? PasswordVerificationResult.Failed
+            : passwordHasher.VerifyHashedPassword(
                 credential.PasswordHash,
                 newPassword);
 

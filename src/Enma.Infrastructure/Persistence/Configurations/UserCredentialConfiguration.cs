@@ -34,7 +34,7 @@ public sealed class UserCredentialConfiguration
             .HasColumnName("password_hash")
             .HasColumnType("character varying(512)")
             .HasMaxLength(512)
-            .IsRequired();
+            .IsRequired(false);
 
         builder.Property(credential => credential.CreatedAt)
             .HasColumnName("created_at")

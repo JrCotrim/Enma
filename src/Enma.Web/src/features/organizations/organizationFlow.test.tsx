@@ -177,9 +177,68 @@ describe('organization discovery and routing', () => {
     renderRoute('/organizations')
 
     expect(
-      await screen.findByRole('heading', { name: 'Nenhuma organização disponível' }),
+      await screen.findByRole('heading', { name: 'Crie seu primeiro espaço' }),
     ).toBeInTheDocument()
     expect(screen.queryByLabelText('Senha')).not.toBeInTheDocument()
+  })
+
+  it('InitialOrganization_DuplicateShortName_AssociatesErrorAndAllowsRetry', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockResolvedValueOnce(
+        response(409, { code: 'organization_slug_conflict' }),
+      )
+      .mockResolvedValueOnce(response(409, { code: 'different_conflict' }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute('/organizations')
+
+    await screen.findByRole('heading', { name: 'Crie seu primeiro espaço' })
+    fireEvent.change(screen.getByLabelText('Nome da organização'), {
+      target: { value: 'Google Legal' },
+    })
+    const shortName = screen.getByLabelText('Nome curto da organização')
+    fireEvent.change(shortName, { target: { value: 'google-legal' } })
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Criar espaço de trabalho' }).closest(
+        'form',
+      )!,
+    )
+
+    const fieldError = await screen.findByText(
+      'Este nome curto já está em uso. Escolha outro.',
+    )
+    expect(shortName).toHaveFocus()
+    expect(shortName).toHaveAttribute('aria-invalid', 'true')
+    expect(shortName.getAttribute('aria-describedby')).toContain(fieldError.id)
+    expect(screen.getByLabelText('Nome da organização')).toHaveValue(
+      'Google Legal',
+    )
+
+    fireEvent.change(shortName, { target: { value: 'google-legal-novo' } })
+    expect(fieldError).not.toBeInTheDocument()
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Criar espaço de trabalho' }).closest(
+        'form',
+      )!,
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Não foi possível criar a organização com os dados informados.',
+    )
+    expect(shortName).not.toHaveAttribute('aria-invalid')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      '/api/onboarding/initial-organization',
+      expect.objectContaining({
+        body: JSON.stringify({
+          organizationName: 'Google Legal',
+          organizationSlug: 'google-legal-novo',
+        }),
+      }),
+    )
   })
 
   it('Organizations_DiscoveryFailure_ShowsSafeRetryAndRecovers', async () => {
@@ -219,7 +278,7 @@ describe('organization discovery and routing', () => {
       await screen.findByRole('heading', { name: 'Entrar no ENMA' }),
     ).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/login')
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it.each([
@@ -413,7 +472,11 @@ describe('organization discovery and routing', () => {
       name: `Espaço de trabalho: ${organizationA.name}`,
     })
     fireEvent.click(screen.getByRole('button', { name: 'Perfil' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Sair' }))
+    const logoutButton = screen.getByRole('button', { name: 'Sair' })
+    expect(logoutButton.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+    logoutButton.focus()
+    expect(logoutButton).toHaveFocus()
+    fireEvent.click(logoutButton)
 
     expect(
       await screen.findByRole('heading', { name: 'Entrar no ENMA' }),

@@ -173,7 +173,7 @@ public sealed class LoginUseCasePersistenceTests(
         Assert.Equal(
             Enma.Application.Security.PasswordVerificationResult.Success,
             passwordHasher.VerifyHashedPassword(
-                credential.PasswordHash,
+                credential.PasswordHash!,
                 ChangedPassword));
     }
 

@@ -206,6 +206,23 @@ export function InvitationResumeProvider({
     [state.status, token],
   )
 
+  const beginGoogleAuthentication = useCallback(() => {
+    const form = document.createElement('form')
+    form.method = 'post'
+    form.action = '/api/auth/google/start'
+
+    if (token) {
+      const input = document.createElement('input')
+      input.type = 'hidden'
+      input.name = 'invitationToken'
+      input.value = token
+      form.append(input)
+    }
+
+    document.body.append(form)
+    form.submit()
+  }, [token])
+
   const value = useMemo(
     () => ({
       state,
@@ -216,8 +233,9 @@ export function InvitationResumeProvider({
       accept,
       registerInvitee,
       retry,
+      beginGoogleAuthentication,
     }),
-    [accept, registerInvitee, retry, state, token],
+    [accept, beginGoogleAuthentication, registerInvitee, retry, state, token],
   )
 
   return (

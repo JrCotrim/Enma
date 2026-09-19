@@ -64,7 +64,7 @@ public sealed class LoginUseCase
                 cancellationToken);
         UserCredential? credential = identity?.Credential;
 
-        if (identity is null || credential is null)
+        if (identity is null || credential?.PasswordHash is null)
         {
             _ = _passwordHasher.VerifyHashedPassword(
                 _dummyPasswordHashProvider.PasswordHash,
@@ -110,7 +110,7 @@ public sealed class LoginUseCase
 
         return persistenceResult ==
             AuthenticationSessionIssuancePersistenceResult.Succeeded
-                ? LoginResult.Success(rawHandle)
+                ? LoginResult.Success(rawHandle, identity.UserId)
                 : LoginResult.InvalidCredentials;
     }
 }

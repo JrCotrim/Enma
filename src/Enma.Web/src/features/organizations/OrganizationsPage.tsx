@@ -1,5 +1,7 @@
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { AuthenticatedLogout } from '../authentication/AuthenticatedLogout'
+import { useInvitationResume } from '../invitations/InvitationResumeState'
+import { InitialOrganizationForm } from '../onboarding/InitialOrganizationForm'
 import { useOrganizationDiscovery } from './OrganizationContext'
 import {
   OrganizationDiscoveryError,
@@ -9,6 +11,11 @@ import { getOrganizationRoleLabel } from './organizationTypes'
 
 export function OrganizationsPage() {
   const { state, refreshOrganizations } = useOrganizationDiscovery()
+  const { hasPendingInvitation } = useInvitationResume()
+
+  if (hasPendingInvitation) {
+    return <Navigate replace to="/accept-invitation" />
+  }
 
   if (state.status === 'loading') {
     return <OrganizationLoading />
@@ -40,9 +47,8 @@ export function OrganizationsPage() {
       </div>
 
       {state.organizations.length === 0 ? (
-        <div className="organization-empty" role="status">
-          <h2>Nenhuma organização disponível</h2>
-          <p>Sua conta não possui organizações disponíveis no momento.</p>
+        <div className="organization-empty">
+          <InitialOrganizationForm />
         </div>
       ) : (
         <ul className="organization-list" aria-label="Organizações disponíveis">

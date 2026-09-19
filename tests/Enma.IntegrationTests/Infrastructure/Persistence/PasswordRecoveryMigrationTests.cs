@@ -44,7 +44,10 @@ public sealed class PasswordRecoveryMigrationTests(
         await MigrateAsync();
 
         Assert.Equal(
-            tablesBefore.Append("password_recovery_challenges").Order(StringComparer.Ordinal),
+            tablesBefore
+                .Append("password_recovery_challenges")
+                .Append("external_identities")
+                .Order(StringComparer.Ordinal),
             await GetTablesAsync());
         await using EnmaDbContext assertionContext = fixture.CreateDbContext();
         Assert.Equal(user.Id, (await assertionContext.Users.SingleAsync()).Id);

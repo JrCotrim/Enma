@@ -334,6 +334,9 @@ describe('invitation recipient flow', () => {
     expect(
       screen.queryByLabelText('Nome curto da organização'),
     ).not.toBeInTheDocument()
+    expect(screen.getByText('Sua senha deve ter:').parentElement).toHaveTextContent(
+      '8 caracteres ou mais',
+    )
     expect(
       screen.getByText(
         `Você foi convidado para entrar em ${invitedOrganization.name}.`,

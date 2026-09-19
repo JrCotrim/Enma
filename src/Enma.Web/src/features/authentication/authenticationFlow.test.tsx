@@ -32,7 +32,10 @@ function fillAndSubmitLogin(email: string, password: string) {
   fireEvent.submit(screen.getByRole('button', { name: 'Entrar' }).closest('form')!)
 }
 
-function fillAndSubmitRegistration() {
+function fillRegistration(
+  password = 'Synthetic!Password42',
+  confirmation = password,
+) {
   fireEvent.change(screen.getByLabelText('Nome da organização'), {
     target: { value: 'Enma Legal' },
   })
@@ -46,11 +49,15 @@ function fillAndSubmitRegistration() {
     target: { value: 'owner@example.com' },
   })
   fireEvent.change(screen.getByLabelText('Senha'), {
-    target: { value: 'Synthetic!Password42' },
+    target: { value: password },
   })
   fireEvent.change(screen.getByLabelText('Confirmar senha'), {
-    target: { value: 'Synthetic!Password42' },
+    target: { value: confirmation },
   })
+}
+
+function fillAndSubmitRegistration() {
+  fillRegistration()
   fireEvent.submit(
     screen.getByRole('button', { name: 'Criar conta' }).closest('form')!,
   )
@@ -111,6 +118,44 @@ describe('authentication flow', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('Login_GoogleProviderEnabled_ShowsRealGoogleAction', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(response(200, { google: true })),
+    )
+    renderRoute('/login')
+
+    const googleButton = await screen.findByRole('button', {
+      name: 'Continuar com o Google',
+    })
+    expect(googleButton).toBeInTheDocument()
+    expect(googleButton.querySelector('.google-auth-icon')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    )
+  })
+
+  it('Login_GoogleProviderDisabled_DoesNotOfferBrokenAction', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(response(200, { google: false })),
+    )
+    renderRoute('/login')
+
+    await screen.findByRole('heading', { name: 'Entrar no ENMA' })
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: 'Continuar com o Google' }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('Registration_ExplainsOrganizationShortName', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(401)))
     renderRoute('/register')
@@ -121,6 +166,230 @@ describe('authentication flow', () => {
     )
 
     expect(shortName).toHaveAttribute('aria-describedby', helper.id)
+  })
+
+  it('Registration_UsesNativeRequiredAndEmailValidation', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response(401)))
+    renderRoute('/register')
+
+    const organizationName = await screen.findByLabelText('Nome da organização')
+    const email = screen.getByLabelText('E-mail')
+
+    expect(organizationName).toBeRequired()
+    expect(email).toBeRequired()
+    expect(email).toHaveAttribute('type', 'email')
+    fireEvent.change(email, { target: { value: 'email-inválido' } })
+    expect(email).toBeInvalid()
+  })
+
+  it('Registration_ShowsRealPasswordRequirementsAndBlocksInvalidPassword', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(401))
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute('/register')
+
+    await screen.findByRole('heading', { name: 'Criar conta' })
+    fillRegistration('curta', 'curta')
+    const password = screen.getByLabelText('Senha')
+
+    expect(password).toHaveAttribute('minlength', '8')
+    expect(password).toHaveAttribute('maxlength', '128')
+    expect(screen.getByText('Sua senha deve ter:').parentElement).toHaveTextContent(
+      '8 caracteres ou mais',
+    )
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0')
+    expect(screen.getByRole('status')).toHaveTextContent('Nenhum requisito atendido')
+    expect(screen.getByText(/verificada contra vazamentos conhecidos/)).toBeInTheDocument()
+
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Criar conta' }).closest('form')!,
+    )
+
+    const error = screen.getByRole('alert')
+    expect(error).toHaveTextContent('Use pelo menos 8 caracteres.')
+    expect(password).toHaveFocus()
+    expect(password).toHaveAttribute('aria-invalid', 'true')
+    expect(password.getAttribute('aria-describedby')).toContain(error.id)
+    expect(
+      fetchMock.mock.calls.some(([input]) => input === '/api/onboarding/register'),
+    ).toBe(false)
+
+    fireEvent.change(password, { target: { value: 'Synthetic!Password42' } })
+    fireEvent.change(screen.getByLabelText('Confirmar senha'), {
+      target: { value: 'Synthetic!Password42' },
+    })
+
+    expect(screen.queryByText('Use pelo menos 8 caracteres.')).not.toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '3')
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Todos os requisitos atendidos',
+    )
+    expect(screen.getAllByRole('checkbox', { checked: true })).toHaveLength(3)
+  })
+
+  it('Registration_MismatchIsInlineAndClearsWithoutLosingValues', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200, { google: false }))
+      .mockResolvedValueOnce(response(201, { verificationEmailSent: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute('/register')
+
+    await screen.findByRole('heading', { name: 'Criar conta' })
+    fillRegistration('Synthetic!Password42', 'outra senha segura')
+    const confirmation = screen.getByLabelText('Confirmar senha')
+    const form = screen.getByRole('button', { name: 'Criar conta' }).closest('form')!
+    fireEvent.submit(form)
+
+    const error = screen.getByText('As senhas não coincidem.')
+    expect(confirmation).toHaveFocus()
+    expect(confirmation).toHaveAttribute('aria-invalid', 'true')
+    expect(confirmation.getAttribute('aria-describedby')).toContain(error.id)
+    expect(screen.getByLabelText('Nome da organização')).toHaveValue('Enma Legal')
+    expect(screen.getByLabelText('E-mail')).toHaveValue('owner@example.com')
+
+    fireEvent.change(confirmation, {
+      target: { value: 'Synthetic!Password42' },
+    })
+    expect(screen.queryByText('As senhas não coincidem.')).not.toBeInTheDocument()
+    fireEvent.submit(form)
+
+    expect(
+      await screen.findByText('Enviamos um link de verificação para o seu e-mail.'),
+    ).toBeInTheDocument()
+  })
+
+  it('Registration_CompromisedPasswordUsesSafeFieldCode', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(response(200, { google: false }))
+        .mockResolvedValueOnce(response(400, { code: 'password_compromised' })),
+    )
+    renderRoute('/register')
+
+    await screen.findByRole('heading', { name: 'Criar conta' })
+    fillAndSubmitRegistration()
+
+    const password = screen.getByLabelText('Senha')
+    const error = await screen.findByText(
+      'Essa senha já foi identificada como comprometida. Escolha uma senha diferente.',
+    )
+    expect(password).toHaveFocus()
+    expect(password).toHaveAttribute('aria-invalid', 'true')
+    expect(password.getAttribute('aria-describedby')).toContain(error.id)
+    expect(screen.getByLabelText('E-mail')).toHaveValue('owner@example.com')
+  })
+
+  it('Registration_DuplicateShortName_AssociatesErrorPreservesFieldsAndRetries', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200, { google: false }))
+      .mockResolvedValueOnce(
+        response(409, { code: 'organization_slug_conflict' }),
+      )
+      .mockResolvedValueOnce(
+        response(201, { verificationEmailSent: true }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute('/register')
+
+    await screen.findByRole('heading', { name: 'Criar conta' })
+    fillAndSubmitRegistration()
+
+    const shortName = await screen.findByLabelText('Nome curto da organização')
+    const fieldError = await screen.findByText(
+      'Este nome curto já está em uso. Escolha outro.',
+    )
+    expect(shortName).toHaveFocus()
+    expect(shortName).toHaveAttribute('aria-invalid', 'true')
+    expect(shortName.getAttribute('aria-describedby')).toContain(fieldError.id)
+    expect(screen.getByLabelText('Nome da organização')).toHaveValue('Enma Legal')
+    expect(screen.getByLabelText('Seu nome')).toHaveValue('Ana Silva')
+    expect(screen.getByLabelText('E-mail')).toHaveValue('owner@example.com')
+    expect(screen.getByLabelText('Senha')).toHaveValue('Synthetic!Password42')
+    expect(screen.getByLabelText('Confirmar senha')).toHaveValue(
+      'Synthetic!Password42',
+    )
+
+    fireEvent.change(shortName, { target: { value: 'enma-legal-novo' } })
+    expect(shortName).not.toHaveAttribute('aria-invalid')
+    expect(fieldError).not.toBeInTheDocument()
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Criar conta' }).closest('form')!,
+    )
+
+    expect(
+      await screen.findByText('Enviamos um link de verificação para o seu e-mail.'),
+    ).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/api/onboarding/register',
+      expect.objectContaining({
+        body: expect.stringContaining('"organizationSlug":"enma-legal-novo"'),
+      }),
+    )
+  })
+
+  it('Registration_UnknownConflict_RemainsGeneralAndDoesNotMarkShortName', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(response(200, { google: false }))
+        .mockResolvedValueOnce(response(409, { code: 'different_conflict' })),
+    )
+    renderRoute('/register')
+
+    await screen.findByRole('heading', { name: 'Criar conta' })
+    fillAndSubmitRegistration()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Não foi possível criar a conta com os dados informados.',
+    )
+    expect(screen.getByLabelText('Nome curto da organização')).not.toHaveAttribute(
+      'aria-invalid',
+    )
+  })
+
+  it('Registration_GoogleProfileRequired_CollectsOnlyMissingName', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockResolvedValueOnce(response(422))
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute('/register?google=profile-required')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Concluir cadastro' }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Seu nome')).toBeInTheDocument()
+    expect(screen.queryByLabelText('E-mail')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Senha')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Nome da organização')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Seu nome'), {
+      target: { value: 'Nome informado' },
+    })
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Concluir cadastro' }).closest('form')!,
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Informe um nome válido para continuar.',
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/auth/google/complete-profile',
+      expect.objectContaining({
+        body: JSON.stringify({ name: 'Nome informado' }),
+      }),
+    )
   })
 
   it('Login_PasswordVisibility_TogglesWithoutSubmittingOrClearing', async () => {
@@ -140,14 +409,14 @@ describe('authentication flow', () => {
     expect(password).toHaveAttribute('type', 'text')
     expect(password).toHaveValue('secret-value')
     expect(screen.getByRole('button', { name: 'Ocultar senha' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
 
     fireEvent.click(screen.getByRole('button', { name: 'Ocultar senha' }))
 
     expect(password).toHaveAttribute('type', 'password')
     expect(password).toHaveValue('secret-value')
     expect(screen.getByRole('button', { name: 'Mostrar senha' })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('Registration_PasswordVisibility_IsAvailable', async () => {
@@ -171,6 +440,7 @@ describe('authentication flow', () => {
       vi
         .fn()
         .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(response(200, { google: false }))
         .mockResolvedValueOnce(
           response(201, { verificationEmailSent: true }),
         ),
@@ -195,6 +465,7 @@ describe('authentication flow', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200, { google: false }))
       .mockResolvedValueOnce(response(201, { verificationEmailSent: false }))
       .mockResolvedValueOnce(response(202))
     vi.stubGlobal('fetch', fetchMock)
@@ -226,6 +497,7 @@ describe('authentication flow', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200, { google: false }))
       .mockResolvedValueOnce(response(204))
       .mockResolvedValueOnce(response(200, { items: [] }))
     vi.stubGlobal('fetch', fetchMock)
@@ -238,12 +510,13 @@ describe('authentication flow', () => {
       await screen.findByRole('heading', { name: 'Suas organizações' }),
     ).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/organizations')
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/auth/login', {
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: 'person@example.com',
         password: 'correct horse battery staple',
+        completeGoogleLink: false,
       }),
       credentials: 'same-origin',
       cache: 'no-store',
@@ -259,6 +532,7 @@ describe('authentication flow', () => {
       vi
         .fn()
         .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(response(200, { google: false }))
         .mockResolvedValueOnce(response(401)),
     )
     renderRoute('/login')
@@ -273,6 +547,54 @@ describe('authentication flow', () => {
     expect(alert).not.toHaveTextContent(/inexistente|incorreta|não verificado|inativo/i)
   })
 
+  it('Login_GoogleLinkRequired_RequiresDualProofAndReportsLinkFailure', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200, { google: false }))
+      .mockResolvedValueOnce(response(409))
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute('/login?google=link-required')
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Entre com sua senha para vincular o Google.',
+    )
+    fillAndSubmitLogin('person@example.com', 'correct-password')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Não foi possível concluir o vínculo com o Google.',
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/auth/login',
+      expect.objectContaining({
+        body: JSON.stringify({
+          email: 'person@example.com',
+          password: 'correct-password',
+          completeGoogleLink: true,
+        }),
+      }),
+    )
+  })
+
+  it('Registration_WrongGoogleRecipient_ShowsSafeRecoveryCopy', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(response(200, { google: true })),
+    )
+    renderRoute('/register?google=wrong-invitation')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Use a conta Google correspondente ao e-mail que recebeu este convite.',
+    )
+    expect(
+      await screen.findByRole('button', { name: 'Continuar com o Google' }),
+    ).toBeInTheDocument()
+  })
+
   it('Login_PendingRequest_PreventsDuplicateSubmission', async () => {
     let resolveLogin: ((value: Response) => void) | undefined
     const pendingLogin = new Promise<Response>((resolve) => {
@@ -281,6 +603,7 @@ describe('authentication flow', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response(401))
+      .mockResolvedValueOnce(response(200, { google: false }))
       .mockReturnValueOnce(pendingLogin)
     vi.stubGlobal('fetch', fetchMock)
     renderRoute('/login')
@@ -297,7 +620,7 @@ describe('authentication flow', () => {
     fireEvent.submit(form)
 
     expect(screen.getByRole('button', { name: 'Entrando…' })).toBeDisabled()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
 
     await act(async () => {
       resolveLogin?.(response(401))
@@ -311,6 +634,7 @@ describe('authentication flow', () => {
       vi
         .fn()
         .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(response(200, { google: false }))
         .mockRejectedValueOnce(new Error('private network detail')),
     )
     renderRoute('/login')

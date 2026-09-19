@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { PasswordInput } from '../../components/PasswordInput'
+import { PasswordRequirements } from '../../components/PasswordRequirements'
+import {
+  getPasswordPolicyError,
+  maximumPasswordLength,
+  minimumPasswordLength,
+} from '../../components/passwordPolicy'
 import { resetPassword, type PasswordResetResult } from './passwordRecoveryService'
 
 interface ResetPasswordPageProps {
@@ -23,22 +29,57 @@ export function ResetPasswordPage({ token }: ResetPasswordPageProps) {
   const [state, setState] = useState<PasswordResetResult | 'idle' | 'submitting'>(
     token ? 'idle' : 'invalid',
   )
-  const [localError, setLocalError] = useState<string>()
+  const [passwordTouched, setPasswordTouched] = useState(false)
+  const [confirmationTouched, setConfirmationTouched] = useState(false)
   const submittingRef = useRef(false)
   const controllerRef = useRef<AbortController | undefined>(undefined)
+  const passwordRef = useRef<HTMLInputElement>(null)
+  const confirmationRef = useRef<HTMLInputElement>(null)
+
+  const localPasswordError = passwordTouched
+    ? getPasswordPolicyError(password)
+    : undefined
+  const passwordServerError =
+    state === 'invalidPassword' ||
+    state === 'currentPasswordReuse' ||
+    state === 'compromisedPassword'
+      ? errorMessages[state]
+      : undefined
+  const passwordError = localPasswordError ?? passwordServerError
+  const confirmationError =
+    confirmationTouched && password !== confirmation
+      ? 'As senhas não coincidem.'
+      : undefined
 
   useEffect(() => () => controllerRef.current?.abort(), [])
+
+  useEffect(() => {
+    if (
+      state === 'invalidPassword' ||
+      state === 'currentPasswordReuse' ||
+      state === 'compromisedPassword'
+    ) {
+      passwordRef.current?.focus()
+    }
+  }, [state])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!token || submittingRef.current) return
 
-    if (password !== confirmation) {
-      setLocalError('As senhas informadas não coincidem.')
+    setPasswordTouched(true)
+    setConfirmationTouched(true)
+
+    if (getPasswordPolicyError(password)) {
+      passwordRef.current?.focus()
       return
     }
 
-    setLocalError(undefined)
+    if (password !== confirmation) {
+      confirmationRef.current?.focus()
+      return
+    }
+
     submittingRef.current = true
     setState('submitting')
     const controller = new AbortController()
@@ -85,9 +126,10 @@ export function ResetPasswordPage({ token }: ResetPasswordPageProps) {
     )
   }
 
-  const errorMessage = localError ?? (state in errorMessages
-    ? errorMessages[state as PasswordResetResult]
-    : undefined)
+  const errorMessage =
+    !passwordServerError && state in errorMessages
+      ? errorMessages[state as PasswordResetResult]
+      : undefined
 
   return (
     <section className="auth-card" aria-labelledby="password-reset-title">
@@ -96,24 +138,66 @@ export function ResetPasswordPage({ token }: ResetPasswordPageProps) {
       <form className="auth-form" onSubmit={handleSubmit}>
         <label htmlFor="new-password">Nova senha</label>
         <PasswordInput
+          ref={passwordRef}
           id="new-password"
           name="new-password"
           autoComplete="new-password"
+          aria-describedby={
+            passwordError
+              ? 'new-password-error new-password-requirements'
+              : 'new-password-requirements'
+          }
+          aria-invalid={passwordError ? true : undefined}
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
+          onChange={(event) => {
+            setPassword(event.target.value)
+            if (passwordServerError) setState('idle')
+          }}
+          onBlur={() => setPasswordTouched(true)}
+          minLength={minimumPasswordLength}
+          maxLength={maximumPasswordLength}
           required
           disabled={state === 'submitting'}
+        />
+        {passwordError ? (
+          <p
+            id="new-password-error"
+            className="form-error auth-field-error"
+            role="alert"
+          >
+            {passwordError}
+          </p>
+        ) : null}
+        <PasswordRequirements
+          id="new-password-requirements"
+          password={password}
         />
         <label htmlFor="confirm-password">Confirmar nova senha</label>
         <PasswordInput
+          ref={confirmationRef}
           id="confirm-password"
           name="confirm-password"
           autoComplete="new-password"
+          aria-describedby={
+            confirmationError ? 'confirm-password-error' : undefined
+          }
+          aria-invalid={confirmationError ? true : undefined}
           value={confirmation}
           onChange={(event) => setConfirmation(event.target.value)}
+          onBlur={() => setConfirmationTouched(true)}
+          maxLength={maximumPasswordLength}
           required
           disabled={state === 'submitting'}
         />
+        {confirmationError ? (
+          <p
+            id="confirm-password-error"
+            className="form-error auth-field-error"
+            role="alert"
+          >
+            {confirmationError}
+          </p>
+        ) : null}
         {errorMessage ? <p className="form-error" role="alert">{errorMessage}</p> : null}
         <button className="primary-button" type="submit" disabled={state === 'submitting'}>
           {state === 'submitting' ? 'Redefinindo…' : 'Redefinir senha'}

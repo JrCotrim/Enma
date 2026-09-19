@@ -39,8 +39,14 @@ export function AuthProvider() {
       email: string,
       password: string,
       signal?: AbortSignal,
+      completeGoogleLink = false,
     ): Promise<LoginResult> => {
-      const result = await sendLogin(email, password, signal)
+      const result = await sendLogin(
+        email,
+        password,
+        signal,
+        completeGoogleLink,
+      )
 
       if (result === 'authenticated') {
         setState('authenticated')

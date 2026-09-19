@@ -77,6 +77,7 @@ public sealed class NotificationMigrationTests(
                 .Append("client_payment_plans")
                 .Append("payment_installments")
                 .Append("password_recovery_challenges")
+                .Append("external_identities")
                 .OrderBy(table => table),
             await GetPublicTablesAsync());
         await using EnmaDbContext dbContext = fixture.CreateDbContext();

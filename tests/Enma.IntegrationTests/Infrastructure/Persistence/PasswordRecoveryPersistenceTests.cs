@@ -206,9 +206,9 @@ public sealed class PasswordRecoveryPersistenceTests(
             .SingleAsync();
         Assert.Equal(credential.CredentialVersion + 1, changed.CredentialVersion);
         Assert.Equal(Enma.Application.Security.PasswordVerificationResult.Failed,
-            hasher.VerifyHashedPassword(changed.PasswordHash, OldPassword));
+            hasher.VerifyHashedPassword(changed.PasswordHash!, OldPassword));
         Assert.Equal(Enma.Application.Security.PasswordVerificationResult.Success,
-            hasher.VerifyHashedPassword(changed.PasswordHash, NewPassword));
+            hasher.VerifyHashedPassword(changed.PasswordHash!, NewPassword));
         Assert.Empty(await assertionContext.PasswordRecoveryChallenges.ToListAsync());
         Assert.Null(await runtime.TryValidateAndRenewAsync(
             sessionHash,
@@ -219,6 +219,50 @@ public sealed class PasswordRecoveryPersistenceTests(
                 lookupHash!,
                 "Another-Synthetic-Password-789!",
                 hasher.HashPassword("Another-Synthetic-Password-789!")));
+    }
+
+    [Fact]
+    public async Task Reset_GoogleOnlyCredential_EstablishesFirstLocalPassword()
+    {
+        var user = new User("Google User", "google@example.test", CreatedAt);
+        user.VerifyEmail(CreatedAt);
+        var credential = new UserCredential(user.Id, passwordHash: null, CreatedAt);
+        var tokenService = new CryptographicPasswordRecoveryTokenService();
+        tokenService.GenerateToken(out var tokenHash);
+        await using (EnmaDbContext dbContext = fixture.CreateDbContext())
+        {
+            dbContext.AddRange(
+                user,
+                credential,
+                new PasswordRecoveryChallenge(
+                    user.Id,
+                    user.Email,
+                    tokenHash,
+                    CreatedAt,
+                    CreatedAt.AddHours(1)));
+            await dbContext.SaveChangesAsync();
+        }
+
+        var hasher = CreateHasher();
+        PasswordRecoveryResetPersistenceResult result =
+            await new PasswordRecoveryPersistence(
+                    CreateOptions(),
+                    new FixedTimeProvider(CreatedAt.AddMinutes(1)),
+                    hasher)
+                .TryResetPasswordAsync(
+                    tokenHash,
+                    NewPassword,
+                    hasher.HashPassword(NewPassword));
+
+        Assert.Equal(PasswordRecoveryResetPersistenceResult.Succeeded, result);
+        await using EnmaDbContext assertionContext = fixture.CreateDbContext();
+        UserCredential changed = await assertionContext.UserCredentials
+            .AsNoTracking()
+            .SingleAsync();
+        Assert.Equal(2, changed.CredentialVersion);
+        Assert.Equal(
+            Enma.Application.Security.PasswordVerificationResult.Success,
+            hasher.VerifyHashedPassword(changed.PasswordHash!, NewPassword));
     }
 
     [Fact]

@@ -52,6 +52,8 @@ public sealed class EnmaDbContext(DbContextOptions<EnmaDbContext> options)
 
     public DbSet<UserCredential> UserCredentials => Set<UserCredential>();
 
+    public DbSet<ExternalIdentity> ExternalIdentities => Set<ExternalIdentity>();
+
     public DbSet<AuthenticationSession> AuthenticationSessions =>
         Set<AuthenticationSession>();
 

@@ -1089,6 +1089,46 @@ namespace Enma.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Enma.Domain.Users.ExternalIdentity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderSubject")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("provider_subject");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_external_identities");
+
+                    b.HasIndex("Provider", "ProviderSubject")
+                        .IsUnique()
+                        .HasDatabaseName("ux_external_identities_provider_subject");
+
+                    b.HasIndex("UserId", "Provider")
+                        .IsUnique()
+                        .HasDatabaseName("ux_external_identities_user_provider");
+
+                    b.ToTable("external_identities", (string)null);
+                });
+
             modelBuilder.Entity("Enma.Domain.Users.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1152,7 +1192,6 @@ namespace Enma.Infrastructure.Persistence.Migrations
                         .HasColumnName("password_changed_at");
 
                     b.Property<string>("PasswordHash")
-                        .IsRequired()
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)")
                         .HasColumnName("password_hash");
@@ -1512,6 +1551,16 @@ namespace Enma.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("OrganizationId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_legal_tasks_legal_processes_organization_id_process_id");
+                });
+
+            modelBuilder.Entity("Enma.Domain.Users.ExternalIdentity", b =>
+                {
+                    b.HasOne("Enma.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_external_identities_users_user_id");
                 });
 
             modelBuilder.Entity("Enma.Domain.Users.UserCredential", b =>

@@ -12,6 +12,10 @@ namespace Enma.Api.Endpoints.Onboarding;
 
 public static class RegisterOrganizationOwnerEndpoint
 {
+    private const string OrganizationSlugConflictCode =
+        "organization_slug_conflict";
+    private const string CompromisedPasswordCode = "password_compromised";
+
     public static IEndpointRouteBuilder MapRegisterOrganizationOwnerEndpoint(
         this IEndpointRouteBuilder endpoints)
     {
@@ -60,7 +64,8 @@ public static class RegisterOrganizationOwnerEndpoint
                             httpContext,
                             StatusCodes.Status409Conflict,
                             "Onboarding conflict",
-                            exception.Message);
+                            exception.Message,
+                            OrganizationSlugConflictCode);
                     }
                     catch (UserEmailAlreadyExistsException exception)
                     {
@@ -76,7 +81,8 @@ public static class RegisterOrganizationOwnerEndpoint
                             httpContext,
                             StatusCodes.Status400BadRequest,
                             "Invalid onboarding request",
-                            exception.Message);
+                            exception.Message,
+                            CompromisedPasswordCode);
                     }
                     catch (CompromisedPasswordCheckUnavailableException exception)
                     {
@@ -114,7 +120,8 @@ public static class RegisterOrganizationOwnerEndpoint
         HttpContext httpContext,
         int statusCode,
         string title,
-        string detail)
+        string detail,
+        string? code = null)
     {
         ProblemDetails problemDetails = new()
         {
@@ -125,6 +132,10 @@ public static class RegisterOrganizationOwnerEndpoint
         };
         problemDetails.Extensions["traceId"] =
             Activity.Current?.Id ?? httpContext.TraceIdentifier;
+        if (code is not null)
+        {
+            problemDetails.Extensions["code"] = code;
+        }
 
         return TypedResults.Problem(problemDetails);
     }

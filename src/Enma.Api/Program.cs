@@ -25,6 +25,8 @@ using Enma.Application.Onboarding.RegisterInvitedUser;
 using Enma.Application.Organizations.GetById;
 using Enma.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
@@ -79,7 +81,7 @@ builder.Services.AddAntiforgery(options =>
     options.SuppressReadingTokenFromFormBody = true;
     AuthenticationCookies.ConfigureAntiforgery(options.Cookie);
 });
-builder.Services
+AuthenticationBuilder authenticationBuilder = builder.Services
     .AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme =
@@ -89,7 +91,95 @@ builder.Services
     })
     .AddScheme<AuthenticationSchemeOptions, EnmaSessionAuthenticationHandler>(
         EnmaSessionAuthenticationDefaults.Scheme,
-        _ => { });
+        _ => { })
+    .AddCookie(ExternalAuthenticationDefaults.CookieScheme, options =>
+    {
+        options.Cookie.Name = "__Host-enma_google_external";
+        options.Cookie.Path = "/";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(10);
+        options.SlidingExpiration = false;
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+    });
+
+bool googleEnabled = builder.Configuration.GetValue<bool>(
+    "Authentication:Google:Enabled");
+string? googleClientId = builder.Configuration[
+    "Authentication:Google:ClientId"];
+string? googleClientSecret = builder.Configuration[
+    "Authentication:Google:ClientSecret"];
+string? googleFrontendOriginValue = builder.Configuration[
+    "Authentication:Google:FrontendOrigin"];
+Uri? googleFrontendOrigin = null;
+if (!string.IsNullOrWhiteSpace(googleFrontendOriginValue) &&
+    (!Uri.TryCreate(
+        googleFrontendOriginValue,
+        UriKind.Absolute,
+        out googleFrontendOrigin) ||
+     googleFrontendOrigin.Scheme is not ("http" or "https") ||
+     googleFrontendOrigin.AbsolutePath != "/" ||
+     !string.IsNullOrEmpty(googleFrontendOrigin.Query) ||
+     !string.IsNullOrEmpty(googleFrontendOrigin.Fragment) ||
+     !string.IsNullOrEmpty(googleFrontendOrigin.UserInfo) ||
+     (googleFrontendOrigin.Scheme == "http" &&
+        (!builder.Environment.IsDevelopment() ||
+            !googleFrontendOrigin.IsLoopback))))
+{
+    throw new InvalidOperationException(
+        "Google FrontendOrigin must be an absolute HTTPS origin without a path, query, fragment, or user information; loopback HTTP is allowed only in Development.");
+}
+if (googleEnabled &&
+    (string.IsNullOrWhiteSpace(googleClientId) ||
+        string.IsNullOrWhiteSpace(googleClientSecret)))
+{
+    throw new InvalidOperationException(
+        "Enabled Google authentication requires ClientId and ClientSecret.");
+}
+
+builder.Services.AddSingleton(new GoogleAuthenticationAvailability(
+    googleEnabled,
+    googleFrontendOrigin));
+if (googleEnabled)
+{
+    authenticationBuilder.AddOpenIdConnect(
+        ExternalAuthenticationDefaults.GoogleScheme,
+        options =>
+        {
+            options.Authority = "https://accounts.google.com";
+            options.ClientId = googleClientId!;
+            options.ClientSecret = googleClientSecret!;
+            options.SignInScheme = ExternalAuthenticationDefaults.CookieScheme;
+            options.CallbackPath = "/signin-google";
+            options.ResponseType = "code";
+            options.SaveTokens = false;
+            options.UsePkce = true;
+            options.MapInboundClaims = false;
+            options.Scope.Clear();
+            options.Scope.Add("openid");
+            options.Scope.Add("email");
+            options.Scope.Add("profile");
+            options.TokenValidationParameters.NameClaimType = "name";
+            options.TokenValidationParameters.ValidateIssuer = true;
+            options.TokenValidationParameters.ValidateAudience = true;
+            options.ProtocolValidator.RequireNonce = true;
+            options.Events.OnRemoteFailure = context =>
+            {
+                context.HandleResponse();
+                context.Response.Redirect(googleFrontendOrigin is null
+                    ? "/login?google=failed"
+                    : new Uri(
+                        googleFrontendOrigin,
+                        "/login?google=failed").AbsoluteUri);
+                return Task.CompletedTask;
+            };
+        });
+}
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(
@@ -212,6 +302,18 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
                 AutoReplenishment = true
             }));
+
+    options.AddPolicy(
+        GoogleAuthenticationEndpoints.RateLimitPolicy,
+        httpContext => RateLimitPartition.GetFixedWindowLimiter(
+            GetClientIpPartitionKey(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
 });
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddScoped<RegisterOrganizationOwnerHandler>();
@@ -253,12 +355,14 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapLoginEndpoints();
+app.MapGoogleAuthenticationEndpoints();
 app.MapEmailVerificationEndpoints();
 app.MapPasswordRecoveryEndpoints();
 app.MapCsrfEndpoint();
 app.MapLogoutEndpoint();
 app.MapRegisterOrganizationOwnerEndpoint();
 app.MapRegisterInvitedUserEndpoint();
+app.MapCreateInitialOrganizationEndpoint();
 app.MapOrganizationEndpoints();
 app.MapCurrentUserOrganizationEndpoints();
 app.MapOrganizationMemberEndpoints();

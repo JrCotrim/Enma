@@ -277,7 +277,7 @@ export function WorkspaceControlCenter({
             </div>
 
             <div className="workspace-profile-session">
-              <AuthenticatedLogout />
+              <AuthenticatedLogout showIcon />
             </div>
           </motion.section>
         ) : null}

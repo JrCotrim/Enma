@@ -37,6 +37,7 @@ export interface InvitationResumeContextValue {
     signal?: AbortSignal,
   ): Promise<RegistrationResult>
   retry(): void
+  beginGoogleAuthentication(): void
 }
 
 const missingInvitationContext: InvitationResumeContextValue = {
@@ -45,6 +46,7 @@ const missingInvitationContext: InvitationResumeContextValue = {
   accept: () => Promise.resolve(undefined),
   registerInvitee: () => Promise.resolve('invalidInvitation'),
   retry: () => undefined,
+  beginGoogleAuthentication: () => undefined,
 }
 
 export const InvitationResumeContext =

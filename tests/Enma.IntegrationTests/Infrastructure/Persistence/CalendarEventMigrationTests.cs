@@ -128,6 +128,7 @@ public sealed class CalendarEventMigrationTests(
                 .Append("client_payment_plans")
                 .Append("payment_installments")
                 .Append("password_recovery_challenges")
+                .Append("external_identities")
                 .OrderBy(table => table),
             tablesAfter);
 

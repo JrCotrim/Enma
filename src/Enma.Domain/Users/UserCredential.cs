@@ -6,7 +6,7 @@ public sealed class UserCredential
 
     public UserCredential(
         Guid userId,
-        string passwordHash,
+        string? passwordHash,
         DateTimeOffset createdAt)
     {
         if (userId == Guid.Empty)
@@ -14,7 +14,9 @@ public sealed class UserCredential
             throw new ArgumentException(UserCredentialErrors.UserIdRequired, nameof(userId));
         }
 
-        string validatedPasswordHash = ValidatePasswordHash(passwordHash);
+        string? validatedPasswordHash = passwordHash is null
+            ? null
+            : ValidatePasswordHash(passwordHash);
 
         if (createdAt == DateTimeOffset.MinValue)
         {
@@ -32,7 +34,7 @@ public sealed class UserCredential
 
     public Guid UserId { get; private set; }
 
-    public string PasswordHash { get; private set; }
+    public string? PasswordHash { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 

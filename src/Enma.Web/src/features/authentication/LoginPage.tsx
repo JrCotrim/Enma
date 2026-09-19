@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { PasswordInput } from '../../components/PasswordInput'
+import { GoogleAuthenticationButton } from './GoogleAuthenticationButton'
 import { useInvitationResume } from '../invitations/InvitationResumeState'
 import { useAuth } from './AuthContext'
 import { SessionError, SessionLoading } from './SessionStatus'
@@ -13,6 +14,9 @@ const unexpectedErrorMessage =
 export function LoginPage() {
   const { state, login } = useAuth()
   const { hasPendingInvitation } = useInvitationResume()
+  const [searchParams] = useSearchParams()
+  const googleStatus = searchParams.get('google')
+  const completeGoogleLink = googleStatus === 'link-required'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errorMessage, setErrorMessage] = useState<string>()
@@ -58,18 +62,23 @@ export function LoginPage() {
     requestControllerRef.current = controller
 
     try {
-      const result = await login(email, password, controller.signal)
+      const result = await login(
+        email,
+        password,
+        controller.signal,
+        completeGoogleLink,
+      )
 
       if (result === 'authenticated') {
         setPassword('')
         return
       }
 
-      setErrorMessage(
-        result === 'invalidCredentials'
-          ? invalidCredentialsMessage
-          : unexpectedErrorMessage,
-      )
+      setErrorMessage(result === 'invalidCredentials'
+        ? invalidCredentialsMessage
+        : result === 'googleLinkFailure'
+          ? 'Não foi possível concluir o vínculo com o Google.'
+          : unexpectedErrorMessage)
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
         setErrorMessage(unexpectedErrorMessage)
@@ -87,6 +96,19 @@ export function LoginPage() {
         <div className="login-form-content">
           <h1 id="login-title">Entrar no ENMA</h1>
           <p className="page-copy">Acesse seu espaço de trabalho.</p>
+
+          {completeGoogleLink ? (
+            <p className="google-auth-notice" role="status">
+              Já existe uma conta ENMA com este e-mail. Entre com sua senha
+              para vincular o Google.
+            </p>
+          ) : googleStatus === 'failed' ? (
+            <p className="form-error google-auth-notice" role="alert">
+              Não foi possível entrar com o Google.
+            </p>
+          ) : null}
+
+          <GoogleAuthenticationButton />
 
           <form className="auth-form login-form" onSubmit={handleSubmit}>
             <label htmlFor="email">E-mail</label>

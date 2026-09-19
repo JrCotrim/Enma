@@ -1,8 +1,13 @@
-import { useState, type ComponentPropsWithoutRef, type MouseEvent } from 'react'
+import { useState, type ComponentPropsWithRef, type MouseEvent } from 'react'
 
-type PasswordInputProps = Omit<ComponentPropsWithoutRef<'input'>, 'type'>
+type PasswordInputProps = Omit<ComponentPropsWithRef<'input'>, 'type'>
 
-export function PasswordInput({ disabled, id, ...props }: PasswordInputProps) {
+export function PasswordInput({
+  disabled,
+  id,
+  ref,
+  ...props
+}: PasswordInputProps) {
   const [isVisible, setIsVisible] = useState(false)
   const label = isVisible ? 'Ocultar senha' : 'Mostrar senha'
 
@@ -14,6 +19,7 @@ export function PasswordInput({ disabled, id, ...props }: PasswordInputProps) {
     <div className="password-input">
       <input
         {...props}
+        ref={ref}
         id={id}
         type={isVisible ? 'text' : 'password'}
         disabled={disabled}

@@ -94,4 +94,20 @@ describe('invitation recipient fragment handoff', () => {
     ).toBeUndefined()
     expect(window.location.hash).toBe('#section')
   })
+
+  it.each(['/login', '/register'])(
+    'Capture_GoogleReturnRoute_PreservesInvitationOnlyInMemory(%s)',
+    (route) => {
+      window.history.replaceState(null, '', `${route}#token=${validToken}`)
+
+      const handoff = captureInvitationRecipientHandoff(
+        window.location,
+        window.history,
+      )
+
+      expect(handoff).toEqual({ token: validToken })
+      expect(window.location.pathname).toBe(route)
+      expect(window.location.hash).toBe('')
+    },
+  )
 })

@@ -196,6 +196,41 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task InvitedPost_WithCompromisedPassword_ReturnsSafeFieldCodeWithoutCreatingUser()
+    {
+        compromisedPasswordChecker.IsCompromised = true;
+        (_, string token) = await SeedInvitationAsync(
+            "invitee@example.test",
+            OrganizationRole.Member);
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            InvitedRequestPath,
+            new RegisterInvitedUserRequest
+            {
+                InvitationToken = token,
+                Name = "Invited User",
+                Email = "invitee@example.test",
+                Password = SyntheticPassword
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        string body = await response.Content.ReadAsStringAsync();
+        using JsonDocument problem = JsonDocument.Parse(body);
+        Assert.Equal(
+            "password_compromised",
+            problem.RootElement.GetProperty("code").GetString());
+        Assert.DoesNotContain(SyntheticPassword, body, StringComparison.Ordinal);
+        Assert.DoesNotContain(token, body, StringComparison.Ordinal);
+        Assert.Equal(1, compromisedPasswordChecker.CallCount);
+        Assert.Equal(0, emailVerificationDelivery.CallCount);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.False(await dbContext.Users.AnyAsync(user =>
+            user.Email == "invitee@example.test"));
+        Assert.False(await dbContext.UserCredentials.AnyAsync());
+    }
+
+    [Fact]
     public async Task InvitedPost_ExistingUser_ReturnsConflictWithoutDuplicate()
     {
         (_, string token) = await SeedInvitationAsync(
@@ -604,10 +639,14 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             RequestPath,
             request);
 
-        await AssertProblemAsync(
+        (ProblemDetails problemDetails, _) = await AssertProblemAsync(
             response,
             HttpStatusCode.Conflict,
             "Onboarding conflict");
+        Assert.True(problemDetails.Extensions.TryGetValue("code", out object? code));
+        Assert.Equal(
+            "organization_slug_conflict",
+            Assert.IsType<JsonElement>(code).GetString());
         Assert.Equal(0, compromisedPasswordChecker.CallCount);
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -738,6 +777,12 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         Assert.Equal(
             "The provided password has appeared in a known data breach and cannot be used.",
             problemDetails.Detail);
+        using (JsonDocument problem = JsonDocument.Parse(rawResponse))
+        {
+            Assert.Equal(
+                "password_compromised",
+                problem.RootElement.GetProperty("code").GetString());
+        }
         Assert.Equal(1, compromisedPasswordChecker.CallCount);
         Assert.DoesNotContain(request.Password, rawResponse, StringComparison.Ordinal);
         Assert.DoesNotContain("passwordHash", rawResponse, StringComparison.OrdinalIgnoreCase);

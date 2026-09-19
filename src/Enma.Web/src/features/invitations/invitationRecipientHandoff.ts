@@ -32,20 +32,30 @@ export function captureInvitationRecipientHandoff(
   history: HandoffHistory,
 ): InvitationRecipientHandoff {
   const route = '/accept-invitation'
+  const supportedRoute =
+    location.pathname === route ||
+    location.pathname === '/login' ||
+    location.pathname === '/register'
 
   if (location.pathname.startsWith(`${route}/`)) {
     history.replaceState(null, '', route)
     return {}
   }
 
-  if (location.pathname !== route) {
+  if (!supportedRoute) {
     return {}
   }
 
   const token = parseInvitationRecipientFragment(location.hash)
 
   if (location.hash || location.search) {
-    history.replaceState(null, '', route)
+    history.replaceState(
+      null,
+      '',
+      location.pathname === route
+        ? route
+        : `${location.pathname}${location.search}`,
+    )
   }
 
   return token ? { token } : {}

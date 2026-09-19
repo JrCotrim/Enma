@@ -446,15 +446,25 @@ body:has(.organization-workspace) .workspace-profile-session .logout-control {
 }
 
 body:has(.organization-workspace) .workspace-profile-session .logout-control > button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   width: 100%;
-  min-height: 2.55rem;
+  min-height: 2.75rem;
   justify-content: flex-start;
+  padding-inline: 0.68rem;
   border: 1px solid transparent;
   border-radius: 0.68rem;
   color: var(--enma-v3-danger);
   background: transparent;
   box-shadow: none;
   text-align: left;
+}
+
+body:has(.organization-workspace) .workspace-profile-session .logout-control > button svg {
+  width: 1.18rem;
+  height: 1.18rem;
+  flex: 0 0 auto;
 }
 
 body:has(.organization-workspace)

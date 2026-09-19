@@ -28,7 +28,7 @@ public sealed class LoginUseCaseTests
         TimeSpan.Zero);
 
     [Fact]
-    public async Task ExecuteAsync_WithEligibleIdentityAndCorrectPassword_IssuesSession()
+    public async Task ExecuteAsync_WithEligibleIdentityAndCorrectLegacyPassword_IssuesSession()
     {
         TestDependencies dependencies = CreateDependencies(CreateIdentity());
 
@@ -154,6 +154,21 @@ public sealed class LoginUseCaseTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WithGoogleOnlyCredential_ReturnsGenericInvalidCredentials()
+    {
+        TestDependencies dependencies = CreateDependencies(
+            CreateIdentity(passwordHash: null));
+
+        LoginResult result = await dependencies.UseCase.ExecuteAsync(
+            Email,
+            Password);
+
+        AssertInvalidWithoutIssuance(result, dependencies);
+        Assert.Equal(1, dependencies.PasswordHasher.VerifyCallCount);
+        Assert.Equal(DummyPasswordHash, dependencies.PasswordHasher.PasswordHash);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WithWrongPassword_ReturnsInvalidCredentialsWithoutIssuance()
     {
         TestDependencies dependencies = CreateDependencies(CreateIdentity());
@@ -199,6 +214,7 @@ public sealed class LoginUseCaseTests
 
         Assert.Equal(LoginResultStatus.InvalidCredentials, result.Status);
         Assert.Null(result.SessionHandle);
+        Assert.Null(result.UserId);
         Assert.Equal(1, dependencies.SessionHandleService.GenerateCallCount);
         Assert.Equal(1, dependencies.SessionPersistence.CallCount);
     }
@@ -223,7 +239,7 @@ public sealed class LoginUseCaseTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_WithSuccessfulIssuance_ReturnsOnlyStatusAndRawHandle()
+    public async Task ExecuteAsync_WithSuccessfulIssuance_ReturnsSessionAndUserIdentity()
     {
         TestDependencies dependencies = CreateDependencies(CreateIdentity());
 
@@ -237,7 +253,11 @@ public sealed class LoginUseCaseTests
         Assert.Equal(LoginResultStatus.Succeeded, result.Status);
         Assert.Equal(RawSessionHandle, result.SessionHandle);
         Assert.Equal(
-            [nameof(LoginResult.SessionHandle), nameof(LoginResult.Status)],
+            [
+                nameof(LoginResult.SessionHandle),
+                nameof(LoginResult.Status),
+                nameof(LoginResult.UserId)
+            ],
             publicInstanceProperties
                 .Select(property => property.Name)
                 .OrderBy(name => name)
@@ -263,10 +283,11 @@ public sealed class LoginUseCaseTests
     private static AuthenticationIdentity CreateIdentity(
         bool isActive = true,
         bool emailVerified = true,
-        bool includeCredential = true)
+        bool includeCredential = true,
+        string? passwordHash = StoredPasswordHash)
     {
         UserCredential? credential = includeCredential
-            ? new UserCredential(UserId, StoredPasswordHash, CreatedAt.AddHours(-1))
+            ? new UserCredential(UserId, passwordHash, CreatedAt.AddHours(-1))
             : null;
 
         return new AuthenticationIdentity(

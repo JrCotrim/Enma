@@ -16,6 +16,7 @@ public static class RegisterInvitedUserEndpoint
         "invited_registration_invalid";
     private const string WrongRecipientCode =
         "invited_registration_wrong_recipient";
+    private const string CompromisedPasswordCode = "password_compromised";
 
     public static IEndpointRouteBuilder MapRegisterInvitedUserEndpoint(
         this IEndpointRouteBuilder endpoints)
@@ -80,7 +81,8 @@ public static class RegisterInvitedUserEndpoint
                             httpContext,
                             StatusCodes.Status400BadRequest,
                             "Invalid invited registration",
-                            exception.Message);
+                            exception.Message,
+                            CompromisedPasswordCode);
                     }
                     catch (CompromisedPasswordCheckUnavailableException exception)
                     {
