@@ -19,20 +19,44 @@ using Enma.Api.Endpoints.Organizations;
 using Enma.Api.Endpoints.Processes;
 using Enma.Api.Endpoints.Tasks;
 using Enma.Api.ExceptionHandling;
+using Enma.Api.Health;
 using Enma.Api.Notifications;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Onboarding.RegisterInvitedUser;
 using Enma.Application.Organizations.GetById;
 using Enma.Infrastructure;
+using Enma.Infrastructure.Documents.Storage;
+using Enma.Infrastructure.Email;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
+
+if (builder.Environment.IsProduction())
+{
+    string? dataProtectionKeysPath = builder.Configuration[
+        "DataProtection:KeysPath"];
+    if (string.IsNullOrWhiteSpace(dataProtectionKeysPath) ||
+        !Path.IsPathFullyQualified(dataProtectionKeysPath) ||
+        !Directory.Exists(dataProtectionKeysPath) ||
+        !CanWriteToDirectory(dataProtectionKeysPath))
+    {
+        throw new InvalidOperationException(
+            "Production data protection configuration is invalid.");
+    }
+
+    builder.Services
+        .AddDataProtection()
+        .SetApplicationName("Enma")
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+}
 
 string connectionString = builder.Configuration.GetConnectionString("Database")
     ?? throw new InvalidOperationException(
@@ -323,6 +347,20 @@ builder.Services.AddInfrastructure(
     connectionString,
     builder.Configuration,
     builder.Environment.IsDevelopment());
+if (builder.Environment.IsProduction())
+{
+    builder.Services.AddOptions<EmailVerificationDeliveryOptions>()
+        .ValidateOnStart();
+    builder.Services.AddOptions<EmailVerificationSendBudgetOptions>()
+        .ValidateOnStart();
+    builder.Services.AddOptions<DocumentStorageOptions>()
+        .ValidateOnStart();
+}
+builder.Services.AddHealthChecks()
+    .AddCheck<PostgreSqlReadinessHealthCheck>(
+        "postgresql-schema",
+        tags: ["ready"],
+        timeout: TimeSpan.FromSeconds(5));
 builder.Services.AddSingleton<
     INotificationGenerationCycleDelay,
     PeriodicNotificationGenerationCycleDelay>();
@@ -378,12 +416,49 @@ app.MapCalendarEventEndpoints();
 app.MapAgendaEndpoints();
 app.MapDashboardEndpoints();
 app.MapNotificationEndpoints();
+RouteGroupBuilder health = app.MapGroup("/health")
+    .RequireNoStoreResponses();
+health.MapHealthChecks("/live", new HealthCheckOptions
+{
+    Predicate = _ => false
+});
+health.MapHealthChecks("/ready", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains("ready")
+});
 
 app.Run();
 
 static string GetClientIpPartitionKey(HttpContext httpContext)
 {
     return httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+}
+
+static bool CanWriteToDirectory(string directoryPath)
+{
+    string probePath = Path.Combine(
+        directoryPath,
+        $".enma-write-probe-{Guid.NewGuid():N}");
+    try
+    {
+        using FileStream probe = new(
+            probePath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            bufferSize: 1,
+            FileOptions.DeleteOnClose);
+        probe.WriteByte(0);
+        return true;
+    }
+    catch (IOException)
+    {
+        return false;
+    }
+    catch (UnauthorizedAccessException)
+    {
+        return false;
+    }
 }
 
 public partial class Program;

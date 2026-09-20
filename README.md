@@ -76,6 +76,10 @@ Integration tests require Docker.
 
 The current supported production ingress and edge security contract is defined
 in [docs/deployment/production-topology.md](docs/deployment/production-topology.md).
+Use [docs/operations/production-runbook.md](docs/operations/production-runbook.md)
+for the provider-neutral release procedure and
+[docs/deployment/beta-release-checklist.md](docs/deployment/beta-release-checklist.md)
+for the separate Application Ready and Deployment Ready gates.
 
 ## API endpoints
 

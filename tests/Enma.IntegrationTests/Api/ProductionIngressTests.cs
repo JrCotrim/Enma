@@ -264,6 +264,41 @@ public sealed class ProductionIngressTests
     }
 
     [Fact]
+    public void Startup_ProductionWithWildcardSubdomainAllowedHosts_FailsClosed()
+    {
+        Dictionary<string, string?> settings = ValidProductionProxySettings();
+        settings["AllowedHosts"] = "*.example.test";
+
+        AssertProductionStartupFails(settings);
+    }
+
+    [Fact]
+    public void Startup_ProductionWithGoogleFrontendOutsideAllowedHosts_FailsClosed()
+    {
+        const string unauthorizedOrigin = "https://other.example.test";
+        Dictionary<string, string?> settings = ValidProductionProxySettings();
+        settings["AllowedHosts"] = "app.example.test";
+        settings["Authentication:Google:FrontendOrigin"] = unauthorizedOrigin;
+
+        AssertProductionStartupFails(settings, unauthorizedOrigin);
+    }
+
+    [Theory]
+    [InlineData("EmailVerification:Delivery:VerificationPageUrl", "/verify-email")]
+    [InlineData("EmailVerification:Delivery:PasswordRecoveryPageUrl", "/reset-password")]
+    public void Startup_ProductionWithEmailPageOutsideAllowedHosts_FailsClosed(
+        string configurationKey,
+        string path)
+    {
+        const string unauthorizedHost = "other.example.test";
+        Dictionary<string, string?> settings = ValidProductionProxySettings();
+        settings["AllowedHosts"] = "app.example.test";
+        settings[configurationKey] = $"https://{unauthorizedHost}{path}";
+
+        AssertProductionStartupFails(settings, unauthorizedHost);
+    }
+
+    [Fact]
     public void Startup_ProductionWithGlobalForwardedHeadersShortcut_FailsClosed()
     {
         Dictionary<string, string?> settings = ValidProductionProxySettings();
@@ -271,6 +306,73 @@ public sealed class ProductionIngressTests
         settings["ASPNETCORE_FORWARDEDHEADERS_ENABLED"] = "true";
 
         AssertProductionStartupFails(settings);
+    }
+
+    [Fact]
+    public void Startup_ProductionWithoutDataProtectionKeyDirectory_FailsClosed()
+    {
+        Dictionary<string, string?> settings = ValidProductionProxySettings();
+        settings["AllowedHosts"] = "app.example.test";
+        settings["DataProtection:KeysPath"] = string.Empty;
+
+        AssertProductionConfigurationStartupFails(
+            settings,
+            "Production data protection configuration is invalid.");
+    }
+
+    [Fact]
+    public void Startup_ProductionWithoutSmtpPassword_FailsClosedWithoutDisclosure()
+    {
+        const string syntheticUsername = "sensitive-smtp-user";
+        Dictionary<string, string?> settings = ValidProductionProxySettings();
+        settings["AllowedHosts"] = "app.example.test";
+        settings["EmailVerification:Delivery:SmtpUsername"] = syntheticUsername;
+        settings["EmailVerification:Delivery:SmtpPassword"] = string.Empty;
+
+        AssertProductionConfigurationStartupFails(
+            settings,
+            "SmtpPassword",
+            syntheticUsername);
+    }
+
+    [Fact]
+    public void Startup_ProductionWithoutStorageSecret_FailsClosedWithoutDisclosure()
+    {
+        const string syntheticAccessKey = "sensitive-storage-access-key";
+        Dictionary<string, string?> settings = ValidProductionProxySettings();
+        settings["AllowedHosts"] = "app.example.test";
+        settings["DocumentStorage:AccessKey"] = syntheticAccessKey;
+        settings["DocumentStorage:SecretKey"] = string.Empty;
+
+        AssertProductionConfigurationStartupFails(
+            settings,
+            "SecretKey",
+            syntheticAccessKey);
+    }
+
+    [Fact]
+    public void Startup_WithMalformedDatabaseConnectionString_FailsWithoutDisclosure()
+    {
+        const string syntheticSecret = "sensitive-database-secret";
+        var settings = new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Database"] =
+                $"not-a-valid-setting={syntheticSecret}"
+        };
+
+        using ConfiguredApiFactory factory = new("Testing", settings);
+        Exception exception = Assert.ThrowsAny<Exception>(
+            () => _ = factory.Services);
+        string failure = exception.ToString();
+
+        Assert.Contains(
+            "database connection string has an invalid format",
+            failure,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            syntheticSecret,
+            failure,
+            StringComparison.Ordinal);
     }
 
     private static ConfiguredApiFactory CreateIngressFactory(
@@ -392,6 +494,27 @@ public sealed class ProductionIngressTests
         Assert.NotNull(factory.Services);
     }
 
+    private static void AssertProductionConfigurationStartupFails(
+        IReadOnlyDictionary<string, string?> settings,
+        string expectedFailure,
+        string? sensitiveConfigurationValue = null)
+    {
+        using ConfiguredApiFactory factory = new("Production", settings);
+
+        Exception exception = Assert.ThrowsAny<Exception>(
+            () => _ = factory.Services);
+        string failure = exception.ToString();
+        Assert.Contains(expectedFailure, failure, StringComparison.Ordinal);
+
+        if (sensitiveConfigurationValue is not null)
+        {
+            Assert.DoesNotContain(
+                sensitiveConfigurationValue,
+                failure,
+                StringComparison.Ordinal);
+        }
+    }
+
     private static Dictionary<string, string?> ValidProductionProxySettings()
     {
         return new Dictionary<string, string?>
@@ -399,6 +522,33 @@ public sealed class ProductionIngressTests
             ["Deployment:TrustedProxy:Enabled"] = "true",
             ["Deployment:TrustedProxy:KnownProxies:0"] =
                 TrustedProxyAddress.ToString()
+        };
+    }
+
+    private static Dictionary<string, string?> ValidProductionRuntimeSettings()
+    {
+        return new Dictionary<string, string?>
+        {
+            ["DataProtection:KeysPath"] = Path.GetTempPath(),
+            ["EmailVerification:Delivery:VerificationPageUrl"] =
+                "https://app.example.test/verify-email",
+            ["EmailVerification:Delivery:PasswordRecoveryPageUrl"] =
+                "https://app.example.test/reset-password",
+            ["EmailVerification:Delivery:SenderName"] = "ENMA",
+            ["EmailVerification:Delivery:SenderAddress"] =
+                "no-reply@example.test",
+            ["EmailVerification:Delivery:SmtpHost"] = "smtp.example.test",
+            ["EmailVerification:Delivery:SmtpPort"] = "587",
+            ["EmailVerification:Delivery:SmtpSecurity"] = "StartTls",
+            ["EmailVerification:Delivery:SmtpUsername"] = "synthetic-user",
+            ["EmailVerification:Delivery:SmtpPassword"] =
+                "synthetic-password",
+            ["DocumentStorage:ServiceUrl"] = "https://storage.example.test",
+            ["DocumentStorage:BucketName"] = "enma-documents",
+            ["DocumentStorage:Region"] = "us-east-1",
+            ["DocumentStorage:AccessKey"] = "synthetic-access-key",
+            ["DocumentStorage:SecretKey"] = "synthetic-secret-key",
+            ["DocumentStorage:RequireTls"] = "true"
         };
     }
 
@@ -412,9 +562,22 @@ public sealed class ProductionIngressTests
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment(environment);
+            string? databaseConnectionString = settings.TryGetValue(
+                "ConnectionStrings:Database",
+                out string? configuredDatabaseConnectionString)
+                    ? configuredDatabaseConnectionString
+                    : DatabaseConnectionString;
             builder.UseSetting(
                 "ConnectionStrings:Database",
-                DatabaseConnectionString);
+                databaseConnectionString ?? string.Empty);
+            string? dataProtectionKeysPath = settings.TryGetValue(
+                "DataProtection:KeysPath",
+                out string? configuredKeysPath)
+                    ? configuredKeysPath
+                    : Path.GetTempPath();
+            builder.UseSetting(
+                "DataProtection:KeysPath",
+                dataProtectionKeysPath ?? string.Empty);
             builder.ConfigureAppConfiguration((_, configuration) =>
             {
                 if (clearConfiguration)
@@ -422,10 +585,16 @@ public sealed class ProductionIngressTests
                     configuration.Sources.Clear();
                 }
 
-                var testSettings = new Dictionary<string, string?>(settings)
+                Dictionary<string, string?> testSettings =
+                    environment == "Production"
+                        ? ValidProductionRuntimeSettings()
+                        : [];
+                testSettings["ConnectionStrings:Database"] =
+                    DatabaseConnectionString;
+                foreach ((string key, string? value) in settings)
                 {
-                    ["ConnectionStrings:Database"] = DatabaseConnectionString
-                };
+                    testSettings[key] = value;
+                }
                 configuration.AddInMemoryCollection(testSettings);
             });
 

@@ -15,6 +15,7 @@ PUBLIC INTERNET
     v
 ONE TRUSTED EDGE / REVERSE PROXY
     |-- /*       -> Enma.Web static assets, with SPA fallback to index.html
+    |-- /health/* -> Enma.Api operational health endpoints
     |
     `-- /api/*   -> exactly ONE Enma.Api replica over a private path
 ```
@@ -51,6 +52,7 @@ Production must provide all of the following configuration:
   `Deployment__TrustedProxy__KnownIPNetworks__<index>` value
 - `AllowedHosts=<public-hostname>` with the deployment's explicit public host or
   semicolon-delimited public hosts
+- `DataProtection__KeysPath=<existing-absolute-persistent-directory>`
 
 Angle-bracketed values above are placeholders, not production values. Exact
 proxy entries must be valid IP addresses. Network entries must be valid CIDRs.
@@ -75,6 +77,7 @@ Production must provide the complete `EmailVerification:Delivery` configuration
 contract. The required categories are:
 
 - `EmailVerification:Delivery:VerificationPageUrl`
+- `EmailVerification:Delivery:PasswordRecoveryPageUrl`
 - `EmailVerification:Delivery:SenderName`
 - `EmailVerification:Delivery:SenderAddress`
 - `EmailVerification:Delivery:SmtpHost`
@@ -152,10 +155,41 @@ The selected edge implementation must:
 - generate authoritative `X-Forwarded-For` and `X-Forwarded-Proto` values;
 - preserve the intended `Host` value;
 - route `/api/*` to the single private `Enma.Api` replica;
+- route `/health/live` and `/health/ready` to that same private API replica;
 - serve Enma.Web static assets for frontend routes and provide SPA fallback to
   `index.html`;
 - prevent direct public access to the API;
 - keep exactly one API replica under the current process-local rate-limit model.
+
+## Health contract
+
+`GET /health/live` proves only that the API process and HTTP pipeline respond.
+It deliberately runs no external dependency checks, so a temporary database or
+provider outage does not trigger restart cascades.
+
+`GET /health/ready` returns HTTP 200 only when PostgreSQL is reachable and the
+database has no pending EF Core migration. It returns HTTP 503 otherwise. Both
+endpoints return only the aggregate word `Healthy` or `Unhealthy`, set
+`Cache-Control: no-store`, and never expose migration names, connection data,
+credentials, exception messages, users, organizations, or documents. Each
+readiness execution has a five-second timeout.
+
+Document storage and SMTP are not global readiness dependencies. A storage
+outage degrades document operations, whose API contract already returns a safe
+503. An SMTP outage degrades email delivery. Google and the compromised-password
+provider affect only their respective authentication flows. These dependencies
+must have targeted deployment smoke tests and monitoring, but must not make the
+whole API unready.
+
+## Data Protection key ring
+
+Production requires `DataProtection__KeysPath` to name an existing absolute
+directory. Mount it as persistent storage for the single API replica, restrict
+access to the API identity and operators who require recovery access, and use
+encrypted storage. The directory holds ASP.NET Core Data Protection keys used
+by antiforgery and the short-lived external-authentication cookies. It must
+survive process restarts and application replacement. Do not commit, copy into
+an image, expose through the edge, or log its contents.
 
 The HTTPS-owning frontend/edge layer must also deploy and verify a browser
 response-header policy that includes:

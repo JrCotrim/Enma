@@ -22,10 +22,12 @@ public sealed class EmailVerificationDeliveryOptionsValidator
         ValidatePageUrl(
             options.VerificationPageUrl,
             nameof(options.VerificationPageUrl),
+            "/verify-email",
             failures);
         ValidatePageUrl(
             options.PasswordRecoveryPageUrl,
             nameof(options.PasswordRecoveryPageUrl),
+            "/reset-password",
             failures);
         ValidateSenderName(options.SenderName, failures);
         ValidateSenderAddress(options.SenderAddress, failures);
@@ -64,6 +66,7 @@ public sealed class EmailVerificationDeliveryOptionsValidator
     private static void ValidatePageUrl(
         string value,
         string optionName,
+        string expectedPath,
         ICollection<string> failures)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -76,10 +79,14 @@ public sealed class EmailVerificationDeliveryOptionsValidator
         if (value.Length > MaximumVerificationPageUrlLength
             || !Uri.TryCreate(value, UriKind.Absolute, out Uri? uri)
             || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)
-            || string.IsNullOrEmpty(uri.Host))
+            || string.IsNullOrEmpty(uri.Host)
+            || !string.Equals(
+                uri.AbsolutePath,
+                expectedPath,
+                StringComparison.Ordinal))
         {
             failures.Add(
-                $"{EmailVerificationDeliveryOptions.SectionName}:{optionName} must be a reasonable absolute HTTPS URI.");
+                $"{EmailVerificationDeliveryOptions.SectionName}:{optionName} must be an absolute HTTPS URI for {expectedPath}.");
             return;
         }
 

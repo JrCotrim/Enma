@@ -89,6 +89,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using MicrosoftPasswordHasher = Microsoft.AspNetCore.Identity.IPasswordHasher<object>;
 
 namespace Enma.Infrastructure;
@@ -120,6 +121,17 @@ public static class DependencyInjection
         {
             throw new ArgumentException(
                 "The database connection string cannot be null, empty, or whitespace.",
+                nameof(connectionString));
+        }
+
+        try
+        {
+            _ = new NpgsqlConnectionStringBuilder(connectionString);
+        }
+        catch (ArgumentException)
+        {
+            throw new ArgumentException(
+                "The database connection string has an invalid format.",
                 nameof(connectionString));
         }
 

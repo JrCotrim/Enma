@@ -26,6 +26,7 @@ public sealed class EmailVerificationDeliveryOptionsValidatorTests
     [InlineData("")]
     [InlineData("/verify-email")]
     [InlineData("http://app.example/verify-email")]
+    [InlineData("https://app.example/not-verify-email")]
     [InlineData("https://app.example/verify-email?source=email")]
     [InlineData("https://app.example/verify-email#existing")]
     [InlineData("https://user:password@app.example/verify-email")]
@@ -45,6 +46,7 @@ public sealed class EmailVerificationDeliveryOptionsValidatorTests
     [Theory]
     [InlineData("")]
     [InlineData("http://app.example/reset-password")]
+    [InlineData("https://app.example/not-reset-password")]
     [InlineData("https://app.example/reset-password?token=bad")]
     public void Validate_InvalidPasswordRecoveryPageUrl_ReturnsFailure(string value)
     {

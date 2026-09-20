@@ -166,3 +166,31 @@ optional for Closed Beta unless later risk analysis makes them mandatory.
 Provider setup, schedules, alerts, encryption, lifecycle rules, and an actual
 provider restore must be verified in the Production Readiness Gate. Until then,
 production backup activation remains pending.
+
+## Provider activation and failed-backup procedure
+
+After the hosting provider is selected, record the provider-specific evidence
+outside Git and complete all of these steps before declaring Deployment Ready:
+
+1. Enable a daily PostgreSQL backup and an object-storage backup or snapshot
+   schedule that together preserve one consistent recovery point every 24
+   hours or less.
+2. Configure retention for at least the seven latest successful daily recovery
+   points. Confirm lifecycle rules do not delete the only known-good copy.
+3. Store or replicate backups outside the primary application failure domain,
+   encrypted at rest and in transit. Production application credentials must
+   not grant backup-administration or deletion access.
+4. Put backup credentials in the provider's secret store. Grant least privilege,
+   audit access when supported, and never write credentials to manifests,
+   scheduler arguments, source, CI logs, or operator notes.
+5. Configure a failure alert with a named responder. A missed or failed run is
+   an incident: preserve its diagnostics in the restricted operations location,
+   correct capacity/permission/provider causes, run a new backup, and require a
+   successful result. Do not advance a release while the latest required
+   recovery point is missing.
+6. Restore PostgreSQL and all document objects into isolated resources, perform
+   the validations in this runbook, and retain the dated `RESTORE DRILL PASS`
+   evidence. Repeat periodically and after structural database/storage changes.
+
+The repository scripts remain the portable local proof and drill baseline. They
+do not activate, schedule, retain, transfer, or monitor production backups.

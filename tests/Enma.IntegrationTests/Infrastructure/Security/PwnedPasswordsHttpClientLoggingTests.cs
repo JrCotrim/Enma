@@ -199,7 +199,7 @@ public sealed class PwnedPasswordsHttpClientLoggingTests
             logging.AddProvider(loggerProvider);
         });
         services.AddInfrastructure(
-            nameof(PwnedPasswordsHttpClientLoggingTests),
+            "Host=localhost;Database=enma-unused-test",
             new ConfigurationBuilder().Build());
         services.AddSingleton<IHttpMessageHandlerBuilderFilter>(
             new PrimaryHandlerReplacementFilter(primaryHandler));
