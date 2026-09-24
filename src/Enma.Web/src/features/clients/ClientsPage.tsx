@@ -425,44 +425,53 @@ export function ClientsPage() {
               ) : null}
             </div>
           ) : (
-            <div className="clients-table-wrapper">
-              <table className="clients-table">
-                <caption className="visually-hidden">
-                  Clientes da organização {currentOrganization.name}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Nome</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Criado em</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentListState.response.items.map((client) => (
-                    <tr key={client.id}>
-                      <td data-label="Nome">
-                        <Link
-                          className="client-detail-link"
-                          to={encodeURIComponent(client.id)}
+            <section
+              className="clients-results"
+              aria-labelledby="clients-results-title"
+            >
+              <h3 className="clients-results-title" id="clients-results-title">
+                Clientes cadastrados
+              </h3>
+              <ul className="clients-list">
+                {currentListState.response.items.map((client) => (
+                  <li key={client.id}>
+                    <Link
+                      className="client-record-link"
+                      to={encodeURIComponent(client.id)}
+                      aria-labelledby={`client-${client.id}-title`}
+                      aria-describedby={`client-${client.id}-metadata`}
+                    >
+                      <span className="client-record-summary">
+                        <strong
+                          className="client-record-title"
+                          id={`client-${client.id}-title`}
                         >
                           {client.name}
-                        </Link>
-                      </td>
-                      <td data-label="Status">
+                        </strong>
                         <span
-                          className={`client-status ${client.isActive ? 'is-active' : 'is-inactive'}`}
+                          className="client-record-metadata"
+                          id={`client-${client.id}-metadata`}
                         >
-                          {client.isActive ? 'Ativo' : 'Inativo'}
+                          <span
+                            className={`client-status ${client.isActive ? 'is-active' : 'is-inactive'}`}
+                          >
+                            {client.isActive ? 'Ativo' : 'Inativo'}
+                          </span>
+                          <time dateTime={client.createdAt}>
+                            {formatClientCreatedAt(client.createdAt)}
+                          </time>
                         </span>
-                      </td>
-                      <td data-label="Criado em">
-                        {formatClientCreatedAt(client.createdAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </span>
+                      <span className="client-record-chevron" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           <nav className="clients-pagination" aria-label="Paginação de clientes">

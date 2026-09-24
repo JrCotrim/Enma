@@ -322,14 +322,12 @@ describe('Clients D1 flow', () => {
     expect(await screen.findByText(activeClient.name)).toBeInTheDocument()
 
     expect(
-      screen.getByRole('columnheader', { name: 'Nome' }),
+      screen.getByRole('region', { name: 'Clientes cadastrados' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('columnheader', { name: 'Status' }),
+      screen.getByRole('link', { name: activeClient.name }),
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('columnheader', { name: 'Criado em' }),
-    ).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
 
     expect(
       screen.queryByRole('columnheader', { name: 'E-mail' }),

@@ -423,10 +423,27 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
   return (
     <section className="client-details-page" aria-labelledby="client-details-title">
       {backLink}
-      <div className="client-details-header">
-        <div>
-          <p className="eyebrow">Detalhes do cliente</p>
+      <header className="client-details-header">
+        <div className="client-details-heading">
           <h2 id="client-details-title">{client.name}</h2>
+          <dl className="client-details-metadata">
+            <div>
+              <dt>Status</dt>
+              <dd>
+                <span className={`client-status ${client.isActive ? 'is-active' : 'is-inactive'}`}>
+                  {client.isActive ? 'Ativo' : 'Inativo'}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>Criado em</dt>
+              <dd>
+                <time dateTime={client.createdAt}>
+                  {formatClientCreatedAt(client.createdAt)}
+                </time>
+              </dd>
+            </div>
+          </dl>
         </div>
         {canMutateClient && !isEditing && !isDeactivateConfirmationOpen ? (
           <div className="client-detail-actions">
@@ -452,7 +469,7 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
             </button>
           </div>
         ) : null}
-      </div>
+      </header>
 
       {successMessage ? <p className="success-message" role="status">{successMessage}</p> : null}
       {mutationError ? (
@@ -549,26 +566,23 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
         </div>
       ) : null}
 
-      <dl className="client-properties">
-        <div><dt>Nome</dt><dd>{client.name}</dd></div>
-        <div>
-          <dt>E-mail</dt>
-          <dd>{formatOptionalClientField(client.email)}</dd>
-        </div>
-        <div>
-          <dt>Telefone</dt>
-          <dd>{formatOptionalClientField(client.phone)}</dd>
-        </div>
-        <div>
-          <dt>CPF</dt>
-          <dd>{formatOptionalClientField(client.cpf)}</dd>
-        </div>
-        <div>
-          <dt>Status</dt>
-          <dd><span className={`client-status ${client.isActive ? 'is-active' : 'is-inactive'}`}>{client.isActive ? 'Ativo' : 'Inativo'}</span></dd>
-        </div>
-        <div><dt>Criado em</dt><dd>{formatClientCreatedAt(client.createdAt)}</dd></div>
-      </dl>
+      <section className="client-profile" aria-labelledby="client-profile-title">
+        <h3 id="client-profile-title">Contato e identificação</h3>
+        <dl className="client-properties">
+          <div>
+            <dt>E-mail</dt>
+            <dd>{formatOptionalClientField(client.email)}</dd>
+          </div>
+          <div>
+            <dt>Telefone</dt>
+            <dd>{formatOptionalClientField(client.phone)}</dd>
+          </div>
+          <div>
+            <dt>CPF</dt>
+            <dd>{formatOptionalClientField(client.cpf)}</dd>
+          </div>
+        </dl>
+      </section>
 
       {canViewFinance ? (
         <ClientFinanceSummarySection clientId={client.id} />
