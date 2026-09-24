@@ -858,38 +858,52 @@ export function ProcessesPage() {
               ) : null}
             </div>
           ) : (
-            <div className="processes-table-wrapper">
-              <table className="processes-table">
-                <caption className="visually-hidden">
-                  Processos da organização {currentOrganization.name}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Título</th>
-                    <th scope="col">Cliente</th>
-                    <th scope="col">Criado em</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentListState.response.items.map((legalProcess) => (
-                    <tr key={legalProcess.id}>
-                      <td data-label="Título">
-                        <Link
-                          className="process-detail-link"
-                          to={`/organizations/${currentOrganization.id}/processes/${legalProcess.id}`}
+            <section
+              className="processes-results"
+              aria-labelledby="processes-results-title"
+            >
+              <h3
+                className="processes-results-title"
+                id="processes-results-title"
+              >
+                Processos cadastrados
+              </h3>
+              <ul className="processes-list">
+                {currentListState.response.items.map((legalProcess) => (
+                  <li key={legalProcess.id}>
+                    <Link
+                      className="process-record-link"
+                      to={`/organizations/${currentOrganization.id}/processes/${legalProcess.id}`}
+                      aria-labelledby={`process-${legalProcess.id}-title`}
+                      aria-describedby={`process-${legalProcess.id}-metadata`}
+                    >
+                      <span className="process-record-summary">
+                        <strong
+                          className="process-record-title"
+                          id={`process-${legalProcess.id}-title`}
                         >
                           {legalProcess.title}
-                        </Link>
-                      </td>
-                      <td data-label="Cliente">{legalProcess.clientName}</td>
-                      <td data-label="Criado em">
-                        {formatLegalProcessCreatedAt(legalProcess.createdAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        </strong>
+                        <span
+                          className="process-record-metadata"
+                          id={`process-${legalProcess.id}-metadata`}
+                        >
+                          <span>{legalProcess.clientName}</span>
+                          <time dateTime={legalProcess.createdAt}>
+                            {formatLegalProcessCreatedAt(legalProcess.createdAt)}
+                          </time>
+                        </span>
+                      </span>
+                      <span className="process-record-chevron" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           <nav

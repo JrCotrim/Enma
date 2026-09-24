@@ -257,6 +257,12 @@ public sealed class AuditTaxonomyTests
                 "payment_installment.paid",
                 AuditEntityType.PaymentInstallment
             },
+            {
+                AuditEventType.LegalDocumentDeleted,
+                32,
+                "legal_document.deleted",
+                AuditEntityType.LegalDocument
+            },
         };
 
     public static TheoryData<AuditEntityType, int, string> ExpectedEntities =>

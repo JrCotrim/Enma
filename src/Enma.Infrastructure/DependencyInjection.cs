@@ -30,6 +30,7 @@ using Enma.Application.Deadlines.Update;
 using Enma.Application.Dashboard;
 using Enma.Application.Documents.Inspection;
 using Enma.Application.Documents;
+using Enma.Application.Documents.Delete;
 using Enma.Application.Documents.Download;
 using Enma.Application.Documents.GetById;
 using Enma.Application.Documents.List;
@@ -205,6 +206,9 @@ public static class DependencyInjection
         services.AddScoped<
             ILegalDocumentUploadPersistence,
             LegalDocumentUploadPersistence>();
+        services.AddScoped<
+            ILegalDocumentDeletionPersistence,
+            LegalDocumentDeletionPersistence>();
         services.AddScoped<MicrosoftPasswordHasher, PasswordHasher<object>>();
         services.AddScoped<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<ILoginDummyPasswordHashProvider>(serviceProvider =>
@@ -502,6 +506,8 @@ public static class DependencyInjection
         services.AddScoped<ChangeCalendarEventAssigneeUseCase>();
         services.AddScoped<DeleteCalendarEventUseCase>();
         services.AddScoped<UploadLegalDocumentUseCase>();
+        services.AddScoped<DeleteLegalDocumentUseCase>();
+        services.AddScoped<ProcessLegalDocumentDeletionsUseCase>();
         services.AddScoped<DownloadLegalDocumentUseCase>();
         services.AddScoped<GetLegalDocumentUseCase>();
         services.AddScoped<ListLegalDocumentsUseCase>();

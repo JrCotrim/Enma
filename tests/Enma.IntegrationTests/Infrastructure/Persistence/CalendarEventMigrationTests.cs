@@ -109,9 +109,23 @@ public sealed class CalendarEventMigrationTests(
             seedContext.AddRange(
                 graph.LegalProcess,
                 graph.LegalDeadline,
-                graph.LegalTask,
-                graph.LegalDocument);
+                graph.LegalTask);
             await seedContext.SaveChangesAsync();
+            LegalDocument document = graph.LegalDocument;
+            await seedContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO legal_documents
+                    (id, organization_id, client_id, process_id,
+                     original_file_name, stored_object_key, content_type,
+                     size_bytes, content_hash_sha256,
+                     uploaded_by_membership_id, created_at)
+                VALUES
+                    ({document.Id}, {document.OrganizationId}, {document.ClientId},
+                     {document.ProcessId}, {document.OriginalFileName},
+                     {document.StoredObjectKey}, {document.ContentType},
+                     {document.SizeBytes}, {document.ContentHashSha256.ToArray()},
+                     {document.UploadedByMembershipId}, {document.CreatedAt})
+                """);
         }
 
         string[] tablesBefore = await GetPublicTablesAsync();

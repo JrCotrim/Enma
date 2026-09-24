@@ -113,10 +113,16 @@ body:has(.organization-workspace) .workspace-context p {
   font-size: 0.66rem;
 }
 
-/* Keep desktop content aligned with the quieter utility strip. */
+/* Keep routed pages close to the utility strip without moving the locked Dashboard. */
 body:has(.organization-workspace)
   .organization-workspace
-  > :not(.workspace-toolbar):not(.workspace-navigation):not(.workspace-context) {
+  > :not(.workspace-toolbar):not(.workspace-navigation):not(.workspace-context):not(.dashboard-page-phase3e) {
+  padding-top: 0.75rem;
+}
+
+body:has(.organization-workspace)
+  .organization-workspace
+  > .dashboard-page-phase3e:not(.workspace-toolbar):not(.workspace-navigation):not(.workspace-context) {
   padding-top: 1.55rem;
 }
 

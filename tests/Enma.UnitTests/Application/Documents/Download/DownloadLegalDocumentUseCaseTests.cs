@@ -135,6 +135,51 @@ public sealed class DownloadLegalDocumentUseCaseTests
         Assert.Equal(1, storage.OpenReadCallCount);
     }
 
+    [Theory]
+    [InlineData("application/pdf")]
+    [InlineData("image/png")]
+    [InlineData("image/jpeg")]
+    public async Task ExecutePreviewAsync_WithSupportedCanonicalType_StreamsContent(
+        string contentType)
+    {
+        var queries = new FakeContentReadQueries(
+            CreateDocument(1, contentType: contentType));
+        var storage = new FakeStorage(new TrackingStorageReadHandle([1]));
+        DownloadLegalDocumentUseCase useCase = CreateUseCase(
+            OrganizationRole.Member,
+            queries,
+            storage);
+
+        DownloadLegalDocumentResult result = await useCase.ExecutePreviewAsync(
+            CreateQuery());
+
+        Assert.Equal(DownloadLegalDocumentResultStatus.Succeeded, result.Status);
+        Assert.Equal(contentType, result.Download!.ContentType);
+        Assert.Equal(1, storage.OpenReadCallCount);
+        await result.Download.DisposeAsync();
+    }
+
+    [Theory]
+    [InlineData("application/vnd.openxmlformats-officedocument.wordprocessingml.document")]
+    [InlineData("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")]
+    public async Task ExecutePreviewAsync_WithUnsupportedCanonicalType_RejectsBeforeStorage(
+        string contentType)
+    {
+        var queries = new FakeContentReadQueries(
+            CreateDocument(1, contentType: contentType));
+        var storage = new FakeStorage(new TrackingStorageReadHandle([1]));
+        DownloadLegalDocumentUseCase useCase = CreateUseCase(
+            OrganizationRole.Member,
+            queries,
+            storage);
+
+        DownloadLegalDocumentResult result = await useCase.ExecutePreviewAsync(
+            CreateQuery());
+
+        Assert.Same(DownloadLegalDocumentResult.UnsupportedMediaType, result);
+        Assert.Equal(0, storage.OpenReadCallCount);
+    }
+
     [Fact]
     public async Task ExecuteAsync_WithLengthMismatch_DisposesStorageHandleAndFailsSafely()
     {
@@ -301,12 +346,13 @@ public sealed class DownloadLegalDocumentUseCaseTests
 
     private static LegalDocumentContentReadModel CreateDocument(
         long sizeBytes,
-        string storedObjectKey = PersistedObjectKey)
+        string storedObjectKey = PersistedObjectKey,
+        string contentType = "application/pdf")
     {
         return new LegalDocumentContentReadModel(
             DocumentId,
             "trusted-name.pdf",
-            "application/pdf",
+            contentType,
             sizeBytes,
             storedObjectKey);
     }

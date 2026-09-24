@@ -141,6 +141,7 @@ describe('Documents D1 flow', () => {
       `/api/organizations/${organization.id}/documents/${document.id}/content`,
     )
     expect(download).not.toHaveAttribute('data-storage-url')
+    expect(screen.getByRole('button', { name: 'Visualizar' })).toBeVisible()
     expect(screen.queryByText(document.contentHashSha256)).not.toBeInTheDocument()
     expect(screen.queryByText(document.uploadedByMembershipId)).not.toBeInTheDocument()
     expect(screen.queryByText(document.storedObjectKey)).not.toBeInTheDocument()
@@ -154,6 +155,41 @@ describe('Documents D1 flow', () => {
     renderRoute(documentsPath())
 
     expect(await screen.findByText('Carregando documentos...')).toBeInTheDocument()
+  })
+
+  it('DocumentsRoute_PreviewUsesAuthenticatedBlobEndpointWithoutTokensInUrl', async () => {
+    const previewResponse = new Response('%PDF-1.7', {
+      status: 200,
+      headers: { 'Content-Type': 'application/pdf' },
+    })
+    const fetchMock = authenticatedFetch(
+      documentListResponse([document]),
+      previewResponse,
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:document-preview')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+    renderRoute(documentsPath())
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Visualizar' }),
+    )
+
+    expect(
+      await screen.findByTitle(`Conteúdo de ${document.originalFileName}`),
+    ).toHaveAttribute('src', 'blob:document-preview')
+    const [request, init] = fetchMock.mock.calls[3]
+    const url = requestUrl(fetchMock, 3)
+    expect(url.pathname).toBe(
+      `/api/organizations/${organization.id}/documents/${document.id}/preview`,
+    )
+    expect(url.search).toBe('')
+    expect(String(request)).not.toContain('token')
+    expect(init).toMatchObject({
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'same-origin',
+    })
   })
 
   it('DocumentsRoute_EmptyAndFilteredEmptyUseDistinctSafeStates', async () => {
@@ -291,10 +327,38 @@ describe('Documents D1 flow', () => {
       'href',
       `/api/organizations/${organization.id}/documents/${document.id}/content`,
     )
+    expect(within(details).getByRole('button', { name: 'Visualizar' })).toBeVisible()
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(requestUrl(fetchMock, 2).pathname).toBe(
       `/api/organizations/${organization.id}/documents/${document.id}`,
     )
+  })
+
+  it('UnsupportedDocument_HidesPreviewActionAndExplainsDownloadFallback', async () => {
+    const officeDocument = {
+      ...document,
+      originalFileName: 'contrato final.docx',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }
+    const fetchMock = authenticatedFetch(
+      documentListResponse([officeDocument]),
+      response(200, officeDocument),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute(documentsPath())
+
+    await screen.findByRole('link', { name: officeDocument.originalFileName })
+    expect(screen.queryByRole('button', { name: 'Visualizar' })).not.toBeInTheDocument()
+
+    await act(async () =>
+      router.navigate(`${documentsPath()}/${officeDocument.id}`),
+    )
+    expect(
+      await screen.findByText(/pré-visualização não está disponível/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Visualizar' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Baixar documento' })).toBeVisible()
   })
 
   it('DocumentDetails_NotFoundAndMalformedIdFailSafely', async () => {

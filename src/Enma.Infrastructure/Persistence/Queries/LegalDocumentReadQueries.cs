@@ -25,7 +25,8 @@ public sealed class LegalDocumentReadQueries : ILegalDocumentReadQueries
             .AsNoTracking()
             .Where(document =>
                 document.Id == documentId &&
-                document.OrganizationId == organizationId)
+                document.OrganizationId == organizationId &&
+                document.DeletionRequestedAt == null)
             .Select(document => new LegalDocumentMetadataReadModel(
                 document.Id,
                 document.ClientId,
@@ -50,7 +51,8 @@ public sealed class LegalDocumentReadQueries : ILegalDocumentReadQueries
         IQueryable<LegalDocument> documents = _dbContext.LegalDocuments
             .AsNoTracking()
             .Where(document =>
-                document.OrganizationId == request.OrganizationId);
+                document.OrganizationId == request.OrganizationId &&
+                document.DeletionRequestedAt == null);
 
         if (request.FileNameSearch is not null)
         {

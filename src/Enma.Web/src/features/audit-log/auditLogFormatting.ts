@@ -34,6 +34,7 @@ export const auditEventOptions: readonly {
   { value: 'calendar_event.assignee_changed', label: 'Responsável do evento alterado' },
   { value: 'calendar_event.deleted', label: 'Evento de agenda excluído' },
   { value: 'legal_document.uploaded', label: 'Documento enviado' },
+  { value: 'legal_document.deleted', label: 'Documento excluído' },
 ]
 
 export const auditEntityOptions: readonly {

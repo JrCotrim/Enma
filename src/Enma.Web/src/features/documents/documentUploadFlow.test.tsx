@@ -392,4 +392,81 @@ describe('Documents D2 upload flow', () => {
     expect(screen.getByText(/resultado é incerto/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Enviar documento' })).toBeDisabled()
   })
+
+  it('DeleteDocument_OwnerConfirmsWithCsrfAndRefreshesList', async () => {
+    const ownerOrganization: OrganizationNavigationItem = {
+      ...organizationA,
+      role: 'Owner',
+    }
+    const document = {
+      id: '44444444-4444-4444-8444-444444444444',
+      clientId: null,
+      processId: null,
+      originalFileName: 'contrato definitivo.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 128,
+      createdAt: '2026-09-23T16:00:00Z',
+    }
+    let listCount = 0
+    const fetchMock = createFetch((url, init) => {
+      if (url.pathname.endsWith('/documents') && (init?.method ?? 'GET') === 'GET') {
+        listCount += 1
+        return response(200, {
+          items: listCount === 1 ? [document] : [],
+          pageNumber: 1,
+          pageSize: 20,
+          hasNext: false,
+        })
+      }
+      if (url.pathname.endsWith(`/documents/${document.id}`) && init?.method === 'DELETE') {
+        return response(202)
+      }
+      return undefined
+    }, [ownerOrganization])
+    vi.stubGlobal('fetch', fetchMock)
+    renderDocuments()
+
+    const deleteTrigger = await screen.findByRole('button', { name: 'Excluir' })
+    deleteTrigger.focus()
+    fireEvent.click(deleteTrigger)
+    const dialog = await screen.findByRole('alertdialog', {
+      name: 'Excluir documento?',
+    })
+    expect(dialog).toHaveTextContent(document.originalFileName)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir documento' }))
+
+    expect(await screen.findByText(
+      `Documento “${document.originalFileName}” excluído com sucesso.`,
+    )).toBeInTheDocument()
+    expect(await screen.findByRole('heading', {
+      name: 'Nenhum documento disponível',
+    })).toBeInTheDocument()
+    const deleteCall = fetchMock.mock.calls.find(([, init]) =>
+      init?.method === 'DELETE')
+    expect(deleteCall?.[1]?.headers).toEqual({ 'X-CSRF-TOKEN': 'csrf-token' })
+  })
+
+  it('DeleteDocument_MemberDoesNotReceiveDestructiveAction', async () => {
+    const document = {
+      id: '44444444-4444-4444-8444-444444444444',
+      clientId: null,
+      processId: null,
+      originalFileName: 'contrato.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 128,
+      createdAt: '2026-09-23T16:00:00Z',
+    }
+    const fetchMock = createFetch((url, init) =>
+      url.pathname.endsWith('/documents') && (init?.method ?? 'GET') === 'GET'
+        ? response(200, {
+          items: [document], pageNumber: 1, pageSize: 20, hasNext: false,
+        })
+        : undefined)
+    vi.stubGlobal('fetch', fetchMock)
+    renderDocuments()
+
+    expect(await screen.findByText(document.originalFileName)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument()
+  })
 })

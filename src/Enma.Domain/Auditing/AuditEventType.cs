@@ -52,7 +52,8 @@ public enum AuditEventType
     OrganizationInvitationResent = 28,
     ClientProfileUpdated = 29,
     PaymentPlanCreated = 30,
-    PaymentInstallmentPaid = 31
+    PaymentInstallmentPaid = 31,
+    LegalDocumentDeleted = 32
 }
 
 public static class AuditEventTypeExtensions
@@ -104,6 +105,7 @@ public static class AuditEventTypeExtensions
                 "payment_plan.created",
             AuditEventType.PaymentInstallmentPaid =>
                 "payment_installment.paid",
+            AuditEventType.LegalDocumentDeleted => "legal_document.deleted",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -139,7 +141,9 @@ public static class AuditEventTypeExtensions
                 AuditEventType.CalendarEventUpdated or
                 AuditEventType.CalendarEventAssigneeChanged or
                 AuditEventType.CalendarEventDeleted => AuditEntityType.CalendarEvent,
-            AuditEventType.LegalDocumentUploaded => AuditEntityType.LegalDocument,
+            AuditEventType.LegalDocumentUploaded or
+                AuditEventType.LegalDocumentDeleted =>
+                AuditEntityType.LegalDocument,
             AuditEventType.OrganizationInvitationCreated or
                 AuditEventType.OrganizationInvitationRevoked or
                 AuditEventType.OrganizationInvitationAccepted or
@@ -195,6 +199,7 @@ public static class AuditEventTypeExtensions
                 AuditEventType.CalendarEventCreated or
                 AuditEventType.CalendarEventDeleted or
                 AuditEventType.LegalDocumentUploaded or
+                AuditEventType.LegalDocumentDeleted or
                 AuditEventType.OrganizationInvitationRevoked or
                 AuditEventType.OrganizationInvitationAccepted or
                 AuditEventType.OrganizationInvitationResent or

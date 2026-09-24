@@ -305,6 +305,33 @@ public sealed class LegalDocumentTests
         Assert.Equal("createdAt", exception.ParamName);
     }
 
+    [Fact]
+    public void RequestDeletion_WithValidTimestamp_MarksDocumentOnce()
+    {
+        LegalDocument document = CreateDocument();
+        DateTimeOffset requestedAt = CreatedAt.AddHours(1);
+
+        bool firstRequestAccepted = document.RequestDeletion(requestedAt);
+        bool duplicateRequestAccepted = document.RequestDeletion(
+            requestedAt.AddMinutes(1));
+
+        Assert.True(firstRequestAccepted);
+        Assert.False(duplicateRequestAccepted);
+        Assert.Equal(requestedAt, document.DeletionRequestedAt);
+    }
+
+    [Fact]
+    public void RequestDeletion_WithMinimumTimestamp_ThrowsArgumentOutOfRangeException()
+    {
+        LegalDocument document = CreateDocument();
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => document.RequestDeletion(DateTimeOffset.MinValue));
+
+        Assert.Equal("requestedAt", exception.ParamName);
+        Assert.Null(document.DeletionRequestedAt);
+    }
+
     private static LegalDocument CreateDocument(
         Guid? clientId = null,
         Guid? processId = null,

@@ -128,6 +128,11 @@ public sealed class LegalDocumentConfiguration
             .HasColumnType("timestamp with time zone")
             .IsRequired();
 
+        builder.Property(document => document.DeletionRequestedAt)
+            .HasColumnName("deletion_requested_at")
+            .HasColumnType("timestamp with time zone")
+            .IsRequired(false);
+
         builder.HasAlternateKey(document => new
             {
                 document.OrganizationId,
@@ -174,6 +179,15 @@ public sealed class LegalDocumentConfiguration
             })
             .HasDatabaseName(
                 "ix_legal_documents_org_id_uploaded_by_membership_id");
+
+        builder.HasIndex(document => new
+            {
+                document.DeletionRequestedAt,
+                document.Id
+            })
+            .HasFilter("deletion_requested_at IS NOT NULL")
+            .HasDatabaseName(
+                "ix_legal_documents_deletion_requested_at_id");
 
         builder.HasOne<Organization>()
             .WithMany()

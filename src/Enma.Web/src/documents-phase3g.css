@@ -374,8 +374,15 @@
 .documents-table td:first-child a {
   color: var(--documents-accent);
   font-weight: 760;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
   text-underline-offset: 0.18em;
   text-decoration-thickness: 1px;
+}
+
+.documents-table td:first-child a:hover,
+.documents-table td:first-child a:focus-visible {
+  border-bottom-color: currentColor;
 }
 
 .document-row-actions {
@@ -385,11 +392,25 @@
   gap: 0.75rem;
 }
 
-.document-row-actions a {
+.document-row-actions :is(a, button) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0.25rem 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
   color: var(--documents-accent);
+  background: transparent;
+  font-family: inherit;
   font-size: 0.76rem;
   font-weight: 720;
-  text-underline-offset: 0.18em;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.document-row-actions :is(a, button):hover,
+.document-row-actions :is(a, button):focus-visible {
+  border-bottom-color: currentColor;
 }
 
 .documents-pagination {
@@ -426,6 +447,236 @@
   flex-wrap: wrap;
   gap: 0.6rem;
 }
+
+.document-preview-unavailable {
+  width: fit-content;
+  max-width: 65ch;
+  margin: 0;
+  color: var(--documents-muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+/* ---------- Preview dialog ---------- */
+
+.document-preview-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  padding: clamp(0.65rem, 2vw, 1.5rem);
+  place-items: center;
+  background: rgba(13, 8, 16, 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.document-preview-dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(100%, 78rem);
+  height: min(92dvh, 56rem);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(228, 211, 237, 0.14);
+  border-radius: 1rem;
+  color: var(--documents-text, #eee7f1);
+  background: #211824;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.42);
+}
+
+.document-preview-header,
+.document-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.document-preview-header {
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(228, 211, 237, 0.1);
+}
+
+.document-preview-header > div {
+  min-width: 0;
+}
+
+.document-preview-header h2 {
+  margin: 0;
+  color: #eee7f1;
+  font-family: var(--enma-ui-font-display);
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.document-preview-header p {
+  margin: 0.2rem 0 0;
+  color: #b1a5b6;
+  font-size: 0.76rem;
+}
+
+.document-preview-close {
+  min-height: 2.6rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid rgba(228, 211, 237, 0.14);
+  border-radius: 0.65rem;
+  color: #eee7f1;
+  background: rgba(255, 255, 255, 0.055);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.document-preview-close:hover {
+  background: rgba(164, 91, 214, 0.12);
+}
+
+.document-preview-content {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  place-items: center;
+  background: #171119;
+  scrollbar-color: #6f477e #171119;
+}
+
+.document-preview-pdf {
+  width: 100%;
+  height: 100%;
+  min-height: 28rem;
+  border: 0;
+  background: #f4f1f5;
+}
+
+.document-preview-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.document-preview-state {
+  max-width: 38rem;
+  margin: 0;
+  padding: 2rem;
+  color: #c9bdce;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.document-preview-state p {
+  margin: 0 0 1rem;
+}
+
+.document-preview-actions {
+  justify-content: flex-end;
+  border-top: 1px solid rgba(228, 211, 237, 0.1);
+}
+
+.document-preview-dialog :is(a, button):focus-visible {
+  outline: 2px solid #d6a8ed;
+  outline-offset: 3px;
+}
+
+/* Portal dialogs are mounted in document.body, outside the scoped document-page tokens. */
+.document-preview-dialog .primary-button {
+  color: #fcf6ff !important;
+  border-color: rgba(211, 164, 237, 0.46) !important;
+  background: #7d43a8 !important;
+}
+
+.document-preview-dialog .primary-button:hover:not(:disabled) {
+  border-color: rgba(225, 187, 246, 0.68) !important;
+  background: #975ac0 !important;
+}
+
+.document-preview-dialog .secondary-button {
+  color: #eee7f1 !important;
+  border-color: rgba(228, 211, 237, 0.22) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.document-preview-dialog .secondary-button:hover:not(:disabled) {
+  border-color: rgba(211, 164, 237, 0.38) !important;
+  background: rgba(164, 91, 214, 0.14) !important;
+}
+
+/* ---------- Delete confirmation ---------- */
+
+.document-delete-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  padding: 1rem;
+  place-items: center;
+  background: rgba(13, 8, 16, 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.document-delete-dialog {
+  width: min(100%, 31rem);
+  padding: clamp(1.25rem, 4vw, 1.75rem);
+  border: 1px solid rgba(228, 211, 237, 0.14);
+  border-radius: 1rem;
+  color: var(--documents-text, #eee7f1);
+  background: #211824;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.42);
+}
+
+.document-delete-dialog h2 {
+  margin: 0.35rem 0 0.75rem;
+  color: inherit;
+  font-family: var(--enma-ui-font-display);
+  font-size: 1.45rem;
+}
+
+.document-delete-dialog > p:not(.eyebrow) {
+  margin: 0;
+  color: #c9bdce;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.document-delete-dialog .form-error {
+  margin-top: 1rem;
+}
+
+.document-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 1.35rem;
+}
+
+.document-delete-dialog :is(button):focus-visible {
+  outline: 2px solid #d6a8ed;
+  outline-offset: 3px;
+}
+/* Destructive context: keep the confirm action red; only restyle label/cancel. */
+.document-delete-dialog .eyebrow {
+  color: #f2a0b2 !important;
+}
+
+.document-delete-dialog .secondary-button {
+  color: #eee7f1 !important;
+  border-color: rgba(228, 211, 237, 0.22) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.document-delete-dialog .secondary-button:hover:not(:disabled) {
+  border-color: rgba(211, 164, 237, 0.38) !important;
+  background: rgba(164, 91, 214, 0.14) !important;
+}
+
 
 .document-properties {
   display: grid;
@@ -615,5 +866,21 @@
 
   .document-properties > div:last-child {
     border-bottom: 0;
+  }
+
+  .document-preview-dialog {
+    height: calc(100dvh - 1.3rem);
+  }
+
+  .document-preview-header {
+    align-items: flex-start;
+  }
+
+  .document-preview-actions .primary-button {
+    width: 100%;
+  }
+
+  .document-preview-pdf {
+    min-height: 20rem;
   }
 }

@@ -24,6 +24,7 @@ export const auditEventTypes = [
   'calendar_event.assignee_changed',
   'calendar_event.deleted',
   'legal_document.uploaded',
+  'legal_document.deleted',
 ] as const
 
 export type AuditEventType = (typeof auditEventTypes)[number]

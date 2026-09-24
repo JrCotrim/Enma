@@ -4,11 +4,13 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Enma.Api.Contracts.Documents;
+using Enma.Api.Documents;
 using Enma.Application.Authentication;
 using Enma.Application.Documents.Inspection;
 using Enma.Application.Documents.Staging;
 using Enma.Application.Documents.Storage;
 using Enma.Application.Documents.Upload;
+using Enma.Domain.Auditing;
 using Enma.Domain.Authentication;
 using Enma.Domain.Documents;
 using Enma.Domain.Organizations;
@@ -22,6 +24,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Net.Http.Headers;
 using HttpMediaTypeHeaderValue = System.Net.Http.Headers.MediaTypeHeaderValue;
 using ClientEntity = Enma.Domain.Clients.Client;
@@ -61,6 +64,11 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         this.fixture = fixture;
         factory = new EnmaApiFactory(fixture, services =>
         {
+            ServiceDescriptor deletionWorker = services.Single(descriptor =>
+                descriptor.ServiceType == typeof(IHostedService) &&
+                descriptor.ImplementationType ==
+                    typeof(LegalDocumentDeletionWorker));
+            services.Remove(deletionWorker);
             services.RemoveAll<TimeProvider>();
             services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
             services.RemoveAll<ILegalDocumentStorage>();
@@ -799,6 +807,10 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
             GetDocumentContentPath(
                 anonymousOrganizationId,
                 anonymousDocumentId));
+        using HttpResponseMessage anonymousPreview = await client.GetAsync(
+            GetDocumentPreviewPath(
+                anonymousOrganizationId,
+                anonymousDocumentId));
 
         await AssertEmptyNoStoreAsync(
             anonymousList,
@@ -808,6 +820,9 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
             HttpStatusCode.Unauthorized);
         await AssertEmptyNoStoreAsync(
             anonymousDownload,
+            HttpStatusCode.Unauthorized);
+        await AssertEmptyNoStoreAsync(
+            anonymousPreview,
             HttpStatusCode.Unauthorized);
 
         User actor = CreateUser("foreign-route");
@@ -837,11 +852,19 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
                 foreignOrganization.Id,
                 Guid.NewGuid()),
             rawHandle);
+        using HttpResponseMessage foreignPreview = await SendGetAsync(
+            GetDocumentPreviewPath(
+                foreignOrganization.Id,
+                Guid.NewGuid()),
+            rawHandle);
 
         await AssertEmptyNoStoreAsync(foreignList, HttpStatusCode.Forbidden);
         await AssertEmptyNoStoreAsync(foreignDetail, HttpStatusCode.Forbidden);
         await AssertEmptyNoStoreAsync(
             foreignDownload,
+            HttpStatusCode.Forbidden);
+        await AssertEmptyNoStoreAsync(
+            foreignPreview,
             HttpStatusCode.Forbidden);
 
         User inactiveActor = CreateUser("inactive-list");
@@ -1156,6 +1179,162 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         Assert.True(handle.IsDisposed);
     }
 
+    [Theory]
+    [InlineData("application/pdf", "visualização.pdf")]
+    [InlineData("image/png", "imagem.png")]
+    [InlineData("image/jpeg", "fotografia.jpeg")]
+    public async Task PreviewLegalDocument_SupportedType_StreamsInlineWithSecurityHeaders(
+        string contentType,
+        string fileName)
+    {
+        byte[] payload = "synthetic preview content"u8.ToArray();
+        User actor = CreateUser("preview");
+        Organization organization = CreateOrganization("Preview");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        LegalDocumentStorageObjectKey objectKey =
+            LegalDocumentStorageObjectKey.CreateNew();
+        LegalDocument document = CreateDocument(
+            organization,
+            membership,
+            objectKey,
+            fileName,
+            payload,
+            contentType: contentType);
+        storage.AddContent(objectKey, payload);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [],
+            [],
+            [document]);
+
+        using HttpResponseMessage response = await SendGetAsync(
+            GetDocumentPreviewPath(organization.Id, document.Id),
+            rawHandle);
+        byte[] actual = await response.Content.ReadAsByteArrayAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(payload, actual);
+        Assert.Equal(contentType, response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(payload.LongLength, response.Content.Headers.ContentLength);
+        Assert.Equal(
+            "inline",
+            response.Content.Headers.ContentDisposition?.DispositionType);
+        Assert.Equal(fileName, response.Content.Headers.ContentDisposition?.FileNameStar);
+        Assert.True(response.Headers.CacheControl?.Private);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("DENY", response.Headers.GetValues("X-Frame-Options").Single());
+        Assert.Equal(
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+            response.Headers.GetValues("Content-Security-Policy").Single());
+        Assert.True(Assert.IsType<TrackingStorageReadHandle>(storage.LastHandle).IsDisposed);
+    }
+
+    [Theory]
+    [InlineData("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "arquivo.docx")]
+    [InlineData("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "planilha.xlsx")]
+    public async Task PreviewLegalDocument_UnsupportedType_Returns415BeforeStorage(
+        string contentType,
+        string fileName)
+    {
+        User actor = CreateUser("preview-unsupported");
+        Organization organization = CreateOrganization("Preview unsupported");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        LegalDocument document = CreateDocument(
+            organization,
+            membership,
+            LegalDocumentStorageObjectKey.CreateNew(),
+            fileName,
+            [0x01],
+            contentType: contentType);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [],
+            [],
+            [document]);
+
+        using HttpResponseMessage response = await SendGetAsync(
+            GetDocumentPreviewPath(organization.Id, document.Id),
+            rawHandle);
+
+        await AssertEmptyNoStoreAsync(
+            response,
+            HttpStatusCode.UnsupportedMediaType);
+        Assert.Equal(0, storage.OpenReadCount);
+    }
+
+    [Fact]
+    public async Task PreviewLegalDocument_MissingForeignAndUnavailable_AreSafe()
+    {
+        User actor = CreateUser("preview-safe-actor");
+        User foreignUploader = CreateUser("preview-safe-foreign");
+        Organization organization = CreateOrganization("Preview safe Alpha");
+        Organization foreignOrganization = CreateOrganization("Preview safe Beta");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        OrganizationMembership foreignMembership = CreateMembership(
+            foreignUploader,
+            foreignOrganization,
+            OrganizationRole.Owner);
+        LegalDocument unavailableDocument = CreateDocument(
+            organization,
+            membership,
+            LegalDocumentStorageObjectKey.CreateNew(),
+            "unavailable.pdf",
+            [0x01]);
+        LegalDocument foreignDocument = CreateDocument(
+            foreignOrganization,
+            foreignMembership,
+            LegalDocumentStorageObjectKey.CreateNew(),
+            "foreign.pdf",
+            [0x02]);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [foreignUploader],
+            [organization, foreignOrganization],
+            [membership, foreignMembership],
+            [],
+            [],
+            [unavailableDocument, foreignDocument]);
+
+        using HttpResponseMessage missing = await SendGetAsync(
+            GetDocumentPreviewPath(organization.Id, Guid.NewGuid()),
+            rawHandle);
+        using HttpResponseMessage foreign = await SendGetAsync(
+            GetDocumentPreviewPath(organization.Id, foreignDocument.Id),
+            rawHandle);
+
+        await AssertEmptyNoStoreAsync(missing, HttpStatusCode.NotFound);
+        await AssertEmptyNoStoreAsync(foreign, HttpStatusCode.NotFound);
+        Assert.Equal(0, storage.OpenReadCount);
+
+        using HttpResponseMessage unavailable = await SendGetAsync(
+            GetDocumentPreviewPath(organization.Id, unavailableDocument.Id),
+            rawHandle);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, unavailable.StatusCode);
+        Assert.True(unavailable.Headers.CacheControl?.NoStore);
+        Assert.DoesNotContain(
+            unavailableDocument.StoredObjectKey,
+            await unavailable.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
+        Assert.Equal(1, storage.OpenReadCount);
+    }
+
     [Fact]
     public async Task DownloadLegalDocument_MissingForeignDeniedAndUnavailable_AreSafeAndDoNotExposeStorage()
     {
@@ -1301,6 +1480,105 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         Assert.True(handle.IsDisposed);
     }
 
+    [Fact]
+    public async Task DeleteLegalDocument_OwnerWithCsrf_AcceptsAndHidesDocumentImmediately()
+    {
+        User actor = CreateUser("delete-owner");
+        Organization organization = CreateOrganization("Delete owner");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Owner);
+        LegalDocument document = CreateDocument(
+            organization,
+            membership,
+            LegalDocumentStorageObjectKey.CreateNew(),
+            "delete-me.pdf",
+            CreateValidPdf());
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [],
+            [],
+            [document]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage response = await SendDeleteAsync(
+            organization.Id,
+            document.Id,
+            rawHandle,
+            csrf);
+
+        await AssertEmptyNoStoreAsync(response, HttpStatusCode.Accepted);
+        using HttpResponseMessage hidden = await SendGetAsync(
+            GetDocumentPath(organization.Id, document.Id),
+            rawHandle);
+        await AssertEmptyNoStoreAsync(hidden, HttpStatusCode.NotFound);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        LegalDocument persisted = await dbContext.LegalDocuments
+            .AsNoTracking()
+            .SingleAsync(item => item.Id == document.Id);
+        Assert.Equal(Now, persisted.DeletionRequestedAt);
+        AuditLog audit = await dbContext.AuditLogs.AsNoTracking().SingleAsync();
+        Assert.Equal(AuditEventType.LegalDocumentDeleted, audit.EventType);
+        Assert.Equal(document.Id, audit.EntityId);
+    }
+
+    [Fact]
+    public async Task DeleteLegalDocument_RequiresAuthenticationCsrfAndPrivilegedRole()
+    {
+        User actor = CreateUser("delete-member");
+        Organization organization = CreateOrganization("Delete member");
+        OrganizationMembership membership = CreateMembership(
+            actor,
+            organization,
+            OrganizationRole.Member);
+        LegalDocument document = CreateDocument(
+            organization,
+            membership,
+            LegalDocumentStorageObjectKey.CreateNew(),
+            "protected.pdf",
+            CreateValidPdf());
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            actor,
+            [],
+            [organization],
+            [membership],
+            [],
+            [],
+            [document]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage anonymous = await SendDeleteAsync(
+            organization.Id,
+            document.Id,
+            null,
+            null);
+        using HttpResponseMessage missingCsrf = await SendDeleteAsync(
+            organization.Id,
+            document.Id,
+            rawHandle,
+            null);
+        using HttpResponseMessage member = await SendDeleteAsync(
+            organization.Id,
+            document.Id,
+            rawHandle,
+            csrf);
+
+        await AssertEmptyNoStoreAsync(anonymous, HttpStatusCode.Unauthorized);
+        await AssertEmptyNoStoreAsync(missingCsrf, HttpStatusCode.BadRequest);
+        await AssertEmptyNoStoreAsync(member, HttpStatusCode.Forbidden);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        LegalDocument persisted = await dbContext.LegalDocuments
+            .AsNoTracking()
+            .SingleAsync();
+        Assert.Null(persisted.DeletionRequestedAt);
+        Assert.False(await dbContext.AuditLogs.AnyAsync());
+    }
+
     private static string[] GetPropertyNames<T>()
     {
         return typeof(T).GetProperties().Select(property => property.Name).ToArray();
@@ -1363,7 +1641,8 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         byte[] payload,
         Guid? clientId = null,
         Guid? processId = null,
-        int createdMinutesAgo = 1)
+        int createdMinutesAgo = 1,
+        string contentType = "application/pdf")
     {
         return new LegalDocument(
             organization.Id,
@@ -1371,7 +1650,7 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
             processId,
             originalFileName,
             objectKey.Value,
-            "application/pdf",
+            contentType,
             payload.LongLength,
             new LegalDocumentContentHash(SHA256.HashData(payload)),
             uploader.Id,
@@ -1613,6 +1892,19 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         return await client.SendAsync(request);
     }
 
+    private async Task<HttpResponseMessage> SendDeleteAsync(
+        Guid organizationId,
+        Guid documentId,
+        string? rawHandle,
+        CsrfPair? csrf)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Delete,
+            GetDocumentPath(organizationId, documentId));
+        AddCookiesAndCsrf(request, rawHandle, csrf, csrf?.RequestToken);
+        return await client.SendAsync(request);
+    }
+
     private async Task SetPersistedFileNameAsync(
         Guid documentId,
         string fileName)
@@ -1660,6 +1952,13 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         Guid documentId)
     {
         return $"{GetDocumentPath(organizationId, documentId)}/content";
+    }
+
+    private static string GetDocumentPreviewPath(
+        Guid organizationId,
+        Guid documentId)
+    {
+        return $"{GetDocumentPath(organizationId, documentId)}/preview";
     }
 
     private static byte[] CreateValidPdf()

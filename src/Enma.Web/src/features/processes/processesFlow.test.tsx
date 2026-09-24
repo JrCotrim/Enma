@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -164,7 +164,18 @@ describe('Processes D1 flow', () => {
       'href',
       `/organizations/${memberOrganization.id}/processes`,
     )
-    expect(await screen.findByText(legalProcess.title)).toBeInTheDocument()
+    const results = await screen.findByRole('region', {
+      name: 'Processos cadastrados',
+    })
+    const processLink = within(results).getByRole('link', {
+      name: new RegExp(legalProcess.title),
+    })
+    expect(processLink).toHaveAttribute(
+      'href',
+      `/organizations/${memberOrganization.id}/processes/${legalProcess.id}`,
+    )
+    expect(within(results).getAllByRole('listitem')).toHaveLength(1)
+    expect(within(results).queryByRole('table')).not.toBeInTheDocument()
     expect(screen.getByText(legalProcess.clientName)).toBeInTheDocument()
     expect(screen.getByText(/12\/08\/2026/)).toBeInTheDocument()
     expect(

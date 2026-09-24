@@ -23,7 +23,8 @@ public sealed class LegalDocumentContentReadQueries
             .AsNoTracking()
             .Where(document =>
                 document.OrganizationId == organizationId &&
-                document.Id == documentId)
+                document.Id == documentId &&
+                document.DeletionRequestedAt == null)
             .Select(document => new LegalDocumentContentReadModel(
                 document.Id,
                 document.OriginalFileName,

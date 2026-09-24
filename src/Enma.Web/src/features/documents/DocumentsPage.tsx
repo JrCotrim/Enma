@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../authentication/AuthContext'
 import { isValidGuid } from '../deadlines/legalDeadlineFormatting'
 import { lookupLegalProcesses } from '../deadlines/legalProcessLookupService'
@@ -19,14 +19,19 @@ import {
 } from './documentFormatting'
 import {
   DocumentRequestError,
+  deleteDocument,
   getDocumentDownloadUrl,
+  isDocumentPreviewSupported,
   listDocuments,
   uploadDocument,
 } from './documentService'
 import type {
   LegalDocumentListResponse,
+  LegalDocumentMetadata,
   LegalDocumentUploadClassification,
 } from './documentTypes'
+import { DocumentPreviewDialog } from './DocumentPreviewDialog'
+import { DocumentDeleteDialog } from './DocumentDeleteDialog'
 
 const pageSize = 20
 const maximumPageNumber = 2_147_483_647
@@ -87,6 +92,8 @@ function OrganizationDocumentsPage() {
   const { currentOrganization } = useCurrentOrganization()
   const { refreshOrganizations } = useOrganizationDiscovery()
   const { handleUnauthorized } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const search = (searchParams.get('search') ?? '').slice(0, maximumSearchLength)
   const processParameter = searchParams.get('processId')
@@ -142,6 +149,32 @@ function OrganizationDocumentsPage() {
     readonly message: string
   }>()
   const [isUploading, setIsUploading] = useState(false)
+  const [previewDocument, setPreviewDocument] =
+    useState<LegalDocumentMetadata>()
+  const [previewReturnFocus, setPreviewReturnFocus] =
+    useState<HTMLButtonElement | null>(null)
+  const [deleteTarget, setDeleteTarget] =
+    useState<LegalDocumentMetadata>()
+  const [deleteReturnFocus, setDeleteReturnFocus] =
+    useState<HTMLButtonElement | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string>()
+  const [deleteSuccess, setDeleteSuccess] = useState<string>(() => {
+    const value = location.state as { deletedDocumentName?: unknown } | null
+    return typeof value?.deletedDocumentName === 'string'
+      ? `Documento “${value.deletedDocumentName}” excluído com sucesso.`
+      : ''
+  })
+
+  useEffect(() => {
+    const value = location.state as { deletedDocumentName?: unknown } | null
+    if (typeof value?.deletedDocumentName !== 'string') return
+
+    void navigate(`${location.pathname}${location.search}`, {
+      replace: true,
+      state: null,
+    })
+  }, [location.pathname, location.search, location.state, navigate])
 
   function clearUploadFormState() {
     setIsUploadOpen(false)
@@ -452,6 +485,45 @@ function OrganizationDocumentsPage() {
     }
   }
 
+  async function confirmDeletion() {
+    if (!deleteTarget || isDeleting) return
+
+    setIsDeleting(true)
+    setDeleteError(undefined)
+    try {
+      await deleteDocument(
+        currentOrganization.id,
+        deleteTarget.id,
+        handleUnauthorized,
+      )
+      setPreviewDocument((current) =>
+        current?.id === deleteTarget.id ? undefined : current,
+      )
+      setDeleteSuccess(
+        `Documento “${deleteTarget.originalFileName}” excluído com sucesso.`,
+      )
+      setDeleteTarget(undefined)
+      setRefreshVersion((version) => version + 1)
+    } catch (error) {
+      if (
+        error instanceof DocumentRequestError &&
+        error.failure === 'unauthorized'
+      ) return
+
+      setDeleteError(
+        error instanceof DocumentRequestError &&
+        error.failure === 'forbidden'
+          ? 'Você não tem mais permissão para excluir este documento.'
+          : error instanceof DocumentRequestError &&
+              error.failure === 'not-found'
+            ? 'O documento não está mais disponível. Atualize a lista.'
+            : 'Não foi possível excluir o documento. Tente novamente.',
+      )
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const currentClient = selectedClient?.id === clientId ? selectedClient : undefined
   const currentProcess =
     selectedProcess?.id === processId ? selectedProcess : undefined
@@ -464,7 +536,7 @@ function OrganizationDocumentsPage() {
           <p className="eyebrow workspace-page-eyebrow">ACERVO JURÍDICO</p>
           <h2 className="workspace-page-title" id="documents-title">Documentos</h2>
           <p className="documents-description workspace-page-subtitle">
-            Consulte e baixe os documentos privados desta organização.
+            Consulte, visualize e baixe os documentos privados desta organização.
           </p>
         </div>
         {!isUploadOpen ? (
@@ -476,6 +548,9 @@ function OrganizationDocumentsPage() {
 
       {uploadSuccess?.organizationId === currentOrganization.id ? (
         <p className="success-message" role="status">{uploadSuccess.message}</p>
+      ) : null}
+      {deleteSuccess ? (
+        <p className="success-message" role="status">{deleteSuccess}</p>
       ) : null}
 
       {isUploadOpen &&
@@ -867,7 +942,32 @@ function OrganizationDocumentsPage() {
                     <td data-label="Ações">
                       <div className="document-row-actions">
                         <Link to={document.id}>Ver detalhes</Link>
+                        {isDocumentPreviewSupported(document.contentType) ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              setPreviewReturnFocus(event.currentTarget)
+                              setPreviewDocument(document)
+                            }}
+                          >
+                            Visualizar
+                          </button>
+                        ) : null}
                         <a href={getDocumentDownloadUrl(currentOrganization.id, document.id)}>Baixar</a>
+                        {currentOrganization.role !== 'Member' ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              setPreviewDocument(undefined)
+                              setDeleteError(undefined)
+                              setDeleteSuccess('')
+                              setDeleteReturnFocus(event.currentTarget)
+                              setDeleteTarget(document)
+                            }}
+                          >
+                            Excluir
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -881,6 +981,28 @@ function OrganizationDocumentsPage() {
             <button className="secondary-button" type="button" disabled={!currentListState.response.hasNext} onClick={() => navigateToPage(page + 1)}>Próxima página</button>
           </div>
         </>
+      ) : null}
+
+      {previewDocument ? (
+        <DocumentPreviewDialog
+          document={previewDocument}
+          organizationId={currentOrganization.id}
+          returnFocus={previewReturnFocus}
+          onClose={() => setPreviewDocument(undefined)}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <DocumentDeleteDialog
+          document={deleteTarget}
+          returnFocus={deleteReturnFocus}
+          isDeleting={isDeleting}
+          error={deleteError}
+          onCancel={() => {
+            if (!isDeleting) setDeleteTarget(undefined)
+          }}
+          onConfirm={() => void confirmDeletion()}
+        />
       ) : null}
     </section>
   )

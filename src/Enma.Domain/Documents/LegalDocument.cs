@@ -109,6 +109,24 @@ public sealed class LegalDocument
 
     public DateTimeOffset CreatedAt { get; private set; }
 
+    public DateTimeOffset? DeletionRequestedAt { get; private set; }
+
+    public bool RequestDeletion(DateTimeOffset requestedAt)
+    {
+        if (requestedAt == DateTimeOffset.MinValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(requestedAt));
+        }
+
+        if (DeletionRequestedAt.HasValue)
+        {
+            return false;
+        }
+
+        DeletionRequestedAt = requestedAt;
+        return true;
+    }
+
     private static string NormalizeOriginalFileName(
         string originalFileName)
     {

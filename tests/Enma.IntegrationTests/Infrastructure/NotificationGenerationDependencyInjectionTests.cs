@@ -1,4 +1,5 @@
 using Enma.Api.Notifications;
+using Enma.Api.Documents;
 using Enma.Application.Notifications;
 using Enma.Infrastructure;
 using Enma.Infrastructure.Persistence;
@@ -82,5 +83,11 @@ public sealed class NotificationGenerationDependencyInjectionTests(
         Assert.IsType<PeriodicNotificationGenerationCycleDelay>(
             factory.Services
                 .GetRequiredService<INotificationGenerationCycleDelay>());
+        Assert.Single(
+            hostedServices,
+            service => service is LegalDocumentDeletionWorker);
+        Assert.IsType<PeriodicLegalDocumentDeletionCycleDelay>(
+            factory.Services
+                .GetRequiredService<ILegalDocumentDeletionCycleDelay>());
     }
 }

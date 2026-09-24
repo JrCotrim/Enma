@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Deployment;
+using Enma.Api.Documents;
 using Enma.Api.Endpoints;
 using Enma.Api.Endpoints.Agenda;
 using Enma.Api.Endpoints.Auditing;
@@ -365,6 +366,10 @@ builder.Services.AddSingleton<
     INotificationGenerationCycleDelay,
     PeriodicNotificationGenerationCycleDelay>();
 builder.Services.AddHostedService<NotificationGenerationWorker>();
+builder.Services.AddSingleton<
+    ILegalDocumentDeletionCycleDelay,
+    PeriodicLegalDocumentDeletionCycleDelay>();
+builder.Services.AddHostedService<LegalDocumentDeletionWorker>();
 
 var app = builder.Build();
 

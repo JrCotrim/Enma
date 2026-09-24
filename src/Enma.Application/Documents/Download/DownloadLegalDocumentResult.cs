@@ -33,6 +33,10 @@ public sealed class DownloadLegalDocumentResult
         DownloadLegalDocumentResultStatus.ContentUnavailable,
         null);
 
+    public static DownloadLegalDocumentResult UnsupportedMediaType { get; } = new(
+        DownloadLegalDocumentResultStatus.UnsupportedMediaType,
+        null);
+
     public static DownloadLegalDocumentResult Succeeded(
         LegalDocumentDownload download)
     {
@@ -50,5 +54,6 @@ public enum DownloadLegalDocumentResultStatus
     NotFound = 1,
     InvalidInput = 2,
     ContentUnavailable = 3,
-    Succeeded = 4
+    Succeeded = 4,
+    UnsupportedMediaType = 5
 }

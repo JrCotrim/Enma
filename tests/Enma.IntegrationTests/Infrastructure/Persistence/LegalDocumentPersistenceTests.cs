@@ -630,6 +630,10 @@ public sealed class LegalDocumentPersistenceTests(
             entityType.FindProperty(
                 nameof(LegalDocument.UploadedByMembershipId))!
                 .IsNullable);
+        Assert.True(
+            entityType.FindProperty(
+                nameof(LegalDocument.DeletionRequestedAt))!
+                .IsNullable);
         Assert.Equal(
             255,
             entityType.FindProperty(
@@ -662,7 +666,7 @@ public sealed class LegalDocumentPersistenceTests(
                 .Select(property => property.Name)
                 .ToArray());
 
-        Assert.Equal(5, entityType.GetIndexes().Count());
+        Assert.Equal(6, entityType.GetIndexes().Count());
 
         AssertIndex(
             entityType,
@@ -705,6 +709,15 @@ public sealed class LegalDocumentPersistenceTests(
             [
                 nameof(LegalDocument.OrganizationId),
                 nameof(LegalDocument.UploadedByMembershipId)
+            ]);
+
+        AssertIndex(
+            entityType,
+            "ix_legal_documents_deletion_requested_at_id",
+            false,
+            [
+                nameof(LegalDocument.DeletionRequestedAt),
+                nameof(LegalDocument.Id)
             ]);
 
         AssertForeignKey(
@@ -784,6 +797,14 @@ public sealed class LegalDocumentPersistenceTests(
             await GetIndexDefinitionAsync(
                 "legal_documents",
                 "ix_legal_documents_org_id_uploaded_by_membership_id"));
+        string deletionIndex = Assert.IsType<string>(
+            await GetIndexDefinitionAsync(
+                "legal_documents",
+                "ix_legal_documents_deletion_requested_at_id"));
+        Assert.Contains(
+            "WHERE (deletion_requested_at IS NOT NULL)",
+            deletionIndex,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task SeedAsync(params object?[] entities)

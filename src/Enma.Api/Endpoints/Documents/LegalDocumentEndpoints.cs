@@ -4,6 +4,7 @@ using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Contracts.Documents;
 using Enma.Application.Documents;
+using Enma.Application.Documents.Delete;
 using Enma.Application.Documents.Download;
 using Enma.Application.Documents.GetById;
 using Enma.Application.Documents.Inspection;
@@ -87,6 +88,29 @@ public static class LegalDocumentEndpoints
             .Produces(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        group.MapGet("{documentId:guid}/preview", PreviewAsync)
+            .WithName("PreviewLegalDocument")
+            .WithSummary("Previews supported private legal-document content from the contextual organization.")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status415UnsupportedMediaType)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
+
+        group.MapDelete("{documentId:guid}", DeleteAsync)
+            .WithName("DeleteLegalDocument")
+            .WithSummary("Queues permanent deletion of a legal document in the contextual organization.")
+            .Produces(StatusCodes.Status202Accepted)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireEnmaAntiforgery();
 
         return endpoints;
     }
@@ -259,6 +283,71 @@ public static class LegalDocumentEndpoints
         };
     }
 
+    private static async Task<IResult> PreviewAsync(
+        Guid organizationId,
+        Guid documentId,
+        ClaimsPrincipal principal,
+        DownloadLegalDocumentUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        DownloadLegalDocumentResult result = await useCase.ExecutePreviewAsync(
+            new DownloadLegalDocumentQuery(userId, organizationId, documentId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            DownloadLegalDocumentResultStatus.AccessDenied => TypedResults.Forbid(),
+            DownloadLegalDocumentResultStatus.NotFound => TypedResults.NotFound(),
+            DownloadLegalDocumentResultStatus.InvalidInput => TypedResults.BadRequest(),
+            DownloadLegalDocumentResultStatus.UnsupportedMediaType =>
+                TypedResults.StatusCode(StatusCodes.Status415UnsupportedMediaType),
+            DownloadLegalDocumentResultStatus.ContentUnavailable =>
+                CreateContentUnavailableProblem(),
+            DownloadLegalDocumentResultStatus.Succeeded =>
+                new LegalDocumentPreviewHttpResult(
+                    result.Download ?? throw new InvalidOperationException(
+                        "A successful legal-document preview did not provide content.")),
+            _ => throw new InvalidOperationException(
+                "The legal-document preview returned an unknown status.")
+        };
+    }
+
+    private static async Task<IResult> DeleteAsync(
+        Guid organizationId,
+        Guid documentId,
+        ClaimsPrincipal principal,
+        DeleteLegalDocumentUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        DeleteLegalDocumentResult result = await useCase.ExecuteAsync(
+            new DeleteLegalDocumentCommand(
+                userId,
+                organizationId,
+                documentId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            DeleteLegalDocumentResultStatus.AccessDenied => TypedResults.Forbid(),
+            DeleteLegalDocumentResultStatus.NotFound => TypedResults.NotFound(),
+            DeleteLegalDocumentResultStatus.InvalidInput => TypedResults.BadRequest(),
+            DeleteLegalDocumentResultStatus.Accepted =>
+                TypedResults.StatusCode(StatusCodes.Status202Accepted),
+            _ => throw new InvalidOperationException(
+                "The legal-document deletion returned an unknown status.")
+        };
+    }
+
     private static LegalDocumentMetadataResponse MapMetadata(
         LegalDocumentMetadataReadModel document)
     {
@@ -303,6 +392,47 @@ public static class LegalDocumentEndpoints
             {
                 await download.DisposeAsync();
             }
+        }
+    }
+
+    private sealed class LegalDocumentPreviewHttpResult(
+        LegalDocumentDownload download) : IResult
+    {
+        public async Task ExecuteAsync(HttpContext httpContext)
+        {
+            ArgumentNullException.ThrowIfNull(httpContext);
+
+            try
+            {
+                httpContext.Response.ContentLength = download.SizeBytes;
+                httpContext.Response.ContentType = download.ContentType;
+                httpContext.Response.Headers.CacheControl = "private, no-store";
+                httpContext.Response.Headers.ContentDisposition =
+                    CreateInlineContentDisposition(download.OriginalFileName);
+                httpContext.Response.Headers.XContentTypeOptions = "nosniff";
+                httpContext.Response.Headers.XFrameOptions = "DENY";
+                httpContext.Response.Headers.ContentSecurityPolicy =
+                    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+
+                await download.Content.CopyToAsync(
+                    httpContext.Response.Body,
+                    httpContext.RequestAborted);
+            }
+            finally
+            {
+                await download.DisposeAsync();
+            }
+        }
+
+        private static string CreateInlineContentDisposition(string fileName)
+        {
+            var contentDisposition = new System.Net.Http.Headers
+                .ContentDispositionHeaderValue("inline")
+            {
+                FileNameStar = fileName
+            };
+
+            return contentDisposition.ToString();
         }
     }
 }

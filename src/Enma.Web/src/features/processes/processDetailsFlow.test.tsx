@@ -2,13 +2,28 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const { deleteDocumentMock, listDocumentsMock } = vi.hoisted(() => ({
+  deleteDocumentMock: vi.fn(),
+  listDocumentsMock: vi.fn(),
+}))
+
 vi.mock('../notifications/NotificationCenter', () => ({
   NotificationCenter: () => null,
 }))
+vi.mock('../documents/documentService', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../documents/documentService')>()
+  return {
+    ...actual,
+    deleteDocument: deleteDocumentMock,
+    listDocuments: listDocumentsMock,
+  }
+})
 import { createAppRoutes } from '../../app/router'
 import { clearCsrfToken } from '../authentication/csrfClient'
 import { createEmailVerificationFlow } from '../email-verification/emailVerificationService'
 import type { OrganizationNavigationItem } from '../organizations/organizationTypes'
+import type { LegalDocumentMetadata } from '../documents/documentTypes'
 import type { LegalProcess } from './legalProcessTypes'
 
 const organizationA: OrganizationNavigationItem = {
@@ -41,6 +56,27 @@ const processB: LegalProcess = {
   createdAt: '2026-08-11T12:00:00Z',
 }
 
+const documentA: LegalDocumentMetadata = {
+  id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  clientId: null,
+  processId: processA.id,
+  originalFileName: 'peticao-inicial.pdf',
+  contentType: 'application/pdf',
+  sizeBytes: 2_048,
+  createdAt: '2026-08-13T10:00:00Z',
+}
+
+const documentB: LegalDocumentMetadata = {
+  id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+  clientId: null,
+  processId: processB.id,
+  originalFileName: 'contrato-revisional.docx',
+  contentType:
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  sizeBytes: 4_096,
+  createdAt: '2026-08-14T11:00:00Z',
+}
+
 function response(status: number, body?: unknown): Response {
   return new Response(body === undefined ? null : JSON.stringify(body), {
     status,
@@ -57,6 +93,10 @@ function organizationResponse(
 
 function processListResponse(items: readonly LegalProcess[]): Response {
   return response(200, { items, pageNumber: 1, pageSize: 20 })
+}
+
+function documentListResponse(items: readonly LegalDocumentMetadata[]) {
+  return { items, pageNumber: 1, pageSize: 5, hasNext: false }
 }
 
 function authenticatedFetch(
@@ -104,6 +144,10 @@ function openEditAndSubmit(title: string) {
 }
 
 beforeEach(() => {
+  deleteDocumentMock.mockReset()
+  deleteDocumentMock.mockResolvedValue(undefined)
+  listDocumentsMock.mockReset()
+  listDocumentsMock.mockResolvedValue(documentListResponse([]))
   clearCsrfToken()
   window.localStorage.clear()
   window.sessionStorage.clear()
@@ -116,6 +160,203 @@ afterEach(() => {
 })
 
 describe('Processes D2 flow', () => {
+  it('ProcessDetail_Documents_ListsOnlyExactProcessWithBoundedRequest', async () => {
+    listDocumentsMock.mockResolvedValueOnce(documentListResponse([documentA]))
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([organizationA], response(200, processA)),
+    )
+
+    renderRoute(detailPath(organizationA, processA))
+
+    expect(
+      await screen.findByRole('link', { name: documentA.originalFileName }),
+    ).toBeInTheDocument()
+    expect(listDocumentsMock).toHaveBeenCalledWith(
+      organizationA.id,
+      { processId: processA.id, pageNumber: 1, pageSize: 5 },
+      expect.any(Function),
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('ProcessDetail_Documents_RejectsUnexpectedOtherProcessResult', async () => {
+    listDocumentsMock.mockResolvedValueOnce(documentListResponse([documentB]))
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([organizationA], response(200, processA)),
+    )
+
+    renderRoute(detailPath(organizationA, processA))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Não foi possível carregar os documentos vinculados.',
+    )
+    expect(screen.queryByText(documentB.originalFileName)).not.toBeInTheDocument()
+  })
+
+  it('ProcessDetail_Documents_ShowsEmptyState', async () => {
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([organizationA], response(200, processA)),
+    )
+
+    renderRoute(detailPath(organizationA, processA))
+
+    expect(
+      await screen.findByText('Nenhum documento vinculado a este processo.'),
+    ).toBeInTheDocument()
+  })
+
+  it('ProcessDetail_Documents_LoadingErrorAndRetryStaySectionLocal', async () => {
+    let rejectDocuments: ((reason?: unknown) => void) | undefined
+    const pendingDocuments = new Promise((_, reject) => {
+      rejectDocuments = reject
+    })
+    listDocumentsMock
+      .mockReturnValueOnce(pendingDocuments)
+      .mockResolvedValueOnce(documentListResponse([documentA]))
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([organizationA], response(200, processA)),
+    )
+
+    renderRoute(detailPath(organizationA, processA))
+
+    await screen.findByRole('heading', { name: processA.title })
+    expect(screen.getByText('Carregando documentos vinculados...')).toBeInTheDocument()
+
+    await act(async () => rejectDocuments?.(new Error('private network detail')))
+    const alert = await screen.findByRole('alert')
+    expect(alert).not.toHaveTextContent('private network detail')
+    expect(screen.getByRole('heading', { name: processA.title })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+    expect(
+      await screen.findByRole('link', { name: documentA.originalFileName }),
+    ).toBeInTheDocument()
+  })
+
+  it('ProcessDetail_Documents_NavigatesToDetailAndFilteredList', async () => {
+    listDocumentsMock.mockResolvedValue(documentListResponse([documentA]))
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([organizationA], response(200, processA)),
+    )
+    const router = renderRoute(detailPath(organizationA, processA))
+
+    const documentLink = await screen.findByRole('link', {
+      name: documentA.originalFileName,
+    })
+    expect(documentLink).toHaveAttribute(
+      'href',
+      `/organizations/${organizationA.id}/documents/${documentA.id}`,
+    )
+    expect(screen.getByRole('link', { name: 'Baixar' })).toHaveAttribute(
+      'href',
+      `/api/organizations/${organizationA.id}/documents/${documentA.id}/content`,
+    )
+    expect(screen.getByRole('button', { name: 'Visualizar' })).toBeVisible()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Ver todos' }))
+    expect(router.state.location.pathname).toBe(
+      `/organizations/${organizationA.id}/documents`,
+    )
+    expect(router.state.location.search).toBe(`?processId=${processA.id}`)
+  })
+
+  it('ProcessDetail_Documents_OwnerConfirmsDeletionAndRefreshesSection', async () => {
+    listDocumentsMock
+      .mockResolvedValueOnce(documentListResponse([documentA]))
+      .mockResolvedValueOnce(documentListResponse([]))
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([organizationA], response(200, processA)),
+    )
+    renderRoute(detailPath(organizationA, processA))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Excluir' }))
+    expect(await screen.findByRole('alertdialog', {
+      name: 'Excluir documento?',
+    })).toHaveTextContent(documentA.originalFileName)
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir documento' }))
+
+    await waitFor(() => expect(deleteDocumentMock).toHaveBeenCalledWith(
+      organizationA.id,
+      documentA.id,
+      expect.any(Function),
+    ))
+    expect(await screen.findByText(
+      `Documento “${documentA.originalFileName}” excluído com sucesso.`,
+    )).toBeInTheDocument()
+    expect(await screen.findByText(
+      'Nenhum documento vinculado a este processo.',
+    )).toBeInTheDocument()
+  })
+
+  it('ProcessDetail_Documents_MemberDoesNotReceiveDeleteAction', async () => {
+    const member = { ...organizationA, role: 'Member' as const }
+    listDocumentsMock.mockResolvedValueOnce(documentListResponse([documentA]))
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([member], response(200, processA)),
+    )
+    renderRoute(detailPath(member, processA))
+
+    expect(await screen.findByText(documentA.originalFileName)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['process', organizationA, processB],
+    ['organization', organizationB, { ...processB, id: processA.id }],
+  ] as const)(
+    'ProcessDetail_Documents_LateResponseAfter%sChangeNeverRendersStaleItems',
+    async (_scenario, targetOrganization, targetProcess) => {
+      let resolveDocumentsA:
+        | ((value: ReturnType<typeof documentListResponse>) => void)
+        | undefined
+      const pendingDocumentsA = new Promise<
+        ReturnType<typeof documentListResponse>
+      >((resolve) => {
+        resolveDocumentsA = resolve
+      })
+      const targetDocument = { ...documentB, processId: targetProcess.id }
+      listDocumentsMock
+        .mockReturnValueOnce(pendingDocumentsA)
+        .mockResolvedValueOnce(documentListResponse([targetDocument]))
+      vi.stubGlobal(
+        'fetch',
+        authenticatedFetch(
+          targetOrganization.id === organizationA.id
+            ? [organizationA]
+            : [organizationA, organizationB],
+          response(200, processA),
+          response(200, targetProcess),
+        ),
+      )
+      const router = renderRoute(detailPath(organizationA, processA))
+
+      await screen.findByRole('heading', { name: processA.title })
+      await act(async () =>
+        router.navigate(detailPath(targetOrganization, targetProcess)),
+      )
+      expect(
+        await screen.findByRole('link', {
+          name: targetDocument.originalFileName,
+        }),
+      ).toBeInTheDocument()
+
+      await act(async () => {
+        resolveDocumentsA?.(documentListResponse([documentA]))
+        await pendingDocumentsA
+      })
+
+      expect(screen.queryByText(documentA.originalFileName)).not.toBeInTheDocument()
+      expect(screen.getByText(targetDocument.originalFileName)).toBeInTheDocument()
+    },
+  )
+
   it('ProcessDetail_MemberRoute_TargetsContextAndRendersReadOnlyDisplayFields', async () => {
     const member = { ...organizationA, role: 'Member' as const }
     const localStorageSpy = vi.spyOn(window.localStorage, 'setItem')

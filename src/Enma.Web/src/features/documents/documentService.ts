@@ -21,6 +21,7 @@ export type DocumentRequestFailure =
   | 'not-found'
   | 'too-large'
   | 'unavailable'
+  | 'unsupported'
   | 'outcome-unknown'
   | 'unexpected'
 
@@ -159,6 +160,10 @@ function getDocumentEndpoint(
   return `${getDocumentsEndpoint(organizationId)}/${encodeURIComponent(documentId)}`
 }
 
+export function isDocumentPreviewSupported(contentType: string): boolean {
+  return ['application/pdf', 'image/png', 'image/jpeg'].includes(contentType)
+}
+
 export async function listDocuments(
   organizationId: string,
   options: LegalDocumentListOptions,
@@ -276,9 +281,80 @@ export async function uploadDocument(
   throw new DocumentRequestError('unexpected')
 }
 
+export async function deleteDocument(
+  organizationId: string,
+  documentId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const requestToken = await getCsrfToken()
+  const response = await fetchWithSession(
+    getDocumentEndpoint(organizationId, documentId),
+    {
+      method: 'DELETE',
+      headers: { 'X-CSRF-TOKEN': requestToken },
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status === 202) return
+  if (response.status === 400) clearCsrfToken()
+  throwForStatus(response.status)
+}
+
 export function getDocumentDownloadUrl(
   organizationId: string,
   documentId: string,
 ): string {
   return `${getDocumentEndpoint(organizationId, documentId)}/content`
+}
+
+export function getDocumentPreviewUrl(
+  organizationId: string,
+  documentId: string,
+): string {
+  return `${getDocumentEndpoint(organizationId, documentId)}/preview`
+}
+
+export async function loadDocumentPreview(
+  organizationId: string,
+  document: LegalDocumentMetadata,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  if (!isDocumentPreviewSupported(document.contentType)) {
+    throw new DocumentRequestError('unsupported')
+  }
+
+  const response = await fetchWithSession(
+    getDocumentPreviewUrl(organizationId, document.id),
+    { method: 'GET', cache: 'no-store', signal },
+    onUnauthorized,
+  )
+
+  if (response.status === 415) throw new DocumentRequestError('unsupported')
+  if (response.status === 503) throw new DocumentRequestError('unavailable')
+  if (response.status !== 200) throwForStatus(response.status)
+
+  const responseContentType = response.headers
+    .get('Content-Type')
+    ?.split(';', 1)[0]
+    .trim()
+    .toLowerCase()
+
+  if (
+    responseContentType !== document.contentType ||
+    !isDocumentPreviewSupported(responseContentType)
+  ) {
+    throw new DocumentRequestError('unexpected')
+  }
+
+  const blob = await response.blob()
+  if (blob.type !== document.contentType) {
+    throw new DocumentRequestError('unexpected')
+  }
+
+  return blob
 }

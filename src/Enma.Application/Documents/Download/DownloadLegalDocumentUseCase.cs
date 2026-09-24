@@ -27,6 +27,21 @@ public sealed class DownloadLegalDocumentUseCase
         DownloadLegalDocumentQuery query,
         CancellationToken cancellationToken = default)
     {
+        return await ExecuteAsync(query, previewOnly: false, cancellationToken);
+    }
+
+    public async Task<DownloadLegalDocumentResult> ExecutePreviewAsync(
+        DownloadLegalDocumentQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        return await ExecuteAsync(query, previewOnly: true, cancellationToken);
+    }
+
+    private async Task<DownloadLegalDocumentResult> ExecuteAsync(
+        DownloadLegalDocumentQuery query,
+        bool previewOnly,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(query);
 
         LegalDocumentReadAuthorizationResult authorization =
@@ -55,6 +70,11 @@ public sealed class DownloadLegalDocumentUseCase
         if (document is null)
         {
             return DownloadLegalDocumentResult.NotFound;
+        }
+
+        if (previewOnly && !IsPreviewContentType(document.ContentType))
+        {
+            return DownloadLegalDocumentResult.UnsupportedMediaType;
         }
 
         if (!LegalDocumentStorageObjectKey.TryParse(
@@ -100,5 +120,10 @@ public sealed class DownloadLegalDocumentUseCase
             await storageReadHandle.DisposeAsync();
             throw;
         }
+    }
+
+    private static bool IsPreviewContentType(string contentType)
+    {
+        return contentType is "application/pdf" or "image/png" or "image/jpeg";
     }
 }
