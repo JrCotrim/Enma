@@ -35,6 +35,7 @@ export const auditEventOptions: readonly {
   { value: 'calendar_event.deleted', label: 'Evento de agenda excluído' },
   { value: 'legal_document.uploaded', label: 'Documento enviado' },
   { value: 'legal_document.deleted', label: 'Documento excluído' },
+  { value: 'payment_installment.paid', label: 'Parcela marcada como paga' },
 ]
 
 export const auditEntityOptions: readonly {
@@ -49,6 +50,7 @@ export const auditEntityOptions: readonly {
   { value: 'legal_task', label: 'Tarefa' },
   { value: 'calendar_event', label: 'Evento de agenda' },
   { value: 'legal_document', label: 'Documento' },
+  { value: 'payment_installment', label: 'Parcela' },
 ]
 
 const eventLabels = new Map(auditEventOptions.map(({ value, label }) => [value, label]))

@@ -25,6 +25,7 @@ export const auditEventTypes = [
   'calendar_event.deleted',
   'legal_document.uploaded',
   'legal_document.deleted',
+  'payment_installment.paid',
 ] as const
 
 export type AuditEventType = (typeof auditEventTypes)[number]
@@ -38,6 +39,7 @@ export const auditEntityTypes = [
   'legal_task',
   'calendar_event',
   'legal_document',
+  'payment_installment',
 ] as const
 
 export type AuditEntityType = (typeof auditEntityTypes)[number]

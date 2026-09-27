@@ -389,16 +389,28 @@ function OrganizationAuditLogPage() {
                     <tbody>
                       {currentListState.response.items.map((item) => (
                         <tr key={item.id}>
-                          <td data-label="Evento">{getAuditEventLabel(item.eventType)}</td>
+                          <td className="audit-event-cell" data-label="Evento">
+                            <span className="audit-event-name">
+                              {getAuditEventLabel(item.eventType)}
+                            </span>
+                          </td>
                           <td data-label="Entidade">
-                            <span>{getAuditEntityLabel(item.entityType)}</span>
+                            <span className="audit-entity-type">
+                              {getAuditEntityLabel(item.entityType)}
+                            </span>
                             <code className="audit-entity-id">{item.entityId}</code>
                           </td>
-                          <td data-label="Data e hora">
+                          <td className="audit-time-cell" data-label="Data e hora">
                             <time dateTime={item.occurredAt}>{formatAuditTimestamp(item.occurredAt)}</time>
                           </td>
-                          <td data-label="Papel do ator">{getAuditRoleLabel(item.actorRoleAtOccurrence)}</td>
-                          <td data-label="Detalhes"><AuditDetails details={item.details} /></td>
+                          <td data-label="Papel do ator">
+                            <span className="audit-actor-role">
+                              {getAuditRoleLabel(item.actorRoleAtOccurrence)}
+                            </span>
+                          </td>
+                          <td className="audit-details-cell" data-label="Detalhes">
+                            <AuditDetails details={item.details} />
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -415,13 +427,15 @@ function OrganizationAuditLogPage() {
                 >
                   Página anterior
                 </button>
-                <span aria-current="page">
-                  Página {page} de {Math.max(1, Math.ceil(currentListState.response.totalCount / pageSize))}
-                </span>
-                <span>
-                  {currentListState.response.totalCount.toLocaleString('pt-BR')}{' '}
-                  {currentListState.response.totalCount === 1 ? 'evento' : 'eventos'} no total
-                </span>
+                <div className="audit-pagination-summary">
+                  <span aria-current="page">
+                    Página {page} de {Math.max(1, Math.ceil(currentListState.response.totalCount / pageSize))}
+                  </span>
+                  <span>
+                    {currentListState.response.totalCount.toLocaleString('pt-BR')}{' '}
+                    {currentListState.response.totalCount === 1 ? 'evento' : 'eventos'} no total
+                  </span>
+                </div>
                 <button
                   className="secondary-button"
                   type="button"

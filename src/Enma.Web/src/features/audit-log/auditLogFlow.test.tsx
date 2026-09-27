@@ -97,6 +97,36 @@ afterEach(() => {
 })
 
 describe('Audit G flow', () => {
+  it('PaymentInstallmentPaid_RendersKnownEventAndEntityLabels', async () => {
+    vi.stubGlobal('fetch', authenticatedFetch(
+      'Owner',
+      auditList([
+        auditItem({
+          eventType: 'payment_installment.paid',
+          entityType: 'payment_installment',
+        }),
+      ]),
+    ))
+
+    renderRoute()
+
+    const eventCell = await screen.findByRole('cell', {
+      name: 'Parcela marcada como paga',
+    })
+    expect(eventCell).toBeInTheDocument()
+    expect(within(eventCell.closest('tr')!).getByText('Parcela')).toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Tipo de evento')).getByRole('option', {
+        name: 'Parcela marcada como paga',
+      }),
+    ).toHaveValue('payment_installment.paid')
+    expect(
+      within(screen.getByLabelText('Tipo de entidade')).getByRole('option', {
+        name: 'Parcela',
+      }),
+    ).toHaveValue('payment_installment')
+  })
+
   it('ClientProfileUpdated_RendersKnownLabelAndFilterOptionWithoutProfileDetails', async () => {
     const fetchMock = authenticatedFetch(
       'Owner',
