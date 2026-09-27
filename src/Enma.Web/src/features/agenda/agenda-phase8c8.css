@@ -1,0 +1,656 @@
+/*
+ * ENMA — Phase 8C.8
+ * Agenda visual standardization. Feature-scoped so approved surfaces remain frozen.
+ */
+
+body:has(.organization-workspace) .agenda-page {
+  --agenda-border: var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  --agenda-border-strong: var(
+    --enma-v3-border-strong,
+    rgba(205, 162, 229, 0.24)
+  );
+  --agenda-text: var(--enma-v3-text, #eee7f1);
+  --agenda-muted: var(--enma-v3-muted, #b1a5b6);
+  --agenda-subtle: var(--enma-v3-subtle, #918496);
+  --agenda-accent: #c68ee4;
+  --agenda-panel: #211b26;
+  --agenda-panel-raised: #28212e;
+  display: grid;
+  gap: 1.15rem;
+  margin-top: 0;
+}
+
+body:has(.organization-workspace) .agenda-description {
+  max-width: 65ch;
+}
+
+body:has(.organization-workspace) .agenda-page > .success-message {
+  margin: 0;
+}
+
+body:has(.organization-workspace) .agenda-page .secondary-button {
+  border-color: var(--agenda-border-strong);
+  color: #d0a8e5;
+  background: #251f2b;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+body:has(.organization-workspace)
+  .agenda-page
+  .secondary-button:hover:not(:disabled) {
+  border-color: rgba(210, 166, 235, 0.34);
+  color: #ead9f2;
+  background: var(--enma-v3-surface-hover, #302738);
+}
+
+body:has(.organization-workspace) .agenda-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0;
+  padding: 0.8rem;
+  border: 1px solid var(--agenda-border);
+  border-radius: 0.9rem;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.055),
+    rgba(255, 255, 255, 0.026)
+  ) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+body:has(.organization-workspace) .agenda-toolbar h3 {
+  color: var(--agenda-text);
+  font-size: 1.08rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  text-transform: none;
+}
+
+body:has(.organization-workspace) .agenda-month-navigation {
+  justify-self: start;
+}
+
+body:has(.organization-workspace) .agenda-legend {
+  justify-self: end;
+}
+
+body:has(.organization-workspace) .agenda-month-navigation .secondary-button {
+  display: inline-grid;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  padding: 0.55rem;
+  border-radius: 0.7rem;
+  place-items: center;
+}
+
+body:has(.organization-workspace)
+  .agenda-month-navigation
+  .agenda-today-button {
+  min-width: auto;
+  padding-inline: 0.9rem;
+}
+
+body:has(.organization-workspace) .agenda-month-chevron {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+body:has(.organization-workspace) .agenda-legend span,
+body:has(.organization-workspace) .agenda-item-kind {
+  color: var(--agenda-muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.045em;
+}
+
+body:has(.organization-workspace) .agenda-legend span::before {
+  width: 0.42rem;
+  height: 0.42rem;
+}
+
+body:has(.organization-workspace) :where(
+  .agenda-loading,
+  .agenda-empty,
+  .agenda-state
+) {
+  margin: 0;
+  border-color: var(--agenda-border);
+  border-radius: 0.9rem;
+  color: var(--agenda-muted);
+  background: var(--agenda-panel) !important;
+  box-shadow: none;
+}
+
+body:has(.organization-workspace) .agenda-state {
+  align-items: center;
+}
+
+body:has(.organization-workspace) .agenda-compact-board {
+  grid-template-columns: minmax(25rem, 0.9fr) minmax(20rem, 1.1fr);
+  gap: 1rem;
+  margin-top: 0;
+}
+
+body:has(.organization-workspace) :where(
+  .agenda-compact-calendar,
+  .agenda-compact-panel
+) {
+  border-color: var(--agenda-border);
+  border-radius: 0.9rem;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.048),
+    rgba(255, 255, 255, 0.02)
+  );
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+body:has(.organization-workspace) .agenda-compact-calendar {
+  padding: 0.75rem;
+}
+
+body:has(.organization-workspace) .agenda-compact-weekdays span {
+  color: var(--agenda-subtle);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+body:has(.organization-workspace) .agenda-compact-day-button {
+  min-height: 3.65rem;
+  border-color: rgba(228, 211, 237, 0.075);
+  border-radius: 0.72rem;
+  color: var(--agenda-text);
+  background: rgba(255, 255, 255, 0.022);
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+body:has(.organization-workspace) .agenda-compact-day-button:hover,
+body:has(.organization-workspace) .agenda-compact-day-button.is-preview {
+  border-color: rgba(198, 142, 228, 0.26);
+  background: rgba(198, 142, 228, 0.07);
+  transform: translateY(-1px);
+}
+
+body:has(.organization-workspace) .agenda-compact-day-button.is-selected {
+  border-color: rgba(198, 142, 228, 0.44);
+  background: rgba(164, 91, 214, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(198, 142, 228, 0.08);
+}
+
+body:has(.organization-workspace)
+  .agenda-compact-day-button[aria-current="date"]
+  .agenda-compact-day-number {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  color: #fff;
+  background: #a45bd6;
+  box-shadow: 0 5px 14px rgba(108, 46, 147, 0.28);
+  place-items: center;
+}
+
+body:has(.organization-workspace) .agenda-compact-day.is-adjacent {
+  opacity: 0.48;
+}
+
+body:has(.organization-workspace) .agenda-compact-day-number {
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+}
+
+body:has(.organization-workspace) .agenda-compact-count,
+body:has(.organization-workspace) :where(
+  .agenda-compact-day-button:hover,
+  .agenda-compact-day-button:focus-visible,
+  .agenda-compact-day-button.is-preview
+) .agenda-compact-count {
+  right: 0.4rem;
+  bottom: 0.36rem;
+  min-width: 1.24rem;
+  height: 1.24rem;
+  padding-inline: 0.24rem;
+  transform: none;
+  border-color: rgba(198, 142, 228, 0.18);
+  color: #f6eafb;
+  background: rgba(164, 91, 214, 0.24);
+  font-size: 0.62rem;
+}
+
+body:has(.organization-workspace) :where(
+  .agenda-compact-day-button.has-items:hover,
+  .agenda-compact-day-button.has-items:focus-visible,
+  .agenda-compact-day-button.has-items.is-preview
+) .agenda-compact-day-number {
+  opacity: 1;
+}
+
+body:has(.organization-workspace) .agenda-compact-kind-dot-deadline,
+body:has(.organization-workspace) .agenda-legend-deadline::before {
+  background: #d59a62;
+}
+
+body:has(.organization-workspace) .agenda-compact-kind-dot-task,
+body:has(.organization-workspace) .agenda-legend-task::before {
+  background: #7fa5cf;
+}
+
+body:has(.organization-workspace) .agenda-compact-kind-dot-calendarEvent,
+body:has(.organization-workspace) .agenda-legend-calendarEvent::before {
+  background: #72bb94;
+}
+
+body:has(.organization-workspace) .agenda-compact-panel {
+  max-height: 27.25rem;
+}
+
+body:has(.organization-workspace) .agenda-compact-panel-header {
+  align-items: center;
+  padding: 0.9rem 1rem;
+  border-color: var(--agenda-border);
+}
+
+body:has(.organization-workspace) .agenda-compact-panel-eyebrow {
+  color: var(--agenda-subtle);
+  font-size: 0.64rem;
+  letter-spacing: 0.08em;
+}
+
+body:has(.organization-workspace) .agenda-compact-panel-header h3 {
+  color: var(--agenda-text);
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  text-transform: none;
+}
+
+body:has(.organization-workspace) .agenda-compact-panel-count {
+  border-color: rgba(198, 142, 228, 0.2);
+  color: #d7b0ea;
+  background: rgba(164, 91, 214, 0.1);
+}
+
+body:has(.organization-workspace) .agenda-compact-schedule {
+  gap: 0.45rem;
+  padding: 0.65rem;
+  scrollbar-color: rgba(198, 142, 228, 0.3) transparent;
+}
+
+body:has(.organization-workspace) .agenda-compact-entry .agenda-item {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  gap: 0.35rem 0.55rem;
+  min-height: 3.5rem;
+  padding: 0.7rem 0.78rem;
+  border-width: 1px;
+  border-color: var(--agenda-border);
+  border-radius: 0.72rem;
+  color: var(--agenda-text);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+body:has(.organization-workspace) .agenda-compact-entry .agenda-item:hover {
+  border-color: rgba(198, 142, 228, 0.24);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+body:has(.organization-workspace) .agenda-compact-entry .agenda-item-deadline {
+  box-shadow: inset 2px 0 #bd7b3f;
+}
+
+body:has(.organization-workspace) .agenda-compact-entry .agenda-item-task {
+  box-shadow: inset 2px 0 #668db8;
+}
+
+body:has(.organization-workspace) .agenda-compact-entry .agenda-item-calendarEvent {
+  box-shadow: inset 2px 0 #58a079;
+}
+
+body:has(.organization-workspace) .agenda-compact-entry .agenda-item-title {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+  color: var(--agenda-text);
+  font-size: 0.86rem;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+body:has(.organization-workspace) .agenda-compact-entry :where(
+  .agenda-item-kind,
+  .agenda-item time,
+  .agenda-item-completed
+) {
+  color: var(--agenda-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+body:has(.organization-workspace) :where(
+  .calendar-event-panel,
+  .agenda-detail-panel
+) {
+  margin-top: 0;
+  padding: 1rem;
+  border: 1px solid var(--agenda-border) !important;
+  border-radius: 0.9rem;
+  color: var(--agenda-text);
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.055),
+    rgba(255, 255, 255, 0.026)
+  ) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16) !important;
+}
+
+body:has(.organization-workspace) .calendar-event-panel > h3 {
+  margin-bottom: 1rem;
+  color: var(--agenda-text);
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+body:has(.organization-workspace) .calendar-event-form {
+  gap: 0.9rem;
+}
+
+body:has(.organization-workspace) :where(
+  .calendar-event-form > label,
+  .calendar-event-time-fields label,
+  .calendar-event-assignment > label
+) {
+  color: var(--agenda-muted) !important;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+body:has(.organization-workspace) :where(
+  .calendar-event-form input:not([type="radio"]):not([type="checkbox"]),
+  .calendar-event-form textarea,
+  .calendar-event-assignment select
+) {
+  min-height: 2.75rem;
+  border-color: var(--agenda-border-strong) !important;
+  border-radius: 0.7rem;
+  color: var(--agenda-text) !important;
+  background: var(--agenda-panel) !important;
+  box-shadow: none !important;
+  color-scheme: dark;
+}
+
+body:has(.organization-workspace) .calendar-event-form textarea {
+  min-height: 7.5rem;
+}
+
+body:has(.organization-workspace) .calendar-event-form input::placeholder,
+body:has(.organization-workspace) .calendar-event-form textarea::placeholder {
+  color: var(--agenda-subtle);
+  opacity: 1;
+}
+
+body:has(.organization-workspace) .calendar-event-association {
+  gap: 0.55rem 1rem;
+  padding: 0.85rem;
+  border-color: var(--agenda-border) !important;
+  border-radius: 0.75rem;
+  color: var(--agenda-text);
+  background: rgba(255, 255, 255, 0.025) !important;
+}
+
+body:has(.organization-workspace) .calendar-event-association label {
+  color: var(--agenda-text) !important;
+}
+
+body:has(.organization-workspace) .calendar-event-selection {
+  color: var(--agenda-text);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+body:has(.organization-workspace) .agenda-detail-header {
+  align-items: center;
+}
+
+body:has(.organization-workspace) .agenda-detail-header h3 {
+  color: var(--agenda-text);
+  font-size: 1.08rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+body:has(.organization-workspace) .agenda-detail-header .text-button {
+  color: #d0a8e5;
+}
+
+body:has(.organization-workspace) .agenda-properties {
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--agenda-border) !important;
+  border-radius: 0.75rem;
+  background: var(--agenda-border) !important;
+}
+
+body:has(.organization-workspace) .agenda-properties div {
+  min-width: 0;
+  background: var(--agenda-panel) !important;
+}
+
+body:has(.organization-workspace) .agenda-properties dt {
+  color: var(--agenda-subtle) !important;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+}
+
+body:has(.organization-workspace) .agenda-properties dd {
+  overflow-wrap: anywhere;
+  color: var(--agenda-text) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .calendar-event-assignment,
+  .calendar-event-confirmation
+) {
+  margin-top: 1rem;
+  border: 1px solid var(--agenda-border) !important;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.025) !important;
+  box-shadow: none !important;
+}
+
+body:has(.organization-workspace) .calendar-event-confirmation {
+  border-color: rgba(218, 103, 128, 0.24) !important;
+  background: rgba(175, 61, 86, 0.075) !important;
+}
+
+body:has(.organization-workspace) :where(
+  .agenda-detail-actions,
+  .calendar-event-form-actions
+) {
+  flex-wrap: wrap;
+}
+
+body:has(.organization-workspace) .agenda-page :where(
+  button,
+  input,
+  textarea,
+  select
+):focus-visible {
+  outline: 2px solid #c68ee4;
+  outline-offset: 2px;
+}
+
+body:has(.organization-workspace) .agenda-page ::selection {
+  color: #fff;
+  background: rgba(164, 91, 214, 0.55);
+}
+
+@media (max-width: 70rem) {
+  body:has(.organization-workspace) .agenda-compact-board {
+    grid-template-columns: 1fr;
+  }
+
+  body:has(.organization-workspace) .agenda-compact-panel {
+    max-height: 22rem;
+  }
+}
+
+@media (max-width: 48rem) {
+  body:has(.organization-workspace) .agenda-toolbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  body:has(.organization-workspace) .agenda-toolbar h3 {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: start;
+  }
+
+  body:has(.organization-workspace) .agenda-month-navigation {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  body:has(.organization-workspace) .agenda-legend {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
+@media (max-width: 40rem) {
+  body:has(.organization-workspace) .agenda-page {
+    gap: 0.9rem;
+  }
+
+  body:has(.organization-workspace) .agenda-header {
+    gap: 0.9rem;
+  }
+
+  body:has(.organization-workspace) .agenda-header .primary-button {
+    width: 100%;
+  }
+
+  body:has(.organization-workspace) .agenda-toolbar {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  body:has(.organization-workspace) .agenda-toolbar h3,
+  body:has(.organization-workspace) .agenda-month-navigation,
+  body:has(.organization-workspace) .agenda-legend {
+    grid-column: 1;
+    justify-self: stretch;
+  }
+
+  body:has(.organization-workspace) .agenda-month-navigation {
+    grid-row: 2;
+    display: grid;
+    grid-template-columns: 2.75rem 1fr 2.75rem;
+  }
+
+  body:has(.organization-workspace) .agenda-month-navigation .secondary-button {
+    min-height: 2.75rem;
+  }
+
+  body:has(.organization-workspace) .agenda-legend {
+    grid-row: 3;
+    flex-wrap: wrap;
+  }
+
+  body:has(.organization-workspace) .agenda-compact-calendar {
+    padding: 0.5rem;
+  }
+
+  body:has(.organization-workspace) .agenda-compact-weekdays,
+  body:has(.organization-workspace) .agenda-compact-grid {
+    gap: 0.2rem;
+  }
+
+  body:has(.organization-workspace) .agenda-compact-day-button {
+    min-height: 3rem;
+    border-radius: 0.6rem;
+  }
+
+  body:has(.organization-workspace)
+    .agenda-compact-day-button[aria-current="date"]
+    .agenda-compact-day-number {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  body:has(.organization-workspace) .agenda-compact-count,
+  body:has(.organization-workspace) :where(
+    .agenda-compact-day-button:hover,
+    .agenda-compact-day-button:focus-visible,
+    .agenda-compact-day-button.is-preview
+  ) .agenda-compact-count {
+    right: 0.28rem;
+    bottom: 0.26rem;
+    min-width: 1.05rem;
+    height: 1.05rem;
+    padding-inline: 0.16rem;
+    font-size: 0.55rem;
+  }
+
+  body:has(.organization-workspace) .agenda-compact-kinds {
+    bottom: 0.32rem;
+    left: 0.32rem;
+  }
+
+  body:has(.organization-workspace) .agenda-compact-panel-header {
+    align-items: flex-start;
+    padding: 0.85rem;
+  }
+
+  body:has(.organization-workspace) .agenda-compact-panel-count {
+    align-self: auto;
+  }
+
+  body:has(.organization-workspace) :where(
+    .calendar-event-panel,
+    .agenda-detail-panel
+  ) {
+    padding: 0.85rem;
+  }
+
+  body:has(.organization-workspace) :where(
+    .agenda-detail-actions,
+    .calendar-event-form-actions
+  ) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  body:has(.organization-workspace) :where(
+    .agenda-detail-actions,
+    .calendar-event-form-actions
+  ) button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:has(.organization-workspace) .agenda-page *,
+  body:has(.organization-workspace) .agenda-page *::before,
+  body:has(.organization-workspace) .agenda-page *::after {
+    scroll-behavior: auto !important;
+  }
+
+  body:has(.organization-workspace) .agenda-compact-day-button {
+    transition: none;
+  }
+}

@@ -38,6 +38,7 @@ import type {
 } from './agendaTypes'
 import { CalendarEventForm } from './CalendarEventForm'
 import { AgendaCompactBoard } from './AgendaCompactBoard'
+import './agenda-phase8c8.css'
 
 
 const monthFormatter = new Intl.DateTimeFormat('pt-BR', {
@@ -183,6 +184,18 @@ interface AgendaItemButtonProps {
   readonly item: AgendaItem
   readonly dateKey: string
   readonly onSelect: (item: AgendaItem) => void
+}
+
+function MonthChevronIcon({ direction }: { readonly direction: 'previous' | 'next' }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="agenda-month-chevron"
+      viewBox="0 0 20 20"
+    >
+      <path d={direction === 'previous' ? 'm12.5 4.5-5 5.5 5 5.5' : 'm7.5 4.5 5 5.5-5 5.5'} />
+    </svg>
+  )
 }
 
 function AgendaItemButton({ item, dateKey, onSelect }: AgendaItemButtonProps) {
@@ -596,7 +609,7 @@ function OrganizationAgendaPage({
             aria-label="Mês anterior"
             onClick={() => navigateMonth(-1)}
           >
-            ‹
+            <MonthChevronIcon direction="previous" />
           </button>
           <button
             className="secondary-button agenda-today-button"
@@ -615,7 +628,7 @@ function OrganizationAgendaPage({
             aria-label="Próximo mês"
             onClick={() => navigateMonth(1)}
           >
-            ›
+            <MonthChevronIcon direction="next" />
           </button>
         </div>
         <h3 aria-live="polite">{formatMonth(month)}</h3>
