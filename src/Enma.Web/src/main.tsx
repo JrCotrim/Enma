@@ -34,6 +34,7 @@ import './mobile-responsive-containment.css'
 import './dashboard-phase6-polish.css'
 import './public-auth-shell.css'
 import './team-phase8c4.css'
+import './invitations-phase8c5.css'
 
 const rootElement = document.getElementById('root')
 
