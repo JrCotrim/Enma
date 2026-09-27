@@ -375,7 +375,6 @@ export function TasksPage() {
     <section className="tasks-page" aria-labelledby="tasks-title">
       <div className="tasks-header workspace-page-header">
         <div className="workspace-page-heading">
-          <p className="eyebrow workspace-page-eyebrow">GESTÃO DE TAREFAS</p>
           <h2 className="workspace-page-title" id="tasks-title">Tarefas</h2>
           <p className="tasks-description workspace-page-subtitle">
             Acompanhe as tarefas desta organização.
@@ -760,49 +759,64 @@ export function TasksPage() {
               </p>
             </div>
           ) : (
-            <div className="tasks-table-wrapper">
-              <table className="tasks-table">
-                <caption className="visually-hidden">
-                  Tarefas da organização {currentOrganization.name}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Título</th>
-                    <th scope="col">Prazo</th>
-                    <th scope="col">Processo</th>
-                    <th scope="col">Responsável</th>
-                    <th scope="col">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentListState.response.items.map((task) => (
-                    <tr key={task.id}>
-                      <td data-label="Título">
-                        <Link
-                          className="task-detail-link"
-                          to={`/organizations/${currentOrganization.id}/tasks/${task.id}`}
+            <section className="tasks-results" aria-labelledby="tasks-results-title">
+              <h3 className="tasks-results-title" id="tasks-results-title">
+                Tarefas da organização {currentOrganization.name}
+              </h3>
+              <ul className="tasks-list">
+                {currentListState.response.items.map((task) => (
+                  <li key={task.id}>
+                    <Link
+                      className="task-record-link"
+                      to={`/organizations/${currentOrganization.id}/tasks/${task.id}`}
+                      aria-labelledby={`task-${task.id}-title`}
+                      aria-describedby={`task-${task.id}-metadata`}
+                    >
+                      <span className="task-record-summary">
+                        <strong
+                          className="task-record-title"
+                          id={`task-${task.id}-title`}
                         >
                           {task.title}
-                        </Link>
-                      </td>
-                      <td data-label="Prazo">{formatLegalTaskDueDate(task.dueDate)}</td>
-                      <td data-label="Processo">
-                        {task.processTitle ?? 'Tarefa geral'}
-                        {task.clientName ? <small>Cliente: {task.clientName}</small> : null}
-                      </td>
-                      <td data-label="Responsável">
-                        {task.assigneeDisplayName ?? 'Não atribuída'}
-                      </td>
-                      <td data-label="Estado">
-                        <span className={`task-status is-${task.state}`}>
-                          {getStateLabel(task.state)}
+                        </strong>
+                        <span
+                          className="task-record-metadata"
+                          id={`task-${task.id}-metadata`}
+                        >
+                          <span className="task-record-assignee">
+                            {task.assigneeDisplayName ?? 'Não atribuída'}
+                          </span>
+                          <span className="task-record-context">
+                            <span>{task.processTitle ?? 'Tarefa geral'}</span>
+                            {task.clientName ? <span>{task.clientName}</span> : null}
+                          </span>
+                          <span className="task-record-due-date">
+                            {task.dueDate ? (
+                              <>
+                                <span>Prazo</span>{' '}
+                                <time dateTime={task.dueDate}>
+                                  {formatLegalTaskDueDate(task.dueDate)}
+                                </time>
+                              </>
+                            ) : (
+                              'Sem prazo'
+                            )}
+                          </span>
+                          <span className={`task-status is-${task.state}`}>
+                            {getStateLabel(task.state)}
+                          </span>
                         </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </span>
+                      <span className="task-record-chevron" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           <nav className="tasks-pagination" aria-label="Paginação de tarefas">

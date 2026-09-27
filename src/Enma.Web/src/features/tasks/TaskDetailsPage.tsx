@@ -528,10 +528,35 @@ function TaskDetailsContent({ taskId }: { readonly taskId?: string }) {
   return (
     <section className="task-details-page" aria-labelledby="task-details-title">
       {backLink}
-      <div className="task-details-header">
-        <div>
-          <p className="eyebrow">Detalhes da tarefa</p>
+      <header className="task-details-header">
+        <div className="task-details-heading">
           <h1 id="task-details-title">{task.title}</h1>
+          <dl className="task-details-metadata">
+            <div>
+              <dt>Estado</dt>
+              <dd>
+                <span className={`task-status is-${task.state}`}>
+                  {getStateLabel(task.state)}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>Prazo</dt>
+              <dd>
+                {task.dueDate ? (
+                  <time dateTime={task.dueDate}>
+                    {formatLegalTaskDueDate(task.dueDate)}
+                  </time>
+                ) : (
+                  'Sem prazo'
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Responsável</dt>
+              <dd>{task.assigneeDisplayName ?? 'Não atribuída'}</dd>
+            </div>
+          </dl>
         </div>
         {!isEditing && !isAssignmentOpen ? (
           <div className="task-detail-actions">
@@ -591,7 +616,7 @@ function TaskDetailsContent({ taskId }: { readonly taskId?: string }) {
             ) : null}
           </div>
         ) : null}
-      </div>
+      </header>
 
       {successMessage ? <p className="success-message" role="status">{successMessage}</p> : null}
       {mutationError ? (
@@ -794,18 +819,17 @@ function TaskDetailsContent({ taskId }: { readonly taskId?: string }) {
         ) : null}
       </section>
 
-      <dl className="task-properties">
-        <div><dt>Título</dt><dd>{task.title}</dd></div>
-        <div className="task-description-property"><dt>Descrição</dt><dd>{task.description ?? 'Sem descrição'}</dd></div>
-        <div><dt>Prazo</dt><dd>{formatLegalTaskDueDate(task.dueDate)}</dd></div>
-        <div><dt>Processo</dt><dd>{task.processTitle ?? 'Tarefa geral'}</dd></div>
-        <div><dt>Cliente</dt><dd>{task.clientName ?? 'Sem cliente vinculado'}</dd></div>
-        <div><dt>Responsável</dt><dd>{task.assigneeDisplayName ?? 'Não atribuída'}</dd></div>
-        <div><dt>Criada por</dt><dd>{task.createdByDisplayName}</dd></div>
-        <div><dt>Estado</dt><dd><span className={`task-status is-${task.state}`}>{getStateLabel(task.state)}</span></dd></div>
-        <div><dt>Criada em</dt><dd>{formatLegalTaskTimestamp(task.createdAt)}</dd></div>
-        {task.completedAt ? <div><dt>Concluída em</dt><dd>{formatLegalTaskTimestamp(task.completedAt)}</dd></div> : null}
-      </dl>
+      <section className="task-context" aria-labelledby="task-context-title">
+        <h2 id="task-context-title">Contexto e histórico</h2>
+        <dl className="task-properties">
+          <div className="task-description-property"><dt>Descrição</dt><dd>{task.description ?? 'Sem descrição'}</dd></div>
+          <div><dt>Processo</dt><dd>{task.processTitle ?? 'Tarefa geral'}</dd></div>
+          <div><dt>Cliente</dt><dd>{task.clientName ?? 'Sem cliente vinculado'}</dd></div>
+          <div><dt>Criada por</dt><dd>{task.createdByDisplayName}</dd></div>
+          <div><dt>Criada em</dt><dd><time dateTime={task.createdAt}>{formatLegalTaskTimestamp(task.createdAt)}</time></dd></div>
+          {task.completedAt ? <div><dt>Concluída em</dt><dd><time dateTime={task.completedAt}>{formatLegalTaskTimestamp(task.completedAt)}</time></dd></div> : null}
+        </dl>
+      </section>
     </section>
   )
 }
