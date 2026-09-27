@@ -1,0 +1,499 @@
+/*
+ * ENMA — Phase 8C.4
+ * Team workspace visual standardization.
+ * Feature-scoped: behavior and previously approved surfaces remain unchanged.
+ */
+
+.team-page {
+  --team-border: var(--enma-v3-border, rgba(228, 211, 237, 0.11));
+  --team-border-strong: var(
+    --enma-v3-border-strong,
+    rgba(205, 162, 229, 0.24)
+  );
+  --team-text: var(--enma-v3-text, #eee7f1);
+  --team-muted: var(--enma-v3-muted, #b1a5b6);
+  --team-subtle: var(--enma-v3-subtle, #918496);
+  --team-accent: #c68ee4;
+  --team-danger: #f0a7a0;
+  gap: 1.15rem;
+}
+
+.team-description {
+  max-width: 65ch;
+}
+
+.organization-name-editor {
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.organization-name-form {
+  gap: 0.6rem;
+  padding: 1rem;
+  border-color: var(--team-border);
+  border-radius: 0.9rem;
+  background: linear-gradient(145deg, #251f2b, #201a24);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+
+.organization-name-form > label,
+.team-search > label,
+.team-filter-control > label {
+  color: var(--team-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.organization-name-form-row {
+  gap: 0.55rem;
+}
+
+.organization-name-form-row input,
+.team-search-row input,
+.team-filter-control select {
+  border-color: var(--team-border-strong);
+  color: var(--team-text);
+  background: #211b26;
+  box-shadow: none;
+  caret-color: #d6a8ed;
+  color-scheme: dark;
+}
+
+.organization-name-form-row input::placeholder,
+.team-search-row input::placeholder {
+  color: var(--team-subtle);
+  opacity: 1;
+}
+
+.organization-name-form-row input:hover:not(:disabled),
+.team-search-row input:hover:not(:disabled),
+.team-filter-control select:hover:not(:disabled) {
+  border-color: rgba(210, 166, 235, 0.38);
+}
+
+.organization-name-form-row input:focus-visible,
+.team-search-row input:focus-visible,
+.team-filter-control select:focus-visible {
+  border-color: #c68ee4 !important;
+  background: #251f2b !important;
+  outline: 3px solid #a45bd6;
+  outline-offset: 2px;
+}
+
+.team-inline-success,
+.team-page > .success-message {
+  border-color: rgba(83, 190, 137, 0.16);
+  color: #9adebd;
+  background: rgba(45, 145, 95, 0.1);
+}
+
+.team-mutation-error {
+  border-color: rgba(222, 112, 132, 0.2);
+  color: var(--team-danger);
+  background: rgba(133, 48, 65, 0.18);
+}
+
+.team-controls {
+  grid-template-columns: minmax(20rem, 1.5fr) minmax(13rem, 0.7fr);
+  gap: 1rem;
+  padding: 1rem;
+  border-color: var(--team-border);
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.055),
+    rgba(255, 255, 255, 0.026)
+  );
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+.team-search,
+.team-filter-control {
+  gap: 0.48rem;
+}
+
+.team-search-row {
+  gap: 0.55rem;
+}
+
+.team-page .text-button,
+.team-danger-text-button {
+  min-height: 2.4rem;
+  padding: 0.35rem 0.12rem;
+  font-size: 0.75rem;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.2em;
+}
+
+.team-page .text-button {
+  color: var(--team-accent);
+}
+
+.team-danger-text-button {
+  color: var(--team-danger);
+}
+
+.team-page :is(a, button):focus-visible {
+  outline: 2px solid #d6a8ed;
+  outline-offset: 3px;
+}
+
+.team-page :is(button, input, select):disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+body:has(.organization-workspace) .team-page .primary-button {
+  color: #fff;
+  border-color: rgba(205, 139, 238, 0.54);
+  background: linear-gradient(145deg, #b55fe0, #8f46bd);
+  box-shadow: 0 9px 22px rgba(124, 58, 161, 0.2);
+}
+
+body:has(.organization-workspace)
+  .team-page
+  .primary-button:hover:not(:disabled) {
+  border-color: rgba(225, 179, 247, 0.64);
+  background: linear-gradient(145deg, #c36ae9, #9d50c9);
+  box-shadow: 0 11px 26px rgba(124, 58, 161, 0.25);
+}
+
+body:has(.organization-workspace) .team-page .secondary-button {
+  color: #d5a8ea;
+  border-color: rgba(201, 153, 227, 0.24);
+  background: rgba(164, 91, 214, 0.06);
+  box-shadow: none;
+}
+
+body:has(.organization-workspace)
+  .team-page
+  .secondary-button:hover:not(:disabled) {
+  color: #f0d8fa;
+  border-color: rgba(210, 166, 235, 0.38);
+  background: rgba(164, 91, 214, 0.13);
+}
+
+.team-state {
+  border-color: var(--team-border) !important;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.055),
+    rgba(255, 255, 255, 0.026)
+  ) !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+.team-refresh-status {
+  border-color: rgba(228, 211, 237, 0.08);
+  background: #211b26;
+}
+
+/* Preserve accessible table relationships while presenting members as a
+   continuous workspace list rather than a dense grid. */
+.team-table-wrapper {
+  min-width: 0;
+  overflow: visible;
+}
+
+.team-table {
+  display: block;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.team-table thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.team-table tbody {
+  display: grid;
+  width: 100%;
+  border-top: 1px solid var(--team-border);
+}
+
+.team-table tr {
+  display: grid;
+  grid-template-columns:
+    minmax(14rem, 1.4fr)
+    minmax(7.5rem, 0.55fr)
+    minmax(7rem, 0.5fr)
+    minmax(7rem, 0.5fr)
+    minmax(12rem, 0.85fr);
+  align-items: center;
+  gap: 0.8rem 1rem;
+  min-width: 0;
+  min-height: 6rem;
+  padding: 0.85rem 0.45rem;
+  border-bottom: 1px solid var(--team-border);
+  transition: background-color 140ms ease;
+}
+
+.team-table tr:not(:has(.team-actions-cell)) {
+  grid-template-columns: minmax(14rem, 1fr) minmax(8rem, 0.3fr);
+}
+
+.team-table tr:hover {
+  background: rgba(164, 91, 214, 0.055);
+}
+
+.team-table td {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  color: var(--team-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  vertical-align: middle;
+}
+
+.team-table td:not(:first-child, .team-actions-cell)::before {
+  color: var(--team-subtle);
+  content: attr(data-label);
+  font-size: 0.64rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.team-member-identity {
+  gap: 0.25rem;
+}
+
+.team-member-name {
+  color: var(--team-text);
+  font-size: 1rem;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.team-member-email {
+  color: var(--team-muted);
+  font-size: 0.76rem;
+  font-weight: 520;
+  line-height: 1.45;
+}
+
+.team-status {
+  width: fit-content;
+  min-height: 1.65rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid transparent;
+  font-size: 0.69rem;
+}
+
+.team-status.is-active {
+  color: #9adebd;
+  border-color: rgba(83, 190, 137, 0.18);
+  background: rgba(45, 145, 95, 0.11);
+}
+
+.team-status.is-inactive {
+  color: #d2c3d7;
+  border-color: rgba(190, 176, 197, 0.16);
+  background: rgba(190, 176, 197, 0.08);
+}
+
+.team-actions-cell {
+  width: auto;
+  min-width: 0;
+  justify-self: end;
+}
+
+.team-row-actions {
+  justify-content: flex-end;
+  gap: 0.35rem 0.75rem;
+}
+
+.team-action-unavailable {
+  max-width: 24rem;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.team-row-confirmation {
+  gap: 0.6rem;
+  width: min(100%, 24rem);
+  min-width: 18rem;
+  padding: 0.78rem;
+  border-color: var(--team-border);
+  border-radius: 0.78rem;
+  background: linear-gradient(145deg, #251f2b, #201a24);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+}
+
+.team-row-confirmation[role="alertdialog"] {
+  border-color: rgba(222, 112, 132, 0.2);
+  background: linear-gradient(
+    145deg,
+    rgba(133, 48, 65, 0.22),
+    #201a24
+  );
+}
+
+.team-row-confirmation p {
+  line-height: 1.45;
+}
+
+.team-row-confirmation-actions {
+  flex-wrap: wrap;
+}
+
+.team-compact-button {
+  min-height: 2.4rem !important;
+  padding: 0.45rem 0.72rem !important;
+}
+
+.team-pagination {
+  margin-top: 0 !important;
+  padding-top: 0.2rem;
+}
+
+.team-pagination span {
+  color: var(--team-muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.team-page ::selection {
+  color: #fff;
+  background: rgba(164, 91, 214, 0.72);
+}
+
+@media (max-width: 70rem) {
+  .team-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .team-table tr {
+    grid-template-columns:
+      minmax(13rem, 1.2fr)
+      repeat(3, minmax(6.5rem, 0.5fr));
+  }
+
+  .team-actions-cell {
+    grid-column: 1 / -1;
+    width: 100%;
+    padding-top: 0.75rem !important;
+    border-top: 1px solid rgba(228, 211, 237, 0.07) !important;
+    justify-self: stretch;
+  }
+
+  .team-row-actions {
+    justify-content: flex-start;
+  }
+
+  .team-action-unavailable {
+    text-align: left;
+  }
+}
+
+@media (max-width: 52rem) {
+  .organization-name-form-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .organization-name-form-row input {
+    grid-column: 1 / -1;
+  }
+
+  .team-table tr,
+  .team-table tr:not(:has(.team-actions-cell)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 0.85rem 1.25rem;
+    padding-block: 1rem;
+  }
+
+  .team-table td:first-child,
+  .team-actions-cell {
+    grid-column: 1 / -1;
+  }
+
+  .team-row-confirmation {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 40rem) {
+  .team-page {
+    gap: 1rem;
+  }
+
+  .team-controls,
+  .organization-name-form {
+    padding: 0.85rem;
+  }
+
+  .team-search-row,
+  .organization-name-form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .team-search-row .secondary-button,
+  .organization-name-form-row .team-compact-button {
+    width: 100%;
+  }
+
+  .organization-name-form {
+    width: 100%;
+  }
+
+  .organization-name-form-row input {
+    grid-column: auto;
+  }
+
+  .team-table tr,
+  .team-table tr:not(:has(.team-actions-cell)) {
+    grid-template-columns: 1fr;
+    gap: 0.78rem;
+    padding-inline: 0.2rem;
+  }
+
+  .team-table td:first-child,
+  .team-actions-cell {
+    grid-column: auto;
+  }
+
+  .team-actions-cell {
+    padding-top: 0.8rem !important;
+  }
+
+  .team-row-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .team-row-confirmation-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .team-row-confirmation-actions .team-compact-button,
+  .team-pagination .secondary-button {
+    width: 100%;
+  }
+
+  .team-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-page *,
+  .team-page *::before,
+  .team-page *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
