@@ -144,7 +144,14 @@ describe('Deadlines D2 detail flow', () => {
     expect(screen.getByText(deadlineB.processTitle)).toBeInTheDocument()
     expect(screen.getByText(deadlineB.clientName)).toBeInTheDocument()
     expect(screen.getByText('29/02/2028')).toBeInTheDocument()
+    expect(screen.getByText('29/02/2028').closest('time')).toHaveAttribute(
+      'datetime',
+      deadlineB.dueDate,
+    )
     expect(screen.getByText('Concluído')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Vínculos e histórico' }),
+    ).toBeInTheDocument()
     expect(screen.getByText(/12\/08\/2026/)).toBeInTheDocument()
     expect(screen.getByText(/13\/08\/2026/)).toBeInTheDocument()
     expect(screen.queryByText(deadlineB.id)).not.toBeInTheDocument()

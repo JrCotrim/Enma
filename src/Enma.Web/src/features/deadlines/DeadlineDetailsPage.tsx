@@ -438,10 +438,29 @@ function DeadlineDetailsContent({
       aria-labelledby="deadline-details-title"
     >
       {backLink}
-      <div className="deadline-details-header">
-        <div>
-          <p className="eyebrow">Detalhes do prazo</p>
+      <header className="deadline-details-header">
+        <div className="deadline-details-heading">
           <h1 id="deadline-details-title">{deadline.title}</h1>
+          <dl className="deadline-details-metadata">
+            <div>
+              <dt>Vencimento</dt>
+              <dd>
+                <time dateTime={deadline.dueDate}>
+                  {formatLegalDeadlineDueDate(deadline.dueDate)}
+                </time>
+              </dd>
+            </div>
+            <div>
+              <dt>Estado</dt>
+              <dd>
+                <span
+                  className={`deadline-status is-${deadline.state.toLowerCase()}`}
+                >
+                  {getStateLabel(deadline.state)}
+                </span>
+              </dd>
+            </div>
+          </dl>
         </div>
         {canMutate && !isEditing ? (
           <div className="deadline-detail-actions">
@@ -500,7 +519,7 @@ function DeadlineDetailsContent({
             )}
           </div>
         ) : null}
-      </div>
+      </header>
 
       {successMessage ? (
         <p className="success-message" role="status">
@@ -613,44 +632,40 @@ function DeadlineDetailsContent({
         </form>
       ) : null}
 
-      <dl className="deadline-properties">
-        <div>
-          <dt>Título</dt>
-          <dd>{deadline.title}</dd>
-        </div>
-        <div>
-          <dt>Processo</dt>
-          <dd>{deadline.processTitle}</dd>
-        </div>
-        <div>
-          <dt>Cliente</dt>
-          <dd>{deadline.clientName}</dd>
-        </div>
-        <div>
-          <dt>Data do prazo</dt>
-          <dd>{formatLegalDeadlineDueDate(deadline.dueDate)}</dd>
-        </div>
-        <div>
-          <dt>Estado</dt>
-          <dd>
-            <span
-              className={`deadline-status is-${deadline.state.toLowerCase()}`}
-            >
-              {getStateLabel(deadline.state)}
-            </span>
-          </dd>
-        </div>
-        <div>
-          <dt>Criado em</dt>
-          <dd>{formatLegalDeadlineTimestamp(deadline.createdAt)}</dd>
-        </div>
-        {deadline.completedAt ? (
+      <section
+        className="deadline-context"
+        aria-labelledby="deadline-context-title"
+      >
+        <h2 id="deadline-context-title">Vínculos e histórico</h2>
+        <dl className="deadline-properties">
           <div>
-            <dt>Concluído em</dt>
-            <dd>{formatLegalDeadlineTimestamp(deadline.completedAt)}</dd>
+            <dt>Processo</dt>
+            <dd>{deadline.processTitle}</dd>
           </div>
-        ) : null}
-      </dl>
+          <div>
+            <dt>Cliente</dt>
+            <dd>{deadline.clientName}</dd>
+          </div>
+          <div>
+            <dt>Criado em</dt>
+            <dd>
+              <time dateTime={deadline.createdAt}>
+                {formatLegalDeadlineTimestamp(deadline.createdAt)}
+              </time>
+            </dd>
+          </div>
+          {deadline.completedAt ? (
+            <div>
+              <dt>Concluído em</dt>
+              <dd>
+                <time dateTime={deadline.completedAt}>
+                  {formatLegalDeadlineTimestamp(deadline.completedAt)}
+                </time>
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      </section>
     </section>
   )
 }

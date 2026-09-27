@@ -179,9 +179,22 @@ describe('Deadlines D1 flow', () => {
       `/organizations/${memberOrganization.id}/deadlines`,
     )
     expect(await screen.findByText(pendingDeadline.title)).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Prazos cadastrados' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: pendingDeadline.title }),
+    ).toHaveAttribute(
+      'href',
+      `/organizations/${memberOrganization.id}/deadlines/${pendingDeadline.id}`,
+    )
     expect(screen.getAllByText(pendingDeadline.processTitle)).toHaveLength(2)
     expect(screen.getAllByText(pendingDeadline.clientName)).toHaveLength(2)
     expect(screen.getByText('01/11/2026')).toBeInTheDocument()
+    expect(screen.getByText('01/11/2026').closest('time')).toHaveAttribute(
+      'datetime',
+      pendingDeadline.dueDate,
+    )
     expect(screen.getByText('29/02/2028')).toBeInTheDocument()
     expect(screen.getByText('Pendente')).toBeInTheDocument()
     expect(screen.getByText('Concluído')).toBeInTheDocument()

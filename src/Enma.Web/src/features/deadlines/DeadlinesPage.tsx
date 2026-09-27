@@ -608,7 +608,6 @@ export function DeadlinesPage() {
     <section className="deadlines-page" aria-labelledby="deadlines-title">
       <div className="deadlines-header workspace-page-header">
         <div className="workspace-page-heading">
-          <p className="eyebrow workspace-page-eyebrow">GESTÃO DE PRAZOS</p>
           <h2 className="workspace-page-title" id="deadlines-title">Prazos</h2>
           <p className="deadlines-description workspace-page-subtitle">
             Consulte os prazos vinculados a esta organização.
@@ -917,48 +916,66 @@ export function DeadlinesPage() {
               ) : null}
             </div>
           ) : (
-            <div className="deadlines-table-wrapper">
-              <table className="deadlines-table">
-                <caption className="visually-hidden">
-                  Prazos da organização {currentOrganization.name}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Título</th>
-                    <th scope="col">Processo</th>
-                    <th scope="col">Cliente</th>
-                    <th scope="col">Vencimento</th>
-                    <th scope="col">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentListState.response.items.map((deadline) => (
-                    <tr key={deadline.id}>
-                      <td data-label="Título">
-                        <Link
-                          className="deadline-detail-link"
-                          to={`/organizations/${currentOrganization.id}/deadlines/${deadline.id}`}
+            <section
+              className="deadlines-results"
+              aria-labelledby="deadlines-results-title"
+            >
+              <h3
+                className="deadlines-results-title"
+                id="deadlines-results-title"
+              >
+                Prazos cadastrados
+              </h3>
+              <ul className="deadlines-list">
+                {currentListState.response.items.map((deadline) => (
+                  <li key={deadline.id}>
+                    <Link
+                      className="deadline-record-link"
+                      to={`/organizations/${currentOrganization.id}/deadlines/${deadline.id}`}
+                      aria-labelledby={`deadline-${deadline.id}-title`}
+                      aria-describedby={`deadline-${deadline.id}-metadata`}
+                    >
+                      <span className="deadline-record-summary">
+                        <strong
+                          className="deadline-record-title"
+                          id={`deadline-${deadline.id}-title`}
                         >
                           {deadline.title}
-                        </Link>
-                      </td>
-                      <td data-label="Processo">{deadline.processTitle}</td>
-                      <td data-label="Cliente">{deadline.clientName}</td>
-                      <td data-label="Vencimento">
-                        {formatLegalDeadlineDueDate(deadline.dueDate)}
-                      </td>
-                      <td data-label="Estado">
+                        </strong>
                         <span
-                          className={`deadline-status is-${deadline.state.toLowerCase()}`}
+                          className="deadline-record-metadata"
+                          id={`deadline-${deadline.id}-metadata`}
                         >
-                          {getDeadlineStateLabel(deadline.state)}
+                          <span className="deadline-record-context">
+                            <span>{deadline.processTitle}</span>
+                            <span>{deadline.clientName}</span>
+                          </span>
+                          <span className="deadline-record-due-date">
+                            <span>Vence em</span>{' '}
+                            <time dateTime={deadline.dueDate}>
+                              {formatLegalDeadlineDueDate(deadline.dueDate)}
+                            </time>
+                          </span>
+                          <span
+                            className={`deadline-status is-${deadline.state.toLowerCase()}`}
+                          >
+                            {getDeadlineStateLabel(deadline.state)}
+                          </span>
                         </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </span>
+                      <span
+                        className="deadline-record-chevron"
+                        aria-hidden="true"
+                      >
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           <nav
