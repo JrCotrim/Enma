@@ -57,8 +57,10 @@ public sealed class NotificationMigrationTests(
             await PostgreSqlFixture.InsertClientWithoutProfileColumnsAsync(
                 seedContext,
                 graph.Client);
+            await PostgreSqlFixture.InsertLegalProcessWithoutOperationalColumnsAsync(
+                seedContext,
+                graph.LegalProcess);
             seedContext.AddRange(
-                graph.LegalProcess,
                 graph.LegalDeadline,
                 graph.LegalTask,
                 graph.CalendarEvent);

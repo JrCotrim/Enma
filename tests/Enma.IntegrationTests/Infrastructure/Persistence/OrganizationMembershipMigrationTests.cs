@@ -84,9 +84,10 @@ public sealed class OrganizationMembershipMigrationTests(
             await PostgreSqlFixture.InsertClientWithoutProfileColumnsAsync(
                 seedContext,
                 graph.Client);
-            seedContext.AddRange(
-                graph.LegalProcess,
-                graph.LegalDeadline);
+            await PostgreSqlFixture.InsertLegalProcessWithoutOperationalColumnsAsync(
+                seedContext,
+                graph.LegalProcess);
+            seedContext.Add(graph.LegalDeadline);
             await seedContext.SaveChangesAsync();
         }
 

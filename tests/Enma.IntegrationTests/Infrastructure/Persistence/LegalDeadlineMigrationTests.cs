@@ -70,8 +70,9 @@ public sealed class LegalDeadlineMigrationTests(
             await PostgreSqlFixture.InsertClientWithoutProfileColumnsAsync(
                 seedContext,
                 client);
-            seedContext.Add(legalProcess);
-            await seedContext.SaveChangesAsync();
+            await PostgreSqlFixture.InsertLegalProcessWithoutOperationalColumnsAsync(
+                seedContext,
+                legalProcess);
         }
 
         await MigrateAsync();

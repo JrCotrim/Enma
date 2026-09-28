@@ -1,4 +1,5 @@
 using Enma.Domain.Clients;
+using Enma.Domain.Processes;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
@@ -52,6 +53,29 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
                 ({client.Id}, {client.OrganizationId}, {client.Name},
                  {client.IsActive}, {client.CreatedAt})
             """);
+    }
+
+    public static async Task InsertLegalProcessWithoutOperationalColumnsAsync(
+        EnmaDbContext dbContext,
+        LegalProcess legalProcess)
+    {
+        int insertedRows = await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO legal_processes
+                (id, organization_id, client_id, title, created_at)
+            SELECT
+                {legalProcess.Id}, clients.organization_id, clients.id,
+                {legalProcess.Title}, {legalProcess.CreatedAt}
+            FROM clients
+            WHERE clients.id = {legalProcess.ClientId}
+              AND clients.organization_id = {legalProcess.OrganizationId}
+            """);
+
+        if (insertedRows != 1)
+        {
+            throw new InvalidOperationException(
+                "The legacy legal process client must belong to the same organization.");
+        }
     }
 
     public async Task ResetDatabaseAsync(
