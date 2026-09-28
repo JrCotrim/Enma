@@ -284,7 +284,7 @@ body:has(.organization-workspace)
 }
 
 .invitation-revoke-button {
-  min-height: 2.4rem !important;
+  min-height: 2.75rem !important;
   color: var(--invitations-danger);
   text-decoration-thickness: 0.08em;
   text-underline-offset: 0.2em;
@@ -324,7 +324,7 @@ body:has(.organization-workspace)
 .invitation-compact-button,
 .primary-button.invitation-compact-button,
 .danger-button.invitation-compact-button {
-  min-height: 2.4rem;
+  min-height: 2.75rem;
   padding: 0.45rem 0.72rem;
 }
 

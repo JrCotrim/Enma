@@ -82,8 +82,8 @@ body:has(.organization-workspace) .agenda-legend {
 
 body:has(.organization-workspace) .agenda-month-navigation .secondary-button {
   display: inline-grid;
-  min-width: 2.5rem;
-  min-height: 2.5rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
   padding: 0.55rem;
   border-radius: 0.7rem;
   place-items: center;

@@ -92,6 +92,12 @@
   line-height: 1.25;
 }
 
+.dashboard-page-phase3e .dashboard-section-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+}
+
 /* The shell consumes enough width that four columns feel cramped on laptops. */
 @media (max-width: 90rem) and (min-width: 48.001rem) {
   .dashboard-kpis-phase3e {

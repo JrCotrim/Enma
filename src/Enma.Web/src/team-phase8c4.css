@@ -348,7 +348,7 @@ body:has(.organization-workspace)
 }
 
 .team-compact-button {
-  min-height: 2.4rem !important;
+  min-height: 2.75rem !important;
   padding: 0.45rem 0.72rem !important;
 }
 
