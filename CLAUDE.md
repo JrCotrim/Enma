@@ -122,6 +122,12 @@ Stop and report rather than silently working around the problem when:
 - a security-sensitive requirement is materially ambiguous;
 - repository state makes the intended change unsafe;
 - unrelated production changes would be required only to make validation pass.
+- the change touches concurrency/locks, authorization, tenant isolation, or migrations and the task did not anticipate it;
+- the task spec contradicts the code, or an ambiguity would change behavior;
+- scope grows beyond the listed files/layers;
+- the same failure persists after two fix attempts with an unknown cause.
+
+When stopping, report what was found, why it matters, and the suggested effort for the next pass.
 
 ## UI preservation
 
