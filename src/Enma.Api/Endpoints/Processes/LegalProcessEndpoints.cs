@@ -42,6 +42,7 @@ public static class LegalProcessEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status500InternalServerError)
             .RequireEnmaAntiforgery();
 
@@ -138,10 +139,15 @@ public static class LegalProcessEndpoints
         }
 
         CreateLegalProcessResult result = await useCase.ExecuteAsync(
-            userId,
-            organizationId,
-            request.ClientId,
-            request.Title,
+            new CreateLegalProcessCommand(
+                userId,
+                organizationId,
+                request.ClientId,
+                request.Title,
+                request.ProcessNumber,
+                request.Status,
+                request.CourtOrAuthority,
+                request.ResponsibleMembershipId),
             cancellationToken);
 
         if (result.Status == CreateLegalProcessResultStatus.AccessDenied)
@@ -153,6 +159,18 @@ public static class LegalProcessEndpoints
             CreateLegalProcessResultStatus.RelatedClientUnavailable)
         {
             return TypedResults.NotFound();
+        }
+
+        if (result.Status ==
+            CreateLegalProcessResultStatus.RelatedResponsibleUnavailable)
+        {
+            return CreateRelatedResponsibleUnavailableProblem();
+        }
+
+        if (result.Status == CreateLegalProcessResultStatus.DuplicateProcessNumber)
+        {
+            return CreateConflictProblem(
+                "The process number is already used by another process.");
         }
 
         Guid processId = result.ProcessId
@@ -203,6 +221,10 @@ public static class LegalProcessEndpoints
         ClaimsPrincipal principal,
         ListLegalProcessesUseCase useCase,
         CancellationToken cancellationToken,
+        string? search = null,
+        string? status = null,
+        string? responsible = null,
+        string? sort = null,
         int pageNumber = 1,
         int pageSize = ListLegalProcessesUseCase.DefaultPageSize)
     {
@@ -212,10 +234,15 @@ public static class LegalProcessEndpoints
         }
 
         ListLegalProcessesResult result = await useCase.ExecuteAsync(
-            userId,
-            organizationId,
-            pageNumber,
-            pageSize,
+            new ListLegalProcessesQuery(
+                userId,
+                organizationId,
+                search,
+                status,
+                responsible,
+                sort,
+                pageNumber,
+                pageSize),
             cancellationToken);
 
         if (result.Status == ListLegalProcessesResultStatus.AccessDenied)
@@ -230,7 +257,8 @@ public static class LegalProcessEndpoints
         return TypedResults.Ok(new ListLegalProcessesResponse(
             items,
             result.PageNumber,
-            result.PageSize));
+            result.PageSize,
+            result.HasNext));
     }
 
     private static async Task<IResult> LookupAsync(
@@ -264,7 +292,9 @@ public static class LegalProcessEndpoints
             .Select(legalProcess => new LegalProcessLookupItemResponse(
                 legalProcess.Id,
                 legalProcess.Title,
-                legalProcess.ClientName))
+                legalProcess.ClientName,
+                legalProcess.ProcessNumber,
+                MapStatus(legalProcess.Status)))
             .ToArray();
 
         return TypedResults.Ok(new LegalProcessLookupResponse(
@@ -404,14 +434,19 @@ public static class LegalProcessEndpoints
             ChangeLegalProcessResponsibleResult.NotFound => TypedResults.NotFound(),
             ChangeLegalProcessResponsibleResult.InvalidInput => TypedResults.BadRequest(),
             ChangeLegalProcessResponsibleResult.RelatedResponsibleUnavailable =>
-                TypedResults.Problem(
-                    title: "Related responsible member unavailable",
-                    detail: "The requested responsible member is unavailable.",
-                    statusCode: StatusCodes.Status400BadRequest),
+                CreateRelatedResponsibleUnavailableProblem(),
             ChangeLegalProcessResponsibleResult.Succeeded => TypedResults.NoContent(),
             _ => throw new InvalidOperationException(
                 "The legal process responsible change returned an unknown status.")
         };
+    }
+
+    private static IResult CreateRelatedResponsibleUnavailableProblem()
+    {
+        return TypedResults.Problem(
+            title: "Related responsible member unavailable",
+            detail: "The requested responsible member is unavailable.",
+            statusCode: StatusCodes.Status400BadRequest);
     }
 
     private static IResult CreateConflictProblem(string detail)

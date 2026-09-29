@@ -29,16 +29,15 @@ public sealed class CreateLegalProcessUseCase
     }
 
     public async Task<CreateLegalProcessResult> ExecuteAsync(
-        Guid userId,
-        Guid organizationId,
-        Guid clientId,
-        string title,
+        CreateLegalProcessCommand command,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(command);
+
         OrganizationAccessAuthorizationResult authorization =
             await _actionAuthorization.AuthorizeActorAsync(
-                userId,
-                organizationId,
+                command.UserId,
+                command.OrganizationId,
                 ProcessAction.Create,
                 cancellationToken);
 
@@ -47,10 +46,20 @@ public sealed class CreateLegalProcessUseCase
             return CreateLegalProcessResult.AccessDenied;
         }
 
-        bool activeClientExists = clientId != Guid.Empty &&
+        LegalProcessStatus status = command.Status is null
+            ? LegalProcessStatus.InProgress
+            : LegalProcessStatusParser.Parse(command.Status);
+
+        if (command.ResponsibleMembershipId == Guid.Empty)
+        {
+            throw new RequestValidationException(
+                LegalProcessErrors.ResponsibleMembershipIdInvalid);
+        }
+
+        bool activeClientExists = command.ClientId != Guid.Empty &&
             await _activeClientLookup.ExistsAsync(
-                clientId,
-                organizationId,
+                command.ClientId,
+                command.OrganizationId,
                 cancellationToken);
 
         if (!activeClientExists)
@@ -59,14 +68,15 @@ public sealed class CreateLegalProcessUseCase
         }
 
         var request = new LegalProcessCreationPersistenceRequest(
-            userId,
-            organizationId,
+            command.UserId,
+            command.OrganizationId,
             actorMembershipId,
-            clientId);
+            command.ClientId,
+            command.ResponsibleMembershipId);
         LegalProcessCreationPersistenceResult persistenceResult =
             await _creationPersistence.ExecuteAsync(
                 request,
-                state => DecideCreation(request, state, title),
+                state => DecideCreation(request, state, command, status),
                 cancellationToken);
 
         return persistenceResult.Status switch
@@ -75,6 +85,10 @@ public sealed class CreateLegalProcessUseCase
                 CreateLegalProcessResult.AccessDenied,
             LegalProcessCreationDecisionStatus.RelatedClientUnavailable =>
                 CreateLegalProcessResult.RelatedClientUnavailable,
+            LegalProcessCreationDecisionStatus.RelatedResponsibleUnavailable =>
+                CreateLegalProcessResult.RelatedResponsibleUnavailable,
+            LegalProcessCreationDecisionStatus.DuplicateProcessNumber =>
+                CreateLegalProcessResult.DuplicateProcessNumber,
             LegalProcessCreationDecisionStatus.Persist
                 when persistenceResult.ProcessId is Guid processId =>
                 CreateLegalProcessResult.Success(processId),
@@ -86,7 +100,8 @@ public sealed class CreateLegalProcessUseCase
     private LegalProcessCreationDecision DecideCreation(
         LegalProcessCreationPersistenceRequest request,
         LegalProcessCreationLockedState state,
-        string title)
+        CreateLegalProcessCommand command,
+        LegalProcessStatus status)
     {
         if (!state.IsOrganizationActive ||
             state.Actor is not { } actor ||
@@ -104,31 +119,52 @@ public sealed class CreateLegalProcessUseCase
             return LegalProcessCreationDecision.RelatedClientUnavailable;
         }
 
+        if (request.ResponsibleMembershipId is Guid responsibleMembershipId &&
+            state.ResponsibleMember?.IsAvailableMemberOf(
+                request.OrganizationId,
+                responsibleMembershipId) != true)
+        {
+            return LegalProcessCreationDecision.RelatedResponsibleUnavailable;
+        }
+
         return LegalProcessCreationDecision.Persist(
             CreateLegalProcess(
-                request.OrganizationId,
-                request.ClientId,
-                title,
+                request,
+                command,
+                status,
                 _timeProvider.GetUtcNow()));
     }
 
     private static LegalProcess CreateLegalProcess(
-        Guid organizationId,
-        Guid clientId,
-        string title,
+        LegalProcessCreationPersistenceRequest request,
+        CreateLegalProcessCommand command,
+        LegalProcessStatus status,
         DateTimeOffset createdAt)
     {
+        LegalProcess legalProcess;
+
         try
         {
-            return new LegalProcess(
-                organizationId,
-                clientId,
-                title,
-                createdAt);
+            legalProcess = new LegalProcess(
+                request.OrganizationId,
+                request.ClientId,
+                command.Title,
+                createdAt,
+                command.ProcessNumber,
+                command.CourtOrAuthority,
+                request.ResponsibleMembershipId);
         }
-        catch (ArgumentException exception) when (exception.ParamName == "title")
+        catch (ArgumentException exception) when (
+            exception.ParamName is "title" or "processNumber" or "courtOrAuthority")
         {
             throw new RequestValidationException(exception.Message, exception);
         }
+
+        if (status != LegalProcessStatus.InProgress)
+        {
+            legalProcess.ChangeStatus(status);
+        }
+
+        return legalProcess;
     }
 }

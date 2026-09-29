@@ -623,6 +623,54 @@ public sealed class LegalProcessTests
         Assert.Equal(responsibleMembershipId, legalProcess.ResponsibleMembershipId);
     }
 
+    [Fact]
+    public void Constructor_WithEmptyResponsibleMembershipId_ThrowsArgumentException()
+    {
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            new LegalProcess(
+                OrganizationId,
+                ClientId,
+                "Contract Review",
+                CreatedAt,
+                responsibleMembershipId: Guid.Empty));
+
+        Assert.Equal("responsibleMembershipId", exception.ParamName);
+        Assert.Contains(
+            LegalProcessErrors.ResponsibleMembershipIdInvalid,
+            exception.Message);
+    }
+
+    [Theory]
+    [InlineData("0001234-56.2026.8.19.0001", "00012345620268190001")]
+    [InlineData("  0001234-56.2026.8.19.0001  ", "00012345620268190001")]
+    [InlineData("0001234-56", "000123456")]
+    [InlineData("00012345620268190001", "00012345620268190001")]
+    [InlineData("12/34 56", "123456")]
+    [InlineData("7", "7")]
+    public void ToProcessNumberDigitsSearchTerm_WithDigitsAndSeparators_ReturnsDigits(
+        string searchTerm,
+        string expected)
+    {
+        Assert.Equal(
+            expected,
+            LegalProcess.ToProcessNumberDigitsSearchTerm(searchTerm));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(".-/")]
+    [InlineData("ABC-123")]
+    [InlineData("0001234-56 Vara")]
+    [InlineData("123%")]
+    [InlineData("١٢٣")]
+    public void ToProcessNumberDigitsSearchTerm_WithoutOnlyAsciiDigits_ReturnsNull(
+        string? searchTerm)
+    {
+        Assert.Null(LegalProcess.ToProcessNumberDigitsSearchTerm(searchTerm));
+    }
+
     public static TheoryData<LegalProcessStatus, LegalProcessStatus>
         AllowedStatusTransitions => new()
         {

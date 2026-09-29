@@ -1,5 +1,4 @@
 using Enma.Application.Authorization;
-using Enma.Application.Validation;
 using Enma.Domain.Processes;
 
 namespace Enma.Application.Processes.Status;
@@ -26,7 +25,7 @@ public sealed class ChangeLegalProcessStatusUseCase
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        LegalProcessStatus status = ParseStatus(command.Status);
+        LegalProcessStatus status = LegalProcessStatusParser.Parse(command.Status);
 
         if (await LegalProcessOperationalMutationSupport.AuthorizeActorMembershipAsync(
                 _actionAuthorization,
@@ -114,17 +113,5 @@ public sealed class ChangeLegalProcessStatusUseCase
     {
         return legalProcess.Status == LegalProcessStatus.Closed &&
             status == LegalProcessStatus.InProgress;
-    }
-
-    private static LegalProcessStatus ParseStatus(string? value)
-    {
-        return value switch
-        {
-            "inProgress" => LegalProcessStatus.InProgress,
-            "suspended" => LegalProcessStatus.Suspended,
-            "closed" => LegalProcessStatus.Closed,
-            _ => throw new RequestValidationException(
-                "Status must be 'inProgress', 'suspended', or 'closed'.")
-        };
     }
 }

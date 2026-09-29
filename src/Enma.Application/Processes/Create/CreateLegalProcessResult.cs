@@ -22,6 +22,14 @@ public sealed class CreateLegalProcessResult
         CreateLegalProcessResultStatus.RelatedClientUnavailable,
         null);
 
+    public static CreateLegalProcessResult RelatedResponsibleUnavailable { get; } = new(
+        CreateLegalProcessResultStatus.RelatedResponsibleUnavailable,
+        null);
+
+    public static CreateLegalProcessResult DuplicateProcessNumber { get; } = new(
+        CreateLegalProcessResultStatus.DuplicateProcessNumber,
+        null);
+
     public static CreateLegalProcessResult Success(Guid processId)
     {
         if (processId == Guid.Empty)
@@ -41,5 +49,7 @@ public enum CreateLegalProcessResultStatus
 {
     AccessDenied = 0,
     RelatedClientUnavailable = 1,
-    Succeeded = 2
+    Succeeded = 2,
+    RelatedResponsibleUnavailable = 3,
+    DuplicateProcessNumber = 4
 }

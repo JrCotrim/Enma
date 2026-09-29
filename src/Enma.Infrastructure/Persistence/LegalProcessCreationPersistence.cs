@@ -45,6 +45,12 @@ public sealed class LegalProcessCreationPersistence
                 LegalProcessCreationDecisionStatus.AccessDenied);
         }
 
+        if (request.ResponsibleMembershipId == Guid.Empty)
+        {
+            return LegalProcessCreationPersistenceResult.Rejected(
+                LegalProcessCreationDecisionStatus.RelatedResponsibleUnavailable);
+        }
+
         await using var dbContext = new EnmaDbContext(_dbContextOptions);
         await using IDbContextTransaction transaction =
             await dbContext.Database.BeginTransactionAsync(
@@ -56,17 +62,15 @@ public sealed class LegalProcessCreationPersistence
             request.OrganizationId,
             request.ClientId,
             cancellationToken);
-        OrganizationMembership? actorMembership = await LockActorMembershipAsync(
+        IEnumerable<Guid> membershipIds =
+            request.ResponsibleMembershipId is Guid responsibleId
+                ? [request.ActorMembershipId, responsibleId]
+                : [request.ActorMembershipId];
+        LegalTaskLockedIdentities identities = await LegalTaskIdentityLocking.LockAsync(
             dbContext,
             request.OrganizationId,
-            request.ActorMembershipId,
+            membershipIds,
             cancellationToken);
-        User? actorUser = actorMembership is null
-            ? null
-            : await LockActorUserAsync(
-                dbContext,
-                actorMembership.UserId,
-                cancellationToken);
         Organization? organization = await LockOrganizationAsync(
             dbContext,
             request.OrganizationId,
@@ -74,8 +78,11 @@ public sealed class LegalProcessCreationPersistence
         LegalProcessCreationDecision decision = decide(
             new LegalProcessCreationLockedState(
                 organization?.IsActive == true,
-                CreateActorState(actorMembership, actorUser),
-                client?.IsActive == true));
+                CreateMemberState(request.ActorMembershipId, identities),
+                client?.IsActive == true,
+                request.ResponsibleMembershipId is Guid lockedResponsibleId
+                    ? CreateMemberState(lockedResponsibleId, identities)
+                    : null));
 
         if (decision.Status != LegalProcessCreationDecisionStatus.Persist)
         {
@@ -86,7 +93,10 @@ public sealed class LegalProcessCreationPersistence
         if (decision.LegalProcess is not { } legalProcess ||
             legalProcess.OrganizationId != request.OrganizationId ||
             legalProcess.ClientId != request.ClientId ||
-            actorMembership is null)
+            legalProcess.ResponsibleMembershipId != request.ResponsibleMembershipId ||
+            !identities.MembershipsById.TryGetValue(
+                request.ActorMembershipId,
+                out OrganizationMembership? actorMembership))
         {
             throw new InvalidOperationException(
                 "A legal process persistence decision returned invalid state.");
@@ -102,25 +112,45 @@ public sealed class LegalProcessCreationPersistence
             new AuditIntent(
                 AuditEventType.LegalProcessCreated,
                 legalProcess.Id));
-        await dbContext.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (
+            LegalProcessPersistenceConstraints.IsUniqueViolation(
+                exception,
+                LegalProcessPersistenceConstraints.NormalizedProcessNumber))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return LegalProcessCreationPersistenceResult.Rejected(
+                LegalProcessCreationDecisionStatus.DuplicateProcessNumber);
+        }
+
         await transaction.CommitAsync(cancellationToken);
 
         return LegalProcessCreationPersistenceResult.Created(legalProcess.Id);
     }
 
-    private static LegalProcessLockedActorState? CreateActorState(
-        OrganizationMembership? membership,
-        User? user)
+    private static LegalProcessLockedActorState? CreateMemberState(
+        Guid membershipId,
+        LegalTaskLockedIdentities identities)
     {
-        return membership is null
-            ? null
-            : new LegalProcessLockedActorState(
-                membership.Id,
-                membership.OrganizationId,
-                membership.UserId,
-                membership.Role,
-                membership.IsActive,
-                user?.Id == membership.UserId && user.IsActive);
+        if (!identities.MembershipsById.TryGetValue(
+                membershipId,
+                out OrganizationMembership? membership))
+        {
+            return null;
+        }
+
+        identities.UsersById.TryGetValue(membership.UserId, out User? user);
+        return new LegalProcessLockedActorState(
+            membership.Id,
+            membership.OrganizationId,
+            membership.UserId,
+            membership.Role,
+            membership.IsActive,
+            user?.Id == membership.UserId && user.IsActive);
     }
 
     private static Task<Client?> LockClientAsync(
@@ -135,38 +165,6 @@ public sealed class LegalProcessCreationPersistence
                 SELECT * FROM clients
                 WHERE id = {clientId}
                   AND organization_id = {organizationId}
-                FOR UPDATE
-                """)
-            .SingleOrDefaultAsync(cancellationToken);
-    }
-
-    private static Task<OrganizationMembership?> LockActorMembershipAsync(
-        EnmaDbContext dbContext,
-        Guid organizationId,
-        Guid actorMembershipId,
-        CancellationToken cancellationToken)
-    {
-        return dbContext.OrganizationMemberships
-            .FromSqlInterpolated(
-                $"""
-                SELECT * FROM organization_memberships
-                WHERE organization_id = {organizationId}
-                  AND id = {actorMembershipId}
-                FOR UPDATE
-                """)
-            .SingleOrDefaultAsync(cancellationToken);
-    }
-
-    private static Task<User?> LockActorUserAsync(
-        EnmaDbContext dbContext,
-        Guid userId,
-        CancellationToken cancellationToken)
-    {
-        return dbContext.Users
-            .FromSqlInterpolated(
-                $"""
-                SELECT * FROM users
-                WHERE id = {userId}
                 FOR UPDATE
                 """)
             .SingleOrDefaultAsync(cancellationToken);

@@ -6,12 +6,14 @@ public sealed class ListLegalProcessesResult
         ListLegalProcessesResultStatus status,
         IReadOnlyList<LegalProcessReadModel> items,
         int pageNumber,
-        int pageSize)
+        int pageSize,
+        bool hasNext)
     {
         Status = status;
         Items = items;
         PageNumber = pageNumber;
         PageSize = pageSize;
+        HasNext = hasNext;
     }
 
     public ListLegalProcessesResultStatus Status { get; }
@@ -22,11 +24,14 @@ public sealed class ListLegalProcessesResult
 
     public int PageSize { get; }
 
+    public bool HasNext { get; }
+
     public static ListLegalProcessesResult AccessDenied { get; } = new(
         ListLegalProcessesResultStatus.AccessDenied,
         Array.Empty<LegalProcessReadModel>(),
         0,
-        0);
+        0,
+        false);
 
     public static ListLegalProcessesResult Success(
         IReadOnlyList<LegalProcessReadModel> items,
@@ -35,11 +40,14 @@ public sealed class ListLegalProcessesResult
     {
         ArgumentNullException.ThrowIfNull(items);
 
+        bool hasNext = items.Count > pageSize;
+
         return new ListLegalProcessesResult(
             ListLegalProcessesResultStatus.Succeeded,
-            items.ToArray(),
+            items.Take(pageSize).ToArray(),
             pageNumber,
-            pageSize);
+            pageSize,
+            hasNext);
     }
 }
 

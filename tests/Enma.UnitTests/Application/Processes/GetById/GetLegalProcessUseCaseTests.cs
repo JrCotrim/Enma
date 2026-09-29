@@ -183,9 +183,7 @@ public sealed class GetLegalProcessUseCaseTests
         }
 
         public Task<IReadOnlyList<LegalProcessReadModel>> ListAsync(
-            Guid organizationId,
-            int pageNumber,
-            int pageSize,
+            LegalProcessListReadRequest request,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException(

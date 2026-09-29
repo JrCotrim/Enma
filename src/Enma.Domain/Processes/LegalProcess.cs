@@ -38,6 +38,13 @@ public sealed class LegalProcess
                 LegalProcessErrors.CreatedAtInvalid);
         }
 
+        if (responsibleMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                LegalProcessErrors.ResponsibleMembershipIdInvalid,
+                nameof(responsibleMembershipId));
+        }
+
         Id = Guid.NewGuid();
         OrganizationId = organizationId;
         ClientId = clientId;
@@ -69,6 +76,23 @@ public sealed class LegalProcess
     public Guid? ResponsibleMembershipId { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
+
+    public static string? ToProcessNumberDigitsSearchTerm(string? searchTerm)
+    {
+        if (searchTerm is null)
+        {
+            return null;
+        }
+
+        string digits = string.Concat(searchTerm.Where(character =>
+            character is not ('.' or '-' or '/') &&
+            !char.IsWhiteSpace(character)));
+
+        return digits.Length > 0 &&
+            digits.All(character => character is >= '0' and <= '9')
+                ? digits
+                : null;
+    }
 
     public void ChangeTitle(string title)
     {

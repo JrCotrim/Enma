@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Enma.Api.Contracts.Processes;
 using Enma.Application.Authentication;
+using Enma.Domain.Auditing;
 using Enma.Domain.Authentication;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
@@ -78,9 +79,23 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         Assert.Equal(
             [
                 nameof(CreateLegalProcessRequest.ClientId),
-                nameof(CreateLegalProcessRequest.Title)
+                nameof(CreateLegalProcessRequest.Title),
+                nameof(CreateLegalProcessRequest.ProcessNumber),
+                nameof(CreateLegalProcessRequest.Status),
+                nameof(CreateLegalProcessRequest.CourtOrAuthority),
+                nameof(CreateLegalProcessRequest.ResponsibleMembershipId)
             ],
             GetPropertyNames<CreateLegalProcessRequest>());
+        Assert.All(
+            typeof(CreateLegalProcessRequest)
+                .GetProperties()
+                .Where(property => property.Name is not (
+                    nameof(CreateLegalProcessRequest.ClientId) or
+                    nameof(CreateLegalProcessRequest.Title))),
+            property => Assert.False(
+                property.IsDefined(
+                    typeof(System.Runtime.CompilerServices.RequiredMemberAttribute),
+                    inherit: false)));
         Assert.Equal(
             [nameof(UpdateLegalProcessRequest.Title)],
             GetPropertyNames<UpdateLegalProcessRequest>());
@@ -117,14 +132,17 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             [
                 nameof(ListLegalProcessesResponse.Items),
                 nameof(ListLegalProcessesResponse.PageNumber),
-                nameof(ListLegalProcessesResponse.PageSize)
+                nameof(ListLegalProcessesResponse.PageSize),
+                nameof(ListLegalProcessesResponse.HasNext)
             ],
             GetPropertyNames<ListLegalProcessesResponse>());
         Assert.Equal(
             [
                 nameof(LegalProcessLookupItemResponse.Id),
                 nameof(LegalProcessLookupItemResponse.Title),
-                nameof(LegalProcessLookupItemResponse.ClientName)
+                nameof(LegalProcessLookupItemResponse.ClientName),
+                nameof(LegalProcessLookupItemResponse.ProcessNumber),
+                nameof(LegalProcessLookupItemResponse.Status)
             ],
             GetPropertyNames<LegalProcessLookupItemResponse>());
         Assert.Equal(
@@ -144,7 +162,8 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             "Role",
             "Membership",
             "IsActive",
-            "ClientIsActive"
+            "ClientIsActive",
+            "NormalizedProcessNumber"
         ];
         Type[] contractTypes =
         [
@@ -677,10 +696,12 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         Assert.NotNull(pageResult);
         Assert.Equal(1, defaultResult.PageNumber);
         Assert.Equal(20, defaultResult.PageSize);
+        Assert.False(defaultResult.HasNext);
         Assert.Equal([first.Id, second.Id, third.Id], defaultResult.Items.Select(
             item => item.Id));
         Assert.Equal(2, pageResult.PageNumber);
         Assert.Equal(1, pageResult.PageSize);
+        Assert.True(pageResult.HasNext);
         Assert.Equal(second.Id, Assert.Single(pageResult.Items).Id);
 
         string[] invalidQueries =
@@ -803,7 +824,7 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
                 .Select(property => property.Name)
                 .ToArray());
         Assert.Equal(
-            ["id", "title", "clientName"],
+            ["id", "title", "clientName", "processNumber", "status"],
             document.RootElement
                 .GetProperty("items")[0]
                 .EnumerateObject()
@@ -1691,6 +1712,696 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
                 .GetGuid());
         Assert.DoesNotContain("0001234", auditJson, StringComparison.Ordinal);
         Assert.DoesNotContain("Vara", auditJson, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner)]
+    [InlineData(OrganizationRole.Administrator)]
+    public async Task CreateLegalProcess_WithOperationalFields_ReturnsCreatedAndPersistsFields(
+        OrganizationRole role)
+    {
+        User user = CreateUser($"create-operational-{role}");
+        Organization organization = CreateOrganization($"Create Operational {role}");
+        Organization otherOrganization = CreateOrganization(
+            $"Create Operational Body {role}");
+        OrganizationMembership membership = CreateMembership(user, organization, role);
+        ClientEntity relatedClient = CreateClient(organization, "Operational Client", 2);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization, otherOrganization],
+            [membership],
+            [relatedClient],
+            []);
+        OrganizationMembership responsibleMembership = await SeedMemberAsync(
+            organization,
+            $"create-operational-responsible-{role}");
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage createResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetProcessesPath(organization.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                clientId = relatedClient.Id,
+                title = "  Operational Create  ",
+                processNumber = "  0001234-56.2026.8.19.0001  ",
+                status = "closed",
+                courtOrAuthority = " 1ª Vara Cível ",
+                responsibleMembershipId = responsibleMembership.Id,
+                normalizedProcessNumber = "INJECTED",
+                organizationId = otherOrganization.Id
+            });
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        Assert.True(createResponse.Headers.CacheControl?.NoStore);
+        CreateLegalProcessResponse? created = await createResponse.Content
+            .ReadFromJsonAsync<CreateLegalProcessResponse>();
+        Assert.NotNull(created);
+        Assert.Equal(
+            GetProcessPath(organization.Id, created.Id),
+            createResponse.Headers.Location?.OriginalString);
+        using JsonDocument createdDocument = JsonDocument.Parse(
+            await createResponse.Content.ReadAsStringAsync());
+        Assert.Equal(
+            ["id"],
+            createdDocument.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .ToArray());
+
+        using HttpResponseMessage getResponse = await SendGetAsync(
+            GetProcessPath(organization.Id, created.Id),
+            rawHandle);
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        using JsonDocument getDocument = JsonDocument.Parse(
+            await getResponse.Content.ReadAsStringAsync());
+        JsonElement root = getDocument.RootElement;
+        Assert.Equal("Operational Create", root.GetProperty("title").GetString());
+        Assert.Equal(
+            "0001234-56.2026.8.19.0001",
+            root.GetProperty("processNumber").GetString());
+        Assert.Equal("closed", root.GetProperty("status").GetString());
+        Assert.Equal("1ª Vara Cível", root.GetProperty("courtOrAuthority").GetString());
+        Assert.Equal(
+            responsibleMembership.Id,
+            root.GetProperty("responsibleMembershipId").GetGuid());
+        Assert.False(root.TryGetProperty("normalizedProcessNumber", out _));
+        LegalProcess persisted = await GetPersistedProcessAsync(created.Id);
+        Assert.Equal(organization.Id, persisted.OrganizationId);
+        Assert.Equal("00012345620268190001", persisted.NormalizedProcessNumber);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        AuditLog auditLog = Assert.Single(
+            await dbContext.AuditLogs.AsNoTracking().ToListAsync());
+        Assert.Equal(AuditEventType.LegalProcessCreated, auditLog.EventType);
+        Assert.Equal(created.Id, auditLog.EntityId);
+        Assert.Null(auditLog.Details);
+    }
+
+    [Fact]
+    public async Task CreateLegalProcess_WithOperationalBody_PreservesAuthCsrfRoleAndClientBoundaries()
+    {
+        User owner = CreateUser("create-boundaries-owner");
+        Organization organizationA = CreateOrganization("Create Boundaries A");
+        Organization organizationB = CreateOrganization("Create Boundaries B");
+        OrganizationMembership ownerMembership = CreateMembership(
+            owner,
+            organizationA,
+            OrganizationRole.Owner);
+        ClientEntity clientA = CreateClient(organizationA, "Boundaries Client A", 2);
+        ClientEntity clientB = CreateClient(organizationB, "Boundaries Client B", 2);
+        string ownerHandle = await SeedAuthenticatedUserAsync(
+            owner,
+            [organizationA, organizationB],
+            [ownerMembership],
+            [clientA, clientB],
+            []);
+        User member = CreateUser("create-boundaries-member");
+        OrganizationMembership memberMembership = CreateMembership(
+            member,
+            organizationA,
+            OrganizationRole.Member);
+        string memberHandle = await SeedAuthenticatedUserAsync(
+            member,
+            [],
+            [memberMembership],
+            [],
+            []);
+        CsrfPair ownerCsrf = await GetCsrfPairAsync(ownerHandle);
+        CsrfPair memberCsrf = await GetCsrfPairAsync(memberHandle);
+        object Body(Guid clientId) => new
+        {
+            clientId,
+            title = "Boundary Process",
+            processNumber = "0001234-56.2026.8.19.0001",
+            status = "suspended",
+            courtOrAuthority = "1ª Vara Cível",
+            responsibleMembershipId = memberMembership.Id
+        };
+
+        using HttpResponseMessage anonymousResponse = await client.PostAsJsonAsync(
+            GetProcessesPath(organizationA.Id),
+            Body(clientA.Id));
+        using HttpResponseMessage missingCsrfResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetProcessesPath(organizationA.Id),
+            ownerHandle,
+            csrf: null,
+            Body(clientA.Id));
+        using HttpResponseMessage memberResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetProcessesPath(organizationA.Id),
+            memberHandle,
+            memberCsrf,
+            Body(clientA.Id));
+        using HttpResponseMessage crossTenantClientResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetProcessesPath(organizationA.Id),
+            ownerHandle,
+            ownerCsrf,
+            Body(clientB.Id));
+
+        await AssertEmptyResponseAsync(anonymousResponse, HttpStatusCode.Unauthorized);
+        await AssertEmptyResponseAsync(missingCsrfResponse, HttpStatusCode.BadRequest);
+        await AssertEmptyResponseAsync(memberResponse, HttpStatusCode.Forbidden);
+        await AssertEmptyResponseAsync(
+            crossTenantClientResponse,
+            HttpStatusCode.NotFound);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.LegalProcesses.CountAsync());
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreateLegalProcess_DuplicateNumber_ReturnsNeutralConflictAndOtherTenantSucceeds()
+    {
+        User user = CreateUser("create-duplicate");
+        Organization organizationA = CreateOrganization("Create Duplicate A");
+        Organization organizationB = CreateOrganization("Create Duplicate B");
+        OrganizationMembership membershipA = CreateMembership(
+            user,
+            organizationA,
+            OrganizationRole.Owner);
+        OrganizationMembership membershipB = CreateMembership(
+            user,
+            organizationB,
+            OrganizationRole.Owner);
+        ClientEntity clientA = CreateClient(organizationA, "Duplicate Client A", 2);
+        ClientEntity clientB = CreateClient(organizationB, "Duplicate Client B", 2);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organizationA, organizationB],
+            [membershipA, membershipB],
+            [clientA, clientB],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage firstResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetProcessesPath(organizationA.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                clientId = clientA.Id,
+                title = "First Number",
+                processNumber = "0001234-56.2026.8.19.0001"
+            });
+        using HttpResponseMessage duplicateResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetProcessesPath(organizationA.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                clientId = clientA.Id,
+                title = "Duplicate Number",
+                processNumber = "00012345620268190001",
+                status = "suspended"
+            });
+        using HttpResponseMessage otherTenantResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetProcessesPath(organizationB.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                clientId = clientB.Id,
+                title = "Other Tenant Number",
+                processNumber = "0001234-56.2026.8.19.0001"
+            });
+
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+        ProblemDetails duplicateProblem = await AssertConflictProblemAsync(
+            duplicateResponse);
+        Assert.Equal("Resource conflict", duplicateProblem.Title);
+        Assert.Null(duplicateResponse.Headers.Location);
+        Assert.Equal(HttpStatusCode.Created, otherTenantResponse.StatusCode);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.False(await dbContext.LegalProcesses.AnyAsync(
+            legalProcess => legalProcess.Title == "Duplicate Number"));
+        Assert.Equal(2, await dbContext.LegalProcesses.CountAsync());
+        Assert.Equal(2, await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreateLegalProcess_UnavailableResponsible_ReturnsSameNeutralBadRequest()
+    {
+        User user = CreateUser("create-unavailable-responsible");
+        Organization organizationA = CreateOrganization("Create Unavailable A");
+        Organization organizationB = CreateOrganization("Create Unavailable B");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organizationA,
+            OrganizationRole.Owner);
+        ClientEntity relatedClient = CreateClient(organizationA, "Unavailable Client", 2);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organizationA, organizationB],
+            [membership],
+            [relatedClient],
+            []);
+        OrganizationMembership foreignMembership = await SeedMemberAsync(
+            organizationB,
+            "create-unavailable-foreign");
+        OrganizationMembership inactiveMembership = await SeedMemberAsync(
+            organizationA,
+            "create-unavailable-inactive-membership",
+            isMembershipActive: false);
+        OrganizationMembership inactiveUserMembership = await SeedMemberAsync(
+            organizationA,
+            "create-unavailable-inactive-user",
+            isUserActive: false);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        (Guid ResponsibleMembershipId, string? Status)[] cases =
+        [
+            (foreignMembership.Id, "inProgress"),
+            (Guid.NewGuid(), null),
+            (inactiveMembership.Id, "closed"),
+            (inactiveUserMembership.Id, "suspended")
+        ];
+
+        foreach ((Guid responsibleMembershipId, string? status) in cases)
+        {
+            using HttpResponseMessage response = await SendMutationAsync(
+                HttpMethod.Post,
+                GetProcessesPath(organizationA.Id),
+                rawHandle,
+                csrf,
+                new
+                {
+                    clientId = relatedClient.Id,
+                    title = "Unavailable Responsible",
+                    status,
+                    responsibleMembershipId
+                });
+
+            ProblemDetails problem = await AssertSafeBadRequestAsync(response);
+            Assert.Equal("Related responsible member unavailable", problem.Title);
+            Assert.Equal(
+                "The requested responsible member is unavailable.",
+                problem.Detail);
+            Assert.Null(response.Headers.Location);
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.LegalProcesses.CountAsync());
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreateLegalProcess_InvalidOperationalFields_ReturnSafeBadRequestWithoutPersistence()
+    {
+        User user = CreateUser("create-invalid-operational");
+        Organization organization = CreateOrganization("Create Invalid Operational");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        ClientEntity relatedClient = CreateClient(organization, "Invalid Client", 2);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        object[] invalidBodies =
+        [
+            new { clientId = relatedClient.Id, title = "Invalid", status = "archived" },
+            new { clientId = relatedClient.Id, title = "Invalid", status = "InProgress" },
+            new { clientId = relatedClient.Id, title = "Invalid", status = 2 },
+            new
+            {
+                clientId = relatedClient.Id,
+                title = "Invalid",
+                responsibleMembershipId = Guid.Empty
+            },
+            new
+            {
+                clientId = relatedClient.Id,
+                title = "Invalid",
+                responsibleMembershipId = "not-a-guid"
+            },
+            new
+            {
+                clientId = relatedClient.Id,
+                title = "Invalid",
+                processNumber = new string('1', 101)
+            },
+            new
+            {
+                clientId = relatedClient.Id,
+                title = "Invalid",
+                courtOrAuthority = new string('C', 201)
+            }
+        ];
+
+        foreach (object body in invalidBodies)
+        {
+            using HttpResponseMessage response = await SendMutationAsync(
+                HttpMethod.Post,
+                GetProcessesPath(organization.Id),
+                rawHandle,
+                csrf,
+                body);
+
+            await AssertSafeBadRequestAsync(response);
+            Assert.Null(response.Headers.Location);
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.LegalProcesses.CountAsync());
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
+    public async Task ListLegalProcesses_SearchFiltersSortAndHasNext_ReturnContextualResults()
+    {
+        User user = CreateUser("list-filters");
+        Organization organizationA = CreateOrganization("List Filters A");
+        Organization organizationB = CreateOrganization("List Filters B");
+        OrganizationMembership membershipA = CreateMembership(
+            user,
+            organizationA,
+            OrganizationRole.Member);
+        OrganizationMembership membershipB = CreateMembership(
+            user,
+            organizationB,
+            OrganizationRole.Owner);
+        ClientEntity clientA = CreateClient(organizationA, "Acme Filters", 10);
+        ClientEntity clientB = CreateClient(organizationB, "Acme Filters", 10);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organizationA, organizationB],
+            [membershipA, membershipB],
+            [clientA, clientB],
+            []);
+        OrganizationMembership colleagueMembership = await SeedMemberAsync(
+            organizationA,
+            "list-filters-colleague");
+        LegalProcess mine = CreateOperationalProcess(
+            organizationA,
+            clientA,
+            "Alpha Mine",
+            5,
+            LegalProcessStatus.InProgress,
+            membershipA.Id,
+            "0001234-56.2026.8.19.0001");
+        LegalProcess colleague = CreateOperationalProcess(
+            organizationA,
+            clientA,
+            "Bravo Colleague",
+            4,
+            LegalProcessStatus.Suspended,
+            colleagueMembership.Id);
+        LegalProcess closedUnassigned = CreateOperationalProcess(
+            organizationA,
+            clientA,
+            "Charlie Closed",
+            3,
+            LegalProcessStatus.Closed,
+            null);
+        LegalProcess openUnassigned = CreateOperationalProcess(
+            organizationA,
+            clientA,
+            "Delta Open",
+            2,
+            LegalProcessStatus.InProgress,
+            null);
+        LegalProcess crossTenant = CreateOperationalProcess(
+            organizationB,
+            clientB,
+            "Alpha Mine",
+            1,
+            LegalProcessStatus.InProgress,
+            membershipB.Id,
+            "0001234-56.2026.8.19.0001");
+        await SeedProcessesAsync(
+            mine,
+            colleague,
+            closedUnassigned,
+            openUnassigned,
+            crossTenant);
+
+        async Task<ListLegalProcessesResponse> ListAsync(Guid organizationId, string query)
+        {
+            using HttpResponseMessage response = await SendGetAsync(
+                $"{GetProcessesPath(organizationId)}?{query}",
+                rawHandle);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.True(response.Headers.CacheControl?.NoStore);
+            string json = await response.Content.ReadAsStringAsync();
+
+            if (organizationId == organizationA.Id)
+            {
+                Assert.DoesNotContain(
+                    crossTenant.Id.ToString(),
+                    json,
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(
+                    membershipB.Id.ToString(),
+                    json,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            using JsonDocument document = JsonDocument.Parse(json);
+            Assert.Equal(
+                ["items", "pageNumber", "pageSize", "hasNext"],
+                document.RootElement
+                    .EnumerateObject()
+                    .Select(property => property.Name)
+                    .ToArray());
+            return Assert.IsType<ListLegalProcessesResponse>(
+                JsonSerializer.Deserialize<ListLegalProcessesResponse>(
+                    json,
+                    JsonSerializerOptions.Web));
+        }
+
+        async Task<Guid[]> ListIdsAsync(string query)
+        {
+            ListLegalProcessesResponse result = await ListAsync(organizationA.Id, query);
+            return result.Items.Select(item => item.Id).ToArray();
+        }
+
+        Assert.Equal([mine.Id], await ListIdsAsync("search=00012345620268190001"));
+        Assert.Equal([mine.Id], await ListIdsAsync("search=0001234-56"));
+        Assert.Equal(
+            [mine.Id, colleague.Id, closedUnassigned.Id, openUnassigned.Id],
+            await ListIdsAsync("search=acme"));
+        Assert.Equal([colleague.Id], await ListIdsAsync("status=suspended"));
+        Assert.Equal([closedUnassigned.Id], await ListIdsAsync("status=closed"));
+        Assert.Equal(
+            [mine.Id, openUnassigned.Id],
+            await ListIdsAsync("status=inProgress"));
+        Assert.Equal([mine.Id], await ListIdsAsync("responsible=self"));
+        Assert.Equal(
+            [closedUnassigned.Id, openUnassigned.Id],
+            await ListIdsAsync("responsible=unassigned"));
+        Assert.Equal(
+            [colleague.Id],
+            await ListIdsAsync($"responsible={colleagueMembership.Id:D}"));
+        Assert.Empty(await ListIdsAsync($"responsible={membershipB.Id:D}"));
+        Assert.Equal(
+            [mine.Id, colleague.Id, closedUnassigned.Id, openUnassigned.Id],
+            await ListIdsAsync("responsible=any&sort=title"));
+        Assert.Equal(
+            [openUnassigned.Id, closedUnassigned.Id, colleague.Id, mine.Id],
+            await ListIdsAsync("sort=newest"));
+
+        ListLegalProcessesResponse firstPage = await ListAsync(
+            organizationA.Id,
+            "pageSize=3");
+        ListLegalProcessesResponse lastPage = await ListAsync(
+            organizationA.Id,
+            "pageNumber=2&pageSize=3");
+        ListLegalProcessesResponse exactPage = await ListAsync(
+            organizationA.Id,
+            "pageSize=4");
+        Assert.True(firstPage.HasNext);
+        Assert.Equal(3, firstPage.Items.Count);
+        Assert.False(lastPage.HasNext);
+        Assert.Equal(openUnassigned.Id, Assert.Single(lastPage.Items).Id);
+        Assert.Equal(2, lastPage.PageNumber);
+        Assert.Equal(3, lastPage.PageSize);
+        Assert.False(exactPage.HasNext);
+        Assert.Equal(4, exactPage.Items.Count);
+
+        ListLegalProcessesResponse selfInB = await ListAsync(
+            organizationB.Id,
+            "responsible=self&search=0001234");
+        Assert.Equal(crossTenant.Id, Assert.Single(selfInB.Items).Id);
+
+        string[] invalidQueries =
+        [
+            "status=archived",
+            "status=InProgress",
+            $"responsible={Guid.Empty:D}",
+            "responsible=not-a-guid",
+            $"responsible={colleagueMembership.Id:N}",
+            "sort=oldest",
+            "sort=Newest",
+            $"search={new string('x', 151)}"
+        ];
+
+        foreach (string query in invalidQueries)
+        {
+            using HttpResponseMessage response = await SendGetAsync(
+                $"{GetProcessesPath(organizationA.Id)}?{query}",
+                rawHandle);
+            ProblemDetails problem = await AssertSafeBadRequestAsync(response);
+            Assert.Equal("Invalid request data", problem.Title);
+        }
+    }
+
+    [Fact]
+    public async Task LookupLegalProcesses_NumberSearchAndClosedProcesses_ReturnNumberAndStatus()
+    {
+        User user = CreateUser("lookup-number");
+        Organization organizationA = CreateOrganization("Lookup Number A");
+        Organization organizationB = CreateOrganization("Lookup Number B");
+        OrganizationMembership membershipA = CreateMembership(
+            user,
+            organizationA,
+            OrganizationRole.Member);
+        ClientEntity clientA = CreateClient(organizationA, "Lookup Number Client", 10);
+        ClientEntity clientB = CreateClient(organizationB, "Lookup Number Client", 10);
+        LegalProcess closedNumbered = CreateOperationalProcess(
+            organizationA,
+            clientA,
+            "Closed Numbered",
+            3,
+            LegalProcessStatus.Closed,
+            null,
+            "0001234-56.2026.8.19.0001");
+        LegalProcess openUnnumbered = CreateOperationalProcess(
+            organizationA,
+            clientA,
+            "Open Unnumbered",
+            2,
+            LegalProcessStatus.InProgress,
+            null);
+        LegalProcess crossTenant = CreateOperationalProcess(
+            organizationB,
+            clientB,
+            "Closed Numbered",
+            1,
+            LegalProcessStatus.Closed,
+            null,
+            "0001234-56.2026.8.19.0001");
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organizationA, organizationB],
+            [membershipA],
+            [clientA, clientB],
+            [closedNumbered, openUnnumbered, crossTenant]);
+
+        using HttpResponseMessage searchResponse = await SendGetAsync(
+            $"{GetProcessLookupPath(organizationA.Id)}?search=00012345620268190001",
+            rawHandle);
+        using HttpResponseMessage allResponse = await SendGetAsync(
+            GetProcessLookupPath(organizationA.Id),
+            rawHandle);
+
+        Assert.Equal(HttpStatusCode.OK, searchResponse.StatusCode);
+        Assert.True(searchResponse.Headers.CacheControl?.NoStore);
+        using JsonDocument searchDocument = JsonDocument.Parse(
+            await searchResponse.Content.ReadAsStringAsync());
+        Assert.Equal(
+            ["items", "pageNumber", "pageSize", "hasNext"],
+            searchDocument.RootElement
+                .EnumerateObject()
+                .Select(property => property.Name)
+                .ToArray());
+        JsonElement item = Assert.Single(
+            searchDocument.RootElement.GetProperty("items").EnumerateArray());
+        Assert.Equal(
+            ["id", "title", "clientName", "processNumber", "status"],
+            item.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.Equal(closedNumbered.Id, item.GetProperty("id").GetGuid());
+        Assert.Equal(
+            "0001234-56.2026.8.19.0001",
+            item.GetProperty("processNumber").GetString());
+        Assert.Equal("closed", item.GetProperty("status").GetString());
+
+        LegalProcessLookupResponse? all = await allResponse.Content
+            .ReadFromJsonAsync<LegalProcessLookupResponse>();
+        Assert.NotNull(all);
+        Assert.False(all.HasNext);
+        Assert.Equal(
+            [
+                new LegalProcessLookupItemResponse(
+                    closedNumbered.Id,
+                    "Closed Numbered",
+                    clientA.Name,
+                    "0001234-56.2026.8.19.0001",
+                    LegalProcessStatusResponse.Closed),
+                new LegalProcessLookupItemResponse(
+                    openUnnumbered.Id,
+                    "Open Unnumbered",
+                    clientA.Name,
+                    null,
+                    LegalProcessStatusResponse.InProgress)
+            ],
+            all.Items);
+    }
+
+    private async Task<OrganizationMembership> SeedMemberAsync(
+        Organization organization,
+        string marker,
+        bool isMembershipActive = true,
+        bool isUserActive = true)
+    {
+        User user = CreateUser(marker);
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Member);
+
+        if (!isMembershipActive)
+        {
+            membership.Deactivate();
+        }
+
+        if (!isUserActive)
+        {
+            user.Deactivate();
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        dbContext.AddRange(user, membership);
+        await dbContext.SaveChangesAsync();
+
+        return membership;
+    }
+
+    private async Task SeedProcessesAsync(params LegalProcess[] legalProcesses)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        dbContext.LegalProcesses.AddRange(legalProcesses);
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static LegalProcess CreateOperationalProcess(
+        Organization organization,
+        ClientEntity client,
+        string title,
+        int createdMinutesAgo,
+        LegalProcessStatus status,
+        Guid? responsibleMembershipId,
+        string? processNumber = null)
+    {
+        var legalProcess = new LegalProcess(
+            organization.Id,
+            client.Id,
+            title,
+            Now.AddMinutes(-createdMinutesAgo),
+            processNumber,
+            responsibleMembershipId: responsibleMembershipId);
+        legalProcess.ChangeStatus(status);
+        return legalProcess;
     }
 
     private static (string Path, object Body)[] GetOperationalRequests(

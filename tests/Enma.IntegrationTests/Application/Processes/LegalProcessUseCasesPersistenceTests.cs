@@ -76,15 +76,17 @@ public sealed class LegalProcessUseCasesPersistenceTests(
             operationContext);
 
         CreateLegalProcessResult memberCreateA = await createUseCase.ExecuteAsync(
-            user.Id,
-            organizationA.Id,
-            clientA.Id,
-            "Denied Member Process");
+            new CreateLegalProcessCommand(
+                user.Id,
+                organizationA.Id,
+                clientA.Id,
+                "Denied Member Process"));
         CreateLegalProcessResult ownerCreateB = await createUseCase.ExecuteAsync(
-            user.Id,
-            organizationB.Id,
-            clientB.Id,
-            "Organization B Process");
+            new CreateLegalProcessCommand(
+                user.Id,
+                organizationB.Id,
+                clientB.Id,
+                "Organization B Process"));
 
         Assert.Equal(
             CreateLegalProcessResultStatus.AccessDenied,
@@ -100,10 +102,11 @@ public sealed class LegalProcessUseCasesPersistenceTests(
 
         CreateLegalProcessResult administratorCreateA =
             await createUseCase.ExecuteAsync(
-                user.Id,
-                organizationA.Id,
-                clientA.Id,
-                "Organization A Process");
+                new CreateLegalProcessCommand(
+                    user.Id,
+                    organizationA.Id,
+                    clientA.Id,
+                    "Organization A Process"));
 
         Assert.Equal(
             CreateLegalProcessResultStatus.Succeeded,
@@ -115,10 +118,11 @@ public sealed class LegalProcessUseCasesPersistenceTests(
             OrganizationRole.Member);
 
         CreateLegalProcessResult demotedCreateA = await createUseCase.ExecuteAsync(
-            user.Id,
-            organizationA.Id,
-            clientA.Id,
-            "Denied Demoted Process");
+            new CreateLegalProcessCommand(
+                user.Id,
+                organizationA.Id,
+                clientA.Id,
+                "Denied Demoted Process"));
 
         Assert.Equal(
             CreateLegalProcessResultStatus.AccessDenied,
@@ -168,20 +172,19 @@ public sealed class LegalProcessUseCasesPersistenceTests(
 
         CreateLegalProcessResult inactiveClientCreate =
             await createUseCase.ExecuteAsync(
-                user.Id,
-                organizationA.Id,
-                clientA.Id,
-                "Unavailable Client Process");
+                new CreateLegalProcessCommand(
+                    user.Id,
+                    organizationA.Id,
+                    clientA.Id,
+                    "Unavailable Client Process"));
         GetLegalProcessResult inactiveClientGet = await getUseCase.ExecuteAsync(
             user.Id,
             organizationA.Id,
             processAId);
         ListLegalProcessesResult listA = await listUseCase.ExecuteAsync(
-            user.Id,
-            organizationA.Id);
+            new ListLegalProcessesQuery(user.Id, organizationA.Id));
         ListLegalProcessesResult listB = await listUseCase.ExecuteAsync(
-            user.Id,
-            organizationB.Id);
+            new ListLegalProcessesQuery(user.Id, organizationB.Id));
 
         Assert.Equal(
             CreateLegalProcessResultStatus.RelatedClientUnavailable,
@@ -239,20 +242,23 @@ public sealed class LegalProcessUseCasesPersistenceTests(
         CreateLegalProcessUseCase useCase = CreateCreateUseCase(operationContext);
 
         CreateLegalProcessResult missingResult = await useCase.ExecuteAsync(
-            owner.Id,
-            organizationA.Id,
-            Guid.NewGuid(),
-            "Missing Client Process");
+            new CreateLegalProcessCommand(
+                owner.Id,
+                organizationA.Id,
+                Guid.NewGuid(),
+                "Missing Client Process"));
         CreateLegalProcessResult inactiveResult = await useCase.ExecuteAsync(
-            owner.Id,
-            organizationA.Id,
-            inactiveClientA.Id,
-            "Inactive Client Process");
+            new CreateLegalProcessCommand(
+                owner.Id,
+                organizationA.Id,
+                inactiveClientA.Id,
+                "Inactive Client Process"));
         CreateLegalProcessResult crossTenantResult = await useCase.ExecuteAsync(
-            owner.Id,
-            organizationA.Id,
-            clientB.Id,
-            "Cross-tenant Client Process");
+            new CreateLegalProcessCommand(
+                owner.Id,
+                organizationA.Id,
+                clientB.Id,
+                "Cross-tenant Client Process"));
 
         Assert.Same(CreateLegalProcessResult.RelatedClientUnavailable, missingResult);
         Assert.Same(missingResult, inactiveResult);
@@ -294,10 +300,11 @@ public sealed class LegalProcessUseCasesPersistenceTests(
             timeProvider);
 
         CreateLegalProcessResult result = await useCase.ExecuteAsync(
-            user.Id,
-            organization.Id,
-            client.Id,
-            "Must not persist");
+            new CreateLegalProcessCommand(
+                user.Id,
+                organization.Id,
+                client.Id,
+                "Must not persist"));
 
         Assert.Same(CreateLegalProcessResult.AccessDenied, result);
         await using EnmaDbContext verificationContext = fixture.CreateDbContext();

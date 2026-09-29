@@ -5,6 +5,7 @@ using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Application.Organizations.Members.Role;
 using Enma.Application.Organizations.UpdateName;
 using Enma.Application.Processes;
+using Enma.Application.Processes.Create;
 using Enma.Application.Processes.Details;
 using Enma.Application.Processes.Responsible;
 using Enma.Application.Processes.Status;
@@ -600,6 +601,228 @@ public sealed class LegacyCrossSliceLockOrderingTests(
     }
 
     [Fact]
+    public async Task ProcessCreationWithResponsibleFirst_BlocksMemberDeactivation()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        Client client = await SeedClientAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<CreateLegalProcessResult> creation = CreateProcessAsync(
+            graph,
+            client.Id,
+            graph.TargetMembership.Id,
+            new PauseAfterMembershipLockInterceptor(gate),
+            timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> lifecycle =
+            StartTargetDeactivation(
+                graph,
+                new SignalAfterOrganizationLockInterceptor(gate),
+                timeout.Token);
+
+        try
+        {
+            await gate.OrganizationLocked.WaitAsync(timeout.Token);
+            gate.ReleaseCreation();
+
+            CreateLegalProcessResult creationResult =
+                await creation.WaitAsync(timeout.Token);
+            Assert.Equal(
+                CreateLegalProcessResultStatus.Succeeded,
+                creationResult.Status);
+            Assert.Equal(
+                OrganizationMemberLifecycleMutationPersistenceResult
+                    .ActiveAssignmentsConflict,
+                await lifecycle.WaitAsync(timeout.Token));
+
+            await AssertOpenProcessesHaveAvailableResponsibleAsync(
+                graph,
+                timeout.Token);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.Equal(
+                graph.TargetMembership.Id,
+                await GetResponsibleAsync(
+                    dbContext,
+                    Assert.IsType<Guid>(creationResult.ProcessId),
+                    timeout.Token));
+            Assert.True(await dbContext.OrganizationMemberships
+                .AsNoTracking()
+                .Where(candidate => candidate.Id == graph.TargetMembership.Id)
+                .Select(candidate => candidate.IsActive)
+                .SingleAsync(timeout.Token));
+            Assert.Equal(
+                new[] { AuditEventType.LegalProcessCreated },
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(creation);
+            await DrainAsync(lifecycle);
+        }
+    }
+
+    [Fact]
+    public async Task MemberDeactivationFirst_RejectsProcessCreationWithResponsible()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        Client client = await SeedClientAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> lifecycle =
+            StartTargetDeactivation(
+                graph,
+                new PauseAfterMembershipLockInterceptor(gate),
+                timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<CreateLegalProcessResult> creation = CreateProcessAsync(
+            graph,
+            client.Id,
+            graph.TargetMembership.Id,
+            interceptor: null,
+            timeout.Token);
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            Assert.False(creation.IsCompleted);
+            gate.ReleaseCreation();
+
+            Assert.Equal(
+                OrganizationMemberLifecycleMutationPersistenceResult.Succeeded,
+                await lifecycle.WaitAsync(timeout.Token));
+            Assert.Same(
+                CreateLegalProcessResult.RelatedResponsibleUnavailable,
+                await creation.WaitAsync(timeout.Token));
+
+            await AssertOpenProcessesHaveAvailableResponsibleAsync(
+                graph,
+                timeout.Token);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.False(await dbContext.LegalProcesses.AnyAsync(timeout.Token));
+            Assert.Equal(
+                new[] { AuditEventType.OrganizationMembershipDeactivated },
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(lifecycle);
+            await DrainAsync(creation);
+        }
+    }
+
+    [Fact]
+    public async Task ProcessCreationWithResponsibleFirst_SerializesResponsibleAssignment()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalProcess legalProcess = await SeedProcessAsync(graph);
+        Client client = await SeedClientAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<CreateLegalProcessResult> creation = CreateProcessAsync(
+            graph,
+            client.Id,
+            graph.TargetMembership.Id,
+            new PauseAfterMembershipLockInterceptor(gate),
+            timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<ChangeLegalProcessResponsibleResult> assignment = ChangeResponsibleAsync(
+            graph,
+            legalProcess.Id,
+            graph.TargetMembership.Id,
+            interceptor: null,
+            timeout.Token);
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            Assert.False(assignment.IsCompleted);
+            gate.ReleaseCreation();
+
+            CreateLegalProcessResult creationResult =
+                await creation.WaitAsync(timeout.Token);
+            Assert.Equal(
+                CreateLegalProcessResultStatus.Succeeded,
+                creationResult.Status);
+            Assert.Equal(
+                ChangeLegalProcessResponsibleResult.Succeeded,
+                await assignment.WaitAsync(timeout.Token));
+
+            await AssertCreationAndAssignmentPersistedAsync(
+                graph,
+                legalProcess.Id,
+                Assert.IsType<Guid>(creationResult.ProcessId),
+                timeout.Token);
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(creation);
+            await DrainAsync(assignment);
+        }
+    }
+
+    [Fact]
+    public async Task ResponsibleAssignmentFirst_SerializesProcessCreationWithResponsible()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalProcess legalProcess = await SeedProcessAsync(graph);
+        Client client = await SeedClientAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<ChangeLegalProcessResponsibleResult> assignment = ChangeResponsibleAsync(
+            graph,
+            legalProcess.Id,
+            graph.TargetMembership.Id,
+            new PauseAfterMembershipLockInterceptor(gate),
+            timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<CreateLegalProcessResult> creation = CreateProcessAsync(
+            graph,
+            client.Id,
+            graph.TargetMembership.Id,
+            interceptor: null,
+            timeout.Token);
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            Assert.False(creation.IsCompleted);
+            gate.ReleaseCreation();
+
+            Assert.Equal(
+                ChangeLegalProcessResponsibleResult.Succeeded,
+                await assignment.WaitAsync(timeout.Token));
+            CreateLegalProcessResult creationResult =
+                await creation.WaitAsync(timeout.Token);
+            Assert.Equal(
+                CreateLegalProcessResultStatus.Succeeded,
+                creationResult.Status);
+
+            await AssertCreationAndAssignmentPersistedAsync(
+                graph,
+                legalProcess.Id,
+                Assert.IsType<Guid>(creationResult.ProcessId),
+                timeout.Token);
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(assignment);
+            await DrainAsync(creation);
+        }
+    }
+
+    [Fact]
     public async Task LegalTaskUpdateAndProcessOperationalMutation_UseRetryBeforeProcessLock()
     {
         TestGraph graph = await SeedGraphAsync();
@@ -715,6 +938,79 @@ public sealed class LegacyCrossSliceLockOrderingTests(
                 processId,
                 responsibleMembershipId),
             cancellationToken);
+    }
+
+    private async Task<CreateLegalProcessResult> CreateProcessAsync(
+        TestGraph graph,
+        Guid clientId,
+        Guid? responsibleMembershipId,
+        DbCommandInterceptor? interceptor,
+        CancellationToken cancellationToken)
+    {
+        await using EnmaDbContext authorizationContext = fixture.CreateDbContext();
+        DbContextOptionsBuilder<EnmaDbContext> builder =
+            new DbContextOptionsBuilder<EnmaDbContext>()
+                .UseNpgsql(fixture.ConnectionString);
+
+        if (interceptor is not null)
+        {
+            builder.AddInterceptors(interceptor);
+        }
+
+        var timeProvider = new FixedTimeProvider(Now.AddMinutes(3));
+        var useCase = new CreateLegalProcessUseCase(
+            CreateProcessAuthorization(authorizationContext),
+            new ActiveClientInOrganizationLookup(authorizationContext),
+            new LegalProcessCreationPersistence(builder.Options, timeProvider),
+            timeProvider);
+
+        return await useCase.ExecuteAsync(
+            new CreateLegalProcessCommand(
+                graph.ActorUser.Id,
+                graph.Organization.Id,
+                clientId,
+                "Created With Responsible",
+                ResponsibleMembershipId: responsibleMembershipId),
+            cancellationToken);
+    }
+
+    private async Task AssertCreationAndAssignmentPersistedAsync(
+        TestGraph graph,
+        Guid assignedProcessId,
+        Guid createdProcessId,
+        CancellationToken cancellationToken)
+    {
+        await AssertOpenProcessesHaveAvailableResponsibleAsync(
+            graph,
+            cancellationToken);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(
+            graph.TargetMembership.Id,
+            await GetResponsibleAsync(dbContext, assignedProcessId, cancellationToken));
+        Assert.Equal(
+            graph.TargetMembership.Id,
+            await GetResponsibleAsync(dbContext, createdProcessId, cancellationToken));
+        Assert.Equal(
+            new[]
+            {
+                AuditEventType.LegalProcessCreated,
+                AuditEventType.LegalProcessResponsibleChanged
+            }.OrderBy(eventType => eventType),
+            await FindAuditTypesAsync(dbContext, cancellationToken));
+    }
+
+    private async Task<Client> SeedClientAsync(TestGraph graph)
+    {
+        var client = new Client(
+            graph.Organization.Id,
+            "Creation Client",
+            Now);
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        dbContext.Add(client);
+        await dbContext.SaveChangesAsync();
+
+        return client;
     }
 
     private async Task<ChangeLegalProcessStatusResult> ChangeStatusAsync(

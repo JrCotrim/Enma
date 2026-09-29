@@ -1,10 +1,14 @@
 using Enma.Application.Processes;
+using Enma.Domain.Processes;
 using Microsoft.EntityFrameworkCore;
 
 namespace Enma.Infrastructure.Persistence.Queries;
 
 public sealed class LegalProcessReadQueries : ILegalProcessReadQueries
 {
+    private const string LikeEscapeCharacter =
+        LegalProcessSearchPattern.LikeEscapeCharacter;
+
     private readonly EnmaDbContext _dbContext;
 
     public LegalProcessReadQueries(EnmaDbContext dbContext)
@@ -67,20 +71,46 @@ public sealed class LegalProcessReadQueries : ILegalProcessReadQueries
     }
 
     public async Task<IReadOnlyList<LegalProcessReadModel>> ListAsync(
-        Guid organizationId,
-        int pageNumber,
-        int pageSize,
+        LegalProcessListReadRequest request,
         CancellationToken cancellationToken = default)
     {
-        long skippedItems = ((long)pageNumber - 1) * pageSize;
+        ArgumentNullException.ThrowIfNull(request);
+
+        long skippedItems = ((long)request.PageNumber - 1) * request.PageSize;
 
         if (skippedItems > int.MaxValue)
         {
             return Array.Empty<LegalProcessReadModel>();
         }
 
-        IQueryable<LegalProcessReadModel> query =
-            from legalProcess in _dbContext.LegalProcesses.AsNoTracking()
+        IQueryable<LegalProcess> legalProcesses = _dbContext.LegalProcesses
+            .AsNoTracking()
+            .Where(legalProcess =>
+                legalProcess.OrganizationId == request.OrganizationId);
+
+        if (request.Status is LegalProcessStatus status)
+        {
+            legalProcesses = legalProcesses.Where(legalProcess =>
+                legalProcess.Status == status);
+        }
+
+        legalProcesses = request.ResponsibleFilterKind switch
+        {
+            LegalProcessReadResponsibleFilterKind.Any => legalProcesses,
+            LegalProcessReadResponsibleFilterKind.Unassigned =>
+                legalProcesses.Where(legalProcess =>
+                    legalProcess.ResponsibleMembershipId == null),
+            LegalProcessReadResponsibleFilterKind.Membership
+                when request.ResponsibleMembershipId is Guid membershipId =>
+                legalProcesses.Where(legalProcess =>
+                    legalProcess.ResponsibleMembershipId == membershipId),
+            _ => throw new ArgumentException(
+                "The legal process responsible filter is invalid.",
+                nameof(request))
+        };
+
+        var query =
+            from legalProcess in legalProcesses
             join client in _dbContext.Clients.AsNoTracking()
                 on new
                 {
@@ -110,23 +140,67 @@ public sealed class LegalProcessReadQueries : ILegalProcessReadQueries
                 on responsibleMembership.UserId equals responsibleUser.Id
                 into responsibleUsers
             from responsibleUser in responsibleUsers.DefaultIfEmpty()
-            where legalProcess.OrganizationId == organizationId
-            orderby legalProcess.Title, legalProcess.Id
-            select new LegalProcessReadModel(
-                legalProcess.Id,
-                legalProcess.Title,
-                legalProcess.ClientId,
-                client.Name,
-                legalProcess.CreatedAt,
-                legalProcess.ProcessNumber,
-                legalProcess.Status,
-                legalProcess.CourtOrAuthority,
-                legalProcess.ResponsibleMembershipId,
-                responsibleUser == null ? null : responsibleUser.Name);
+            select new
+            {
+                LegalProcess = legalProcess,
+                ClientName = client.Name,
+                ResponsibleDisplayName =
+                    responsibleUser == null ? null : responsibleUser.Name
+            };
+
+        if (LegalProcessSearchPattern.Create(request.Search) is { } searchPattern)
+        {
+            string pattern = searchPattern.ContainsPattern;
+            string? digitsPattern = searchPattern.DigitsContainsPattern;
+            query = query.Where(item =>
+                EF.Functions.ILike(
+                    item.LegalProcess.Title,
+                    pattern,
+                    LikeEscapeCharacter) ||
+                EF.Functions.ILike(
+                    item.ClientName,
+                    pattern,
+                    LikeEscapeCharacter) ||
+                (item.LegalProcess.ProcessNumber != null &&
+                    EF.Functions.ILike(
+                        item.LegalProcess.ProcessNumber,
+                        pattern,
+                        LikeEscapeCharacter)) ||
+                (digitsPattern != null &&
+                    item.LegalProcess.NormalizedProcessNumber != null &&
+                    EF.Functions.Like(
+                        item.LegalProcess.NormalizedProcessNumber,
+                        digitsPattern,
+                        LikeEscapeCharacter)));
+        }
+
+        query = request.Sort switch
+        {
+            LegalProcessListSort.Title => query
+                .OrderBy(item => item.LegalProcess.Title)
+                .ThenBy(item => item.LegalProcess.Id),
+            LegalProcessListSort.Newest => query
+                .OrderByDescending(item => item.LegalProcess.CreatedAt)
+                .ThenByDescending(item => item.LegalProcess.Id),
+            _ => throw new ArgumentException(
+                "The legal process list sort is invalid.",
+                nameof(request))
+        };
 
         return await query
             .Skip((int)skippedItems)
-            .Take(pageSize)
+            .Take(request.PageSize + 1)
+            .Select(item => new LegalProcessReadModel(
+                item.LegalProcess.Id,
+                item.LegalProcess.Title,
+                item.LegalProcess.ClientId,
+                item.ClientName,
+                item.LegalProcess.CreatedAt,
+                item.LegalProcess.ProcessNumber,
+                item.LegalProcess.Status,
+                item.LegalProcess.CourtOrAuthority,
+                item.LegalProcess.ResponsibleMembershipId,
+                item.ResponsibleDisplayName))
             .ToArrayAsync(cancellationToken);
     }
 }

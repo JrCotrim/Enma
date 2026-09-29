@@ -5,7 +5,8 @@ namespace Enma.Infrastructure.Persistence.Queries;
 
 public sealed class LegalProcessLookupQueries : ILegalProcessLookupQueries
 {
-    private const string LikeEscapeCharacter = "\\";
+    private const string LikeEscapeCharacter =
+        LegalProcessSearchPattern.LikeEscapeCharacter;
 
     private readonly EnmaDbContext _dbContext;
 
@@ -41,12 +42,16 @@ public sealed class LegalProcessLookupQueries : ILegalProcessLookupQueries
             {
                 legalProcess.Id,
                 legalProcess.Title,
-                ClientName = client.Name
+                ClientName = client.Name,
+                legalProcess.ProcessNumber,
+                legalProcess.NormalizedProcessNumber,
+                legalProcess.Status
             };
 
-        if (search is not null)
+        if (LegalProcessSearchPattern.Create(search) is { } searchPattern)
         {
-            string pattern = $"%{EscapeLikePattern(search)}%";
+            string pattern = searchPattern.ContainsPattern;
+            string? digitsPattern = searchPattern.DigitsContainsPattern;
             query = query.Where(item =>
                 EF.Functions.ILike(
                     item.Title,
@@ -55,7 +60,18 @@ public sealed class LegalProcessLookupQueries : ILegalProcessLookupQueries
                 EF.Functions.ILike(
                     item.ClientName,
                     pattern,
-                    LikeEscapeCharacter));
+                    LikeEscapeCharacter) ||
+                (item.ProcessNumber != null &&
+                    EF.Functions.ILike(
+                        item.ProcessNumber,
+                        pattern,
+                        LikeEscapeCharacter)) ||
+                (digitsPattern != null &&
+                    item.NormalizedProcessNumber != null &&
+                    EF.Functions.Like(
+                        item.NormalizedProcessNumber,
+                        digitsPattern,
+                        LikeEscapeCharacter)));
         }
 
         return await query
@@ -66,15 +82,9 @@ public sealed class LegalProcessLookupQueries : ILegalProcessLookupQueries
             .Select(item => new LegalProcessLookupItem(
                 item.Id,
                 item.Title,
-                item.ClientName))
+                item.ClientName,
+                item.ProcessNumber,
+                item.Status))
             .ToArrayAsync(cancellationToken);
-    }
-
-    private static string EscapeLikePattern(string value)
-    {
-        return value
-            .Replace("\\", "\\\\", StringComparison.Ordinal)
-            .Replace("%", "\\%", StringComparison.Ordinal)
-            .Replace("_", "\\_", StringComparison.Ordinal);
     }
 }

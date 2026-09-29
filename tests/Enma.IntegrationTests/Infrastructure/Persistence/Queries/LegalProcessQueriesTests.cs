@@ -3,6 +3,7 @@ using Enma.Application.Processes;
 using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
+using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Microsoft.EntityFrameworkCore;
@@ -195,19 +196,25 @@ public sealed class LegalProcessQueriesTests(
         await using var dbContext = new EnmaDbContext(options);
         var queries = new LegalProcessReadQueries(dbContext);
 
-        IReadOnlyList<LegalProcessReadModel> firstPage = await queries.ListAsync(
-            organizationA.Id,
-            1,
-            2);
+        IReadOnlyList<LegalProcessReadModel> firstPageWithSentinel =
+            await queries.ListAsync(CreateListRequest(
+                organizationA.Id,
+                pageNumber: 1,
+                pageSize: 2));
 
         LegalProcess[] expectedFirstPage = new[] { alphaA1, alphaA2 }
             .OrderBy(legalProcess => legalProcess.Id)
+            .Append(zetaA)
             .ToArray();
         Assert.Equal(
             expectedFirstPage.Select(legalProcess => legalProcess.Id),
-            firstPage.Select(legalProcess => legalProcess.Id));
-        Assert.All(firstPage, item => Assert.Equal(clientA.Name, item.ClientName));
-        Assert.DoesNotContain(firstPage, item => item.Id == crossTenant.Id);
+            firstPageWithSentinel.Select(legalProcess => legalProcess.Id));
+        Assert.All(
+            firstPageWithSentinel,
+            item => Assert.Equal(clientA.Name, item.ClientName));
+        Assert.DoesNotContain(
+            firstPageWithSentinel,
+            item => item.Id == crossTenant.Id);
         Assert.Equal(1, interceptor.ReaderCommandCount);
         Assert.Contains("INNER JOIN", interceptor.LastCommandText);
         Assert.Contains("ORDER BY", interceptor.LastCommandText);
@@ -215,14 +222,292 @@ public sealed class LegalProcessQueriesTests(
         Assert.Contains("OFFSET", interceptor.LastCommandText);
 
         IReadOnlyList<LegalProcessReadModel> secondPage = await queries.ListAsync(
-            organizationA.Id,
-            2,
-            2);
+            CreateListRequest(organizationA.Id, pageNumber: 2, pageSize: 2));
 
         LegalProcessReadModel item = Assert.Single(secondPage);
         Assert.Equal(zetaA.Id, item.Id);
         Assert.Equal(clientA.Name, item.ClientName);
         Assert.DoesNotContain("is_active", interceptor.LastCommandText);
+    }
+
+    [Fact]
+    public async Task ListAsync_WithSearch_MatchesTitleClientNumberAndDigitsWithoutTenantLeak()
+    {
+        Organization organizationA = CreateOrganization(
+            "Organization A",
+            "organization-a");
+        Organization organizationB = CreateOrganization(
+            "Organization B",
+            "organization-b");
+        var plainClientA = new Client(organizationA.Id, "Plain Client", CreatedAt);
+        var namedClientA = new Client(organizationA.Id, "Acme Holdings", CreatedAt);
+        var namedClientB = new Client(organizationB.Id, "Acme Holdings", CreatedAt);
+        var titleProcess = new LegalProcess(
+            organizationA.Id,
+            plainClientA.Id,
+            "Recurso Especial",
+            CreatedAt);
+        var clientProcess = new LegalProcess(
+            organizationA.Id,
+            namedClientA.Id,
+            "Unrelated Title",
+            CreatedAt);
+        var cnjProcess = new LegalProcess(
+            organizationA.Id,
+            plainClientA.Id,
+            "Numbered",
+            CreatedAt,
+            "0001234-56.2026.8.19.0001");
+        var freeProcess = new LegalProcess(
+            organizationA.Id,
+            plainClientA.Id,
+            "Free Identifier",
+            CreatedAt,
+            "Proc. ABC/77");
+        var percentProcess = new LegalProcess(
+            organizationA.Id,
+            plainClientA.Id,
+            "Literal % Process",
+            CreatedAt);
+        var underscoreProcess = new LegalProcess(
+            organizationA.Id,
+            plainClientA.Id,
+            "Literal _ Process",
+            CreatedAt);
+        var crossTenantProcess = new LegalProcess(
+            organizationB.Id,
+            namedClientB.Id,
+            "Recurso Especial",
+            CreatedAt,
+            "0001234-56.2026.8.19.0001");
+        await SeedAsync(
+            organizationA,
+            organizationB,
+            plainClientA,
+            namedClientA,
+            namedClientB,
+            titleProcess,
+            clientProcess,
+            cnjProcess,
+            freeProcess,
+            percentProcess,
+            underscoreProcess,
+            crossTenantProcess);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var queries = new LegalProcessReadQueries(dbContext);
+
+        async Task<Guid[]> SearchAsync(string search)
+        {
+            IReadOnlyList<LegalProcessReadModel> items = await queries.ListAsync(
+                CreateListRequest(organizationA.Id, search: search));
+            return items.Select(item => item.Id).ToArray();
+        }
+
+        Assert.Equal([titleProcess.Id], await SearchAsync("recurso"));
+        Assert.Equal([clientProcess.Id], await SearchAsync("ACME"));
+        Assert.Equal([cnjProcess.Id], await SearchAsync("0001234-56.2026.8.19.0001"));
+        Assert.Equal([cnjProcess.Id], await SearchAsync("00012345620268190001"));
+        Assert.Equal([cnjProcess.Id], await SearchAsync("0001234-56"));
+        Assert.Equal([cnjProcess.Id], await SearchAsync("620268"));
+        Assert.Equal([freeProcess.Id], await SearchAsync("abc/77"));
+        Assert.Equal([percentProcess.Id], await SearchAsync("%"));
+        Assert.Equal([underscoreProcess.Id], await SearchAsync("_"));
+        Assert.Empty(await SearchAsync("0009999"));
+        Assert.Empty(await SearchAsync("\\"));
+    }
+
+    [Fact]
+    public async Task ListAsync_WithStatusResponsibleAndSort_FiltersAndOrdersWithinTenant()
+    {
+        Organization organizationA = CreateOrganization(
+            "Organization A",
+            "organization-a");
+        Organization organizationB = CreateOrganization(
+            "Organization B",
+            "organization-b");
+        var firstUser = new User(
+            "Responsible One",
+            "responsible-one@example.test",
+            CreatedAt);
+        var secondUser = new User(
+            "Responsible Two",
+            "responsible-two@example.test",
+            CreatedAt);
+        var otherUser = new User(
+            "Responsible Other",
+            "responsible-other@example.test",
+            CreatedAt);
+        var firstMembership = new OrganizationMembership(
+            organizationA.Id,
+            firstUser.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var secondMembership = new OrganizationMembership(
+            organizationA.Id,
+            secondUser.Id,
+            OrganizationRole.Member,
+            CreatedAt);
+        var otherMembership = new OrganizationMembership(
+            organizationB.Id,
+            otherUser.Id,
+            OrganizationRole.Owner,
+            CreatedAt);
+        var clientA = new Client(organizationA.Id, "Client A", CreatedAt);
+        var clientB = new Client(organizationB.Id, "Client B", CreatedAt);
+        LegalProcess alpha = CreateProcess(
+            organizationA,
+            clientA,
+            "Alpha",
+            1,
+            LegalProcessStatus.InProgress,
+            firstMembership.Id);
+        LegalProcess bravo = CreateProcess(
+            organizationA,
+            clientA,
+            "Bravo",
+            2,
+            LegalProcessStatus.Suspended,
+            secondMembership.Id);
+        LegalProcess charlie = CreateProcess(
+            organizationA,
+            clientA,
+            "Charlie",
+            3,
+            LegalProcessStatus.Closed,
+            null);
+        LegalProcess delta = CreateProcess(
+            organizationA,
+            clientA,
+            "Delta",
+            4,
+            LegalProcessStatus.InProgress,
+            null);
+        LegalProcess echo = CreateProcess(
+            organizationA,
+            clientA,
+            "Echo",
+            5,
+            LegalProcessStatus.InProgress,
+            null);
+        LegalProcess foxtrot = CreateProcess(
+            organizationA,
+            clientA,
+            "Foxtrot",
+            5,
+            LegalProcessStatus.InProgress,
+            null);
+        LegalProcess crossTenant = CreateProcess(
+            organizationB,
+            clientB,
+            "Alpha",
+            1,
+            LegalProcessStatus.InProgress,
+            otherMembership.Id);
+        await SeedAsync(
+            organizationA,
+            organizationB,
+            firstUser,
+            secondUser,
+            otherUser,
+            firstMembership,
+            secondMembership,
+            otherMembership,
+            clientA,
+            clientB,
+            alpha,
+            bravo,
+            charlie,
+            delta,
+            echo,
+            foxtrot,
+            crossTenant);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var queries = new LegalProcessReadQueries(dbContext);
+        Guid[] newestTie = new[] { echo.Id, foxtrot.Id }
+            .OrderByDescending(id => id)
+            .ToArray();
+
+        async Task<Guid[]> ListIdsAsync(LegalProcessListReadRequest request)
+        {
+            IReadOnlyList<LegalProcessReadModel> items =
+                await queries.ListAsync(request);
+            return items.Select(item => item.Id).ToArray();
+        }
+
+        Assert.Equal(
+            [alpha.Id, delta.Id, echo.Id, foxtrot.Id],
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                status: LegalProcessStatus.InProgress)));
+        Assert.Equal(
+            [bravo.Id],
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                status: LegalProcessStatus.Suspended)));
+        Assert.Equal(
+            [charlie.Id],
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                status: LegalProcessStatus.Closed)));
+        Assert.Equal(
+            [charlie.Id, delta.Id, echo.Id, foxtrot.Id],
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                responsibleFilterKind: LegalProcessReadResponsibleFilterKind.Unassigned)));
+        Assert.Equal(
+            [bravo.Id],
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                responsibleFilterKind: LegalProcessReadResponsibleFilterKind.Membership,
+                responsibleMembershipId: secondMembership.Id)));
+        Assert.Empty(
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                responsibleFilterKind: LegalProcessReadResponsibleFilterKind.Membership,
+                responsibleMembershipId: otherMembership.Id)));
+        Assert.Equal(
+            newestTie.Concat([delta.Id, charlie.Id, bravo.Id, alpha.Id]),
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                sort: LegalProcessListSort.Newest)));
+        Assert.Equal(
+            newestTie.Append(delta.Id),
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                status: LegalProcessStatus.InProgress,
+                responsibleFilterKind: LegalProcessReadResponsibleFilterKind.Unassigned,
+                sort: LegalProcessListSort.Newest)));
+
+        LegalProcessReadModel assigned = Assert.Single(await queries.ListAsync(
+            CreateListRequest(
+                organizationA.Id,
+                responsibleFilterKind: LegalProcessReadResponsibleFilterKind.Membership,
+                responsibleMembershipId: firstMembership.Id)));
+        Assert.Equal(alpha.Id, assigned.Id);
+        Assert.Equal(firstMembership.Id, assigned.ResponsibleMembershipId);
+        Assert.Equal(firstUser.Name, assigned.ResponsibleDisplayName);
+
+        Assert.Equal(
+            6,
+            (await queries.ListAsync(CreateListRequest(
+                organizationA.Id,
+                pageSize: 6))).Count);
+        Assert.Equal(
+            6,
+            (await queries.ListAsync(CreateListRequest(
+                organizationA.Id,
+                pageSize: 5))).Count);
+        Assert.Equal(
+            [foxtrot.Id],
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                pageNumber: 2,
+                pageSize: 5)));
+        Assert.Empty(
+            await ListIdsAsync(CreateListRequest(
+                organizationA.Id,
+                pageNumber: int.MaxValue,
+                pageSize: 100)));
     }
 
     private async Task SeedAsync(params object[] entities)
@@ -235,6 +520,46 @@ public sealed class LegalProcessQueriesTests(
     private static Organization CreateOrganization(string name, string slug)
     {
         return new Organization(name, slug, CreatedAt);
+    }
+
+    private static LegalProcess CreateProcess(
+        Organization organization,
+        Client client,
+        string title,
+        int createdMinutesAfter,
+        LegalProcessStatus status,
+        Guid? responsibleMembershipId)
+    {
+        var legalProcess = new LegalProcess(
+            organization.Id,
+            client.Id,
+            title,
+            CreatedAt.AddMinutes(createdMinutesAfter),
+            responsibleMembershipId: responsibleMembershipId);
+        legalProcess.ChangeStatus(status);
+        return legalProcess;
+    }
+
+    private static LegalProcessListReadRequest CreateListRequest(
+        Guid organizationId,
+        string? search = null,
+        LegalProcessStatus? status = null,
+        LegalProcessReadResponsibleFilterKind responsibleFilterKind =
+            LegalProcessReadResponsibleFilterKind.Any,
+        Guid? responsibleMembershipId = null,
+        LegalProcessListSort sort = LegalProcessListSort.Title,
+        int pageNumber = 1,
+        int pageSize = 20)
+    {
+        return new LegalProcessListReadRequest(
+            organizationId,
+            search,
+            status,
+            responsibleFilterKind,
+            responsibleMembershipId,
+            sort,
+            pageNumber,
+            pageSize);
     }
 
     private sealed class ReaderCommandInterceptor : DbCommandInterceptor

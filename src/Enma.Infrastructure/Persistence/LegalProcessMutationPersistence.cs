@@ -7,7 +7,6 @@ using Enma.Domain.Processes;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
-using Npgsql;
 
 namespace Enma.Infrastructure.Persistence;
 
@@ -15,9 +14,6 @@ public sealed class LegalProcessMutationPersistence
     : ILegalProcessMutationPersistence,
         ILegalProcessOperationalMutationPersistence
 {
-    private const string NormalizedProcessNumberConstraint =
-        "ux_legal_processes_organization_id_normalized_process_number";
-
     private readonly DbContextOptions<EnmaDbContext> _dbContextOptions;
     private readonly TimeProvider _timeProvider;
 
@@ -232,7 +228,9 @@ public sealed class LegalProcessMutationPersistence
         }
         catch (DbUpdateException exception) when (
             request.Mutation == LegalProcessOperationalMutation.Details &&
-            IsUniqueViolation(exception, NormalizedProcessNumberConstraint))
+            LegalProcessPersistenceConstraints.IsUniqueViolation(
+                exception,
+                LegalProcessPersistenceConstraints.NormalizedProcessNumber))
         {
             await transaction.RollbackAsync(cancellationToken);
             return LegalProcessOperationalMutationPersistenceResult
@@ -385,30 +383,6 @@ public sealed class LegalProcessMutationPersistence
                     """)
                 .ToListAsync(cancellationToken))
             .SingleOrDefault();
-    }
-
-    private static bool IsUniqueViolation(
-        Exception exception,
-        string constraintName)
-    {
-        for (Exception? current = exception;
-             current is not null;
-             current = current.InnerException)
-        {
-            if (current is PostgresException
-                {
-                    SqlState: PostgresErrorCodes.UniqueViolation
-                } postgresException &&
-                string.Equals(
-                    postgresException.ConstraintName,
-                    constraintName,
-                    StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private sealed record LegalProcessSnapshot(

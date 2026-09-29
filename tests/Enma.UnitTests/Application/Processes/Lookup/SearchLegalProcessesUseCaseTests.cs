@@ -2,6 +2,7 @@ using Enma.Application.Authorization;
 using Enma.Application.Processes.Lookup;
 using Enma.Application.Validation;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 
 namespace Enma.UnitTests.Application.Processes.Lookup;
 
@@ -99,7 +100,9 @@ public sealed class SearchLegalProcessesUseCaseTests
             .Select(index => new LegalProcessLookupItem(
                 Guid.NewGuid(),
                 $"Process {index:D2}",
-                "Client"))
+                "Client",
+                null,
+                LegalProcessStatus.InProgress))
             .ToArray();
         var queries = new FakeLegalProcessLookupQueries(legalProcesses);
         SearchLegalProcessesUseCase useCase = CreateUseCase(
@@ -119,7 +122,14 @@ public sealed class SearchLegalProcessesUseCaseTests
     public async Task ExecuteAsync_WithoutExtraRow_HasNoNextPage()
     {
         var queries = new FakeLegalProcessLookupQueries(
-            [new LegalProcessLookupItem(Guid.NewGuid(), "Only Process", "Client")]);
+            [
+                new LegalProcessLookupItem(
+                    Guid.NewGuid(),
+                    "Only Process",
+                    "Client",
+                    "0001234-56.2026.8.19.0001",
+                    LegalProcessStatus.Closed)
+            ]);
         SearchLegalProcessesUseCase useCase = CreateUseCase(
             OrganizationRole.Owner,
             queries);

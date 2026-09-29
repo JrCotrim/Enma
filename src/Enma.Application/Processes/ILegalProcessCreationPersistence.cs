@@ -5,6 +5,11 @@ namespace Enma.Application.Processes;
 
 public interface ILegalProcessCreationPersistence
 {
+    /// <summary>
+    /// Locks the client, then the actor and the requested responsible membership
+    /// (ordered by id), then their users, then the organization, and runs the
+    /// decision against the locked state.
+    /// </summary>
     Task<LegalProcessCreationPersistenceResult> ExecuteAsync(
         LegalProcessCreationPersistenceRequest request,
         Func<LegalProcessCreationLockedState, LegalProcessCreationDecision> decide,
@@ -15,12 +20,14 @@ public sealed record LegalProcessCreationPersistenceRequest(
     Guid UserId,
     Guid OrganizationId,
     Guid ActorMembershipId,
-    Guid ClientId);
+    Guid ClientId,
+    Guid? ResponsibleMembershipId = null);
 
 public sealed record LegalProcessCreationLockedState(
     bool IsOrganizationActive,
     LegalProcessLockedActorState? Actor,
-    bool IsClientAvailable);
+    bool IsClientAvailable,
+    LegalProcessLockedActorState? ResponsibleMember = null);
 
 public sealed record LegalProcessLockedActorState(
     Guid MembershipId,
@@ -75,6 +82,11 @@ public sealed class LegalProcessCreationDecision
             LegalProcessCreationDecisionStatus.RelatedClientUnavailable,
             null);
 
+    public static LegalProcessCreationDecision RelatedResponsibleUnavailable { get; } =
+        new(
+            LegalProcessCreationDecisionStatus.RelatedResponsibleUnavailable,
+            null);
+
     public static LegalProcessCreationDecision Persist(LegalProcess legalProcess)
     {
         ArgumentNullException.ThrowIfNull(legalProcess);
@@ -89,7 +101,9 @@ public enum LegalProcessCreationDecisionStatus
 {
     AccessDenied = 0,
     RelatedClientUnavailable = 1,
-    Persist = 2
+    Persist = 2,
+    RelatedResponsibleUnavailable = 3,
+    DuplicateProcessNumber = 4
 }
 
 public sealed class LegalProcessCreationPersistenceResult

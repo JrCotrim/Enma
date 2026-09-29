@@ -216,6 +216,96 @@ public sealed class LegalProcessLookupQueriesTests(
         Assert.Equal(5, interceptor.ReaderCommandCount);
     }
 
+    [Fact]
+    public async Task SearchAsync_WithProcessNumber_MatchesPresentedOrDigitsAndProjectsNumberAndStatus()
+    {
+        Organization organizationA = CreateOrganization(
+            "Organization A",
+            "process-lookup-number-a");
+        Organization organizationB = CreateOrganization(
+            "Organization B",
+            "process-lookup-number-b");
+        var clientA = new Client(organizationA.Id, "Number Client", CreatedAt);
+        var clientB = new Client(organizationB.Id, "Number Client", CreatedAt);
+        var closedCnjProcess = new LegalProcess(
+            organizationA.Id,
+            clientA.Id,
+            "Closed Numbered",
+            CreatedAt,
+            "0001234-56.2026.8.19.0001");
+        closedCnjProcess.ChangeStatus(LegalProcessStatus.Closed);
+        var freeProcess = new LegalProcess(
+            organizationA.Id,
+            clientA.Id,
+            "Free Numbered",
+            CreatedAt,
+            "Proc. ABC/77");
+        freeProcess.ChangeStatus(LegalProcessStatus.Suspended);
+        var unnumberedProcess = CreateProcess(
+            organizationA,
+            clientA,
+            "Unnumbered",
+            1);
+        var crossTenantProcess = new LegalProcess(
+            organizationB.Id,
+            clientB.Id,
+            "Closed Numbered",
+            CreatedAt,
+            "0001234-56.2026.8.19.0001");
+        await SeedAsync(
+            organizationA,
+            organizationB,
+            clientA,
+            clientB,
+            closedCnjProcess,
+            freeProcess,
+            unnumberedProcess,
+            crossTenantProcess);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var queries = new LegalProcessLookupQueries(dbContext);
+
+        async Task<Guid[]> SearchAsync(string? search)
+        {
+            IReadOnlyList<LegalProcessLookupItem> items =
+                await queries.SearchAsync(organizationA.Id, search, 1, 20);
+            return items.Select(item => item.Id).ToArray();
+        }
+
+        Assert.Equal(
+            [closedCnjProcess.Id],
+            await SearchAsync("0001234-56.2026.8.19.0001"));
+        Assert.Equal([closedCnjProcess.Id], await SearchAsync("00012345620268190001"));
+        Assert.Equal([closedCnjProcess.Id], await SearchAsync("0001234-56"));
+        Assert.Equal([closedCnjProcess.Id], await SearchAsync("620268"));
+        Assert.Equal([freeProcess.Id], await SearchAsync("abc/77"));
+        Assert.Empty(await SearchAsync("0009999"));
+
+        IReadOnlyList<LegalProcessLookupItem> all =
+            await queries.SearchAsync(organizationA.Id, null, 1, 20);
+        Assert.Equal(
+            [
+                new LegalProcessLookupItem(
+                    closedCnjProcess.Id,
+                    "Closed Numbered",
+                    clientA.Name,
+                    "0001234-56.2026.8.19.0001",
+                    LegalProcessStatus.Closed),
+                new LegalProcessLookupItem(
+                    freeProcess.Id,
+                    "Free Numbered",
+                    clientA.Name,
+                    "Proc. ABC/77",
+                    LegalProcessStatus.Suspended),
+                new LegalProcessLookupItem(
+                    unnumberedProcess.Id,
+                    "Unnumbered",
+                    clientA.Name,
+                    null,
+                    LegalProcessStatus.InProgress)
+            ],
+            all);
+    }
+
     private EnmaDbContext CreateQueryContext(ReaderCommandInterceptor interceptor)
     {
         DbContextOptions<EnmaDbContext> options =
