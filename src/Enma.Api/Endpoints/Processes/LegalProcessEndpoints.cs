@@ -6,10 +6,14 @@ using Enma.Api.Contracts.Processes;
 using Enma.Api.Endpoints;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
+using Enma.Application.Processes.Details;
 using Enma.Application.Processes.GetById;
 using Enma.Application.Processes.List;
 using Enma.Application.Processes.Lookup;
+using Enma.Application.Processes.Responsible;
+using Enma.Application.Processes.Status;
 using Enma.Application.Processes.Update;
+using Enma.Domain.Processes;
 
 namespace Enma.Api.Endpoints.Processes;
 
@@ -72,6 +76,44 @@ public static class LegalProcessEndpoints
             .WithName("UpdateLegalProcess")
             .WithSummary("Updates a legal process in the contextual organization.")
             .Accepts<UpdateLegalProcessRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireEnmaAntiforgery();
+
+        group.MapPut("{processId:guid}/details", ChangeDetailsAsync)
+            .WithName("ChangeLegalProcessDetails")
+            .WithSummary("Changes the number and court or authority of a legal process.")
+            .Accepts<ChangeLegalProcessDetailsRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireEnmaAntiforgery();
+
+        group.MapPut("{processId:guid}/status", ChangeStatusAsync)
+            .WithName("ChangeLegalProcessStatus")
+            .WithSummary("Changes the status of a legal process.")
+            .Accepts<ChangeLegalProcessStatusRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireEnmaAntiforgery();
+
+        group.MapPut("{processId:guid}/responsible", ChangeResponsibleAsync)
+            .WithName("ChangeLegalProcessResponsible")
+            .WithSummary("Changes the responsible member of a legal process.")
+            .Accepts<ChangeLegalProcessResponsibleRequest>("application/json")
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
@@ -262,6 +304,124 @@ public static class LegalProcessEndpoints
         };
     }
 
+    private static async Task<IResult> ChangeDetailsAsync(
+        Guid organizationId,
+        Guid processId,
+        ChangeLegalProcessDetailsRequest request,
+        ClaimsPrincipal principal,
+        ChangeLegalProcessDetailsUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        ChangeLegalProcessDetailsResult result = await useCase.ExecuteAsync(
+            new ChangeLegalProcessDetailsCommand(
+                userId,
+                organizationId,
+                processId,
+                request.ProcessNumber,
+                request.CourtOrAuthority),
+            cancellationToken);
+
+        return result switch
+        {
+            ChangeLegalProcessDetailsResult.AccessDenied => TypedResults.Forbid(),
+            ChangeLegalProcessDetailsResult.NotFound => TypedResults.NotFound(),
+            ChangeLegalProcessDetailsResult.DuplicateProcessNumber =>
+                CreateConflictProblem(
+                    "The process number is already used by another process."),
+            ChangeLegalProcessDetailsResult.Succeeded => TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "The legal process details change returned an unknown status.")
+        };
+    }
+
+    private static async Task<IResult> ChangeStatusAsync(
+        Guid organizationId,
+        Guid processId,
+        ChangeLegalProcessStatusRequest request,
+        ClaimsPrincipal principal,
+        ChangeLegalProcessStatusUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        ChangeLegalProcessStatusResult result = await useCase.ExecuteAsync(
+            new ChangeLegalProcessStatusCommand(
+                userId,
+                organizationId,
+                processId,
+                request.Status),
+            cancellationToken);
+
+        return result switch
+        {
+            ChangeLegalProcessStatusResult.AccessDenied => TypedResults.Forbid(),
+            ChangeLegalProcessStatusResult.NotFound => TypedResults.NotFound(),
+            ChangeLegalProcessStatusResult.StatusTransitionNotAllowed =>
+                CreateConflictProblem(
+                    "The process cannot be changed to the requested status."),
+            ChangeLegalProcessStatusResult.CurrentResponsibleUnavailable =>
+                CreateConflictProblem(
+                    "The current responsible member is unavailable. Change or " +
+                    "remove the responsible member before reopening the process."),
+            ChangeLegalProcessStatusResult.Succeeded => TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "The legal process status change returned an unknown status.")
+        };
+    }
+
+    private static async Task<IResult> ChangeResponsibleAsync(
+        Guid organizationId,
+        Guid processId,
+        ChangeLegalProcessResponsibleRequest request,
+        ClaimsPrincipal principal,
+        ChangeLegalProcessResponsibleUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        ChangeLegalProcessResponsibleResult result = await useCase.ExecuteAsync(
+            new ChangeLegalProcessResponsibleCommand(
+                userId,
+                organizationId,
+                processId,
+                request.ResponsibleMembershipId),
+            cancellationToken);
+
+        return result switch
+        {
+            ChangeLegalProcessResponsibleResult.AccessDenied => TypedResults.Forbid(),
+            ChangeLegalProcessResponsibleResult.NotFound => TypedResults.NotFound(),
+            ChangeLegalProcessResponsibleResult.InvalidInput => TypedResults.BadRequest(),
+            ChangeLegalProcessResponsibleResult.RelatedResponsibleUnavailable =>
+                TypedResults.Problem(
+                    title: "Related responsible member unavailable",
+                    detail: "The requested responsible member is unavailable.",
+                    statusCode: StatusCodes.Status400BadRequest),
+            ChangeLegalProcessResponsibleResult.Succeeded => TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "The legal process responsible change returned an unknown status.")
+        };
+    }
+
+    private static IResult CreateConflictProblem(string detail)
+    {
+        return TypedResults.Problem(
+            title: "Resource conflict",
+            detail: detail,
+            statusCode: StatusCodes.Status409Conflict);
+    }
+
     private static LegalProcessResponse MapLegalProcess(
         LegalProcessReadModel legalProcess)
     {
@@ -270,6 +430,23 @@ public static class LegalProcessEndpoints
             legalProcess.Title,
             legalProcess.ClientId,
             legalProcess.ClientName,
-            legalProcess.CreatedAt);
+            legalProcess.CreatedAt,
+            legalProcess.ProcessNumber,
+            MapStatus(legalProcess.Status),
+            legalProcess.CourtOrAuthority,
+            legalProcess.ResponsibleMembershipId,
+            legalProcess.ResponsibleDisplayName);
+    }
+
+    private static LegalProcessStatusResponse MapStatus(LegalProcessStatus status)
+    {
+        return status switch
+        {
+            LegalProcessStatus.InProgress => LegalProcessStatusResponse.InProgress,
+            LegalProcessStatus.Suspended => LegalProcessStatusResponse.Suspended,
+            LegalProcessStatus.Closed => LegalProcessStatusResponse.Closed,
+            _ => throw new InvalidOperationException(
+                "The legal process has an unsupported status.")
+        };
     }
 }

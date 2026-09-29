@@ -42,6 +42,14 @@ public sealed record LegalProcessLockedActorState(
             IsUserActive &&
             Enum.IsDefined(Role);
     }
+
+    public bool IsAvailableMemberOf(Guid organizationId, Guid membershipId)
+    {
+        return MembershipId == membershipId &&
+            OrganizationId == organizationId &&
+            IsMembershipActive &&
+            IsUserActive;
+    }
 }
 
 public sealed class LegalProcessCreationDecision

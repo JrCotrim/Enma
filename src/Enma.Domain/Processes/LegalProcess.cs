@@ -1,3 +1,5 @@
+using Enma.Domain.Auditing;
+
 namespace Enma.Domain.Processes;
 
 public sealed class LegalProcess
@@ -73,7 +75,60 @@ public sealed class LegalProcess
         Title = NormalizeTitle(title);
     }
 
-    public void ChangeStatus(LegalProcessStatus status)
+    public IReadOnlyList<LegalProcessChangedField> ChangeDetails(
+        string? processNumber,
+        string? courtOrAuthority)
+    {
+        (string? display, string? normalized) =
+            NormalizeProcessNumber(processNumber);
+        string? normalizedCourtOrAuthority =
+            NormalizeCourtOrAuthority(courtOrAuthority);
+        var changedFields = new List<LegalProcessChangedField>(2);
+
+        if (!StringComparer.Ordinal.Equals(ProcessNumber, display))
+        {
+            changedFields.Add(LegalProcessChangedField.ProcessNumber);
+        }
+
+        if (!StringComparer.Ordinal.Equals(
+                CourtOrAuthority,
+                normalizedCourtOrAuthority))
+        {
+            changedFields.Add(LegalProcessChangedField.CourtOrAuthority);
+        }
+
+        ProcessNumber = display;
+        NormalizedProcessNumber = normalized;
+        CourtOrAuthority = normalizedCourtOrAuthority;
+
+        return changedFields.AsReadOnly();
+    }
+
+    public bool ChangeResponsible(Guid? responsibleMembershipId)
+    {
+        if (responsibleMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                LegalProcessErrors.ResponsibleMembershipIdInvalid,
+                nameof(responsibleMembershipId));
+        }
+
+        if (responsibleMembershipId == ResponsibleMembershipId)
+        {
+            return false;
+        }
+
+        ResponsibleMembershipId = responsibleMembershipId;
+        return true;
+    }
+
+    public bool CanChangeStatusTo(LegalProcessStatus status)
+    {
+        return Enum.IsDefined(status) &&
+            (status == Status || IsStatusTransitionAllowed(Status, status));
+    }
+
+    public bool ChangeStatus(LegalProcessStatus status)
     {
         if (!Enum.IsDefined(status))
         {
@@ -84,10 +139,24 @@ public sealed class LegalProcess
 
         if (status == Status)
         {
-            return;
+            return false;
         }
 
-        bool isAllowed = (Status, status) switch
+        if (!IsStatusTransitionAllowed(Status, status))
+        {
+            throw new InvalidOperationException(
+                LegalProcessErrors.StatusTransitionInvalid);
+        }
+
+        Status = status;
+        return true;
+    }
+
+    private static bool IsStatusTransitionAllowed(
+        LegalProcessStatus currentStatus,
+        LegalProcessStatus newStatus)
+    {
+        return (currentStatus, newStatus) switch
         {
             (LegalProcessStatus.InProgress, LegalProcessStatus.Suspended) => true,
             (LegalProcessStatus.InProgress, LegalProcessStatus.Closed) => true,
@@ -96,14 +165,6 @@ public sealed class LegalProcess
             (LegalProcessStatus.Closed, LegalProcessStatus.InProgress) => true,
             _ => false
         };
-
-        if (!isAllowed)
-        {
-            throw new InvalidOperationException(
-                LegalProcessErrors.StatusTransitionInvalid);
-        }
-
-        Status = status;
     }
 
     private static string NormalizeTitle(string title)

@@ -3,6 +3,7 @@ using Enma.Application.Processes;
 using Enma.Application.Processes.List;
 using Enma.Application.Validation;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 
 namespace Enma.UnitTests.Application.Processes.List;
 
@@ -45,7 +46,12 @@ public sealed class ListLegalProcessesUseCaseTests
                 "Contract Review",
                 Guid.Parse("381c55b5-1d4d-4143-8071-521ac89cde66"),
                 "Acme Legal",
-                DateTimeOffset.Parse("2026-08-13T14:00:00+00:00"))
+                DateTimeOffset.Parse("2026-08-13T14:00:00+00:00"),
+                null,
+                LegalProcessStatus.InProgress,
+                null,
+                null,
+                null)
         ];
         var queries = new FakeLegalProcessReadQueries(legalProcesses);
         ListLegalProcessesUseCase useCase = CreateUseCase(role, queries);

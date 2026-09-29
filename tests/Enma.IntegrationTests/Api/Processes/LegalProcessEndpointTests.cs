@@ -85,6 +85,18 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             [nameof(UpdateLegalProcessRequest.Title)],
             GetPropertyNames<UpdateLegalProcessRequest>());
         Assert.Equal(
+            [
+                nameof(ChangeLegalProcessDetailsRequest.ProcessNumber),
+                nameof(ChangeLegalProcessDetailsRequest.CourtOrAuthority)
+            ],
+            GetPropertyNames<ChangeLegalProcessDetailsRequest>());
+        Assert.Equal(
+            [nameof(ChangeLegalProcessStatusRequest.Status)],
+            GetPropertyNames<ChangeLegalProcessStatusRequest>());
+        Assert.Equal(
+            [nameof(ChangeLegalProcessResponsibleRequest.ResponsibleMembershipId)],
+            GetPropertyNames<ChangeLegalProcessResponsibleRequest>());
+        Assert.Equal(
             [nameof(CreateLegalProcessResponse.Id)],
             GetPropertyNames<CreateLegalProcessResponse>());
         Assert.Equal(
@@ -93,7 +105,12 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
                 nameof(LegalProcessResponse.Title),
                 nameof(LegalProcessResponse.ClientId),
                 nameof(LegalProcessResponse.ClientName),
-                nameof(LegalProcessResponse.CreatedAt)
+                nameof(LegalProcessResponse.CreatedAt),
+                nameof(LegalProcessResponse.ProcessNumber),
+                nameof(LegalProcessResponse.Status),
+                nameof(LegalProcessResponse.CourtOrAuthority),
+                nameof(LegalProcessResponse.ResponsibleMembershipId),
+                nameof(LegalProcessResponse.ResponsibleDisplayName)
             ],
             GetPropertyNames<LegalProcessResponse>());
         Assert.Equal(
@@ -133,6 +150,9 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         [
             typeof(CreateLegalProcessRequest),
             typeof(UpdateLegalProcessRequest),
+            typeof(ChangeLegalProcessDetailsRequest),
+            typeof(ChangeLegalProcessStatusRequest),
+            typeof(ChangeLegalProcessResponsibleRequest),
             typeof(CreateLegalProcessResponse),
             typeof(LegalProcessResponse),
             typeof(ListLegalProcessesResponse),
@@ -534,11 +554,25 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         string getJson = await getResponse.Content.ReadAsStringAsync();
         using JsonDocument getDocument = JsonDocument.Parse(getJson);
         Assert.Equal(
-            ["id", "title", "clientId", "clientName", "createdAt"],
+            [
+                "id",
+                "title",
+                "clientId",
+                "clientName",
+                "createdAt",
+                "processNumber",
+                "status",
+                "courtOrAuthority",
+                "responsibleMembershipId",
+                "responsibleDisplayName"
+            ],
             getDocument.RootElement
                 .EnumerateObject()
                 .Select(property => property.Name)
                 .ToArray());
+        Assert.Equal(
+            "inProgress",
+            getDocument.RootElement.GetProperty("status").GetString());
         LegalProcessResponse? getResult = JsonSerializer.Deserialize<
             LegalProcessResponse>(getJson, JsonSerializerOptions.Web);
         Assert.NotNull(getResult);
@@ -1115,6 +1149,607 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, malformedOrganizationResponse.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, malformedProcessResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task OperationalEndpoints_AnonymousOrWithoutCsrf_ReturnEmptyResponsesWithoutMutation()
+    {
+        User user = CreateUser("operational-csrf");
+        Organization organization = CreateOrganization("Operational Csrf");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        ClientEntity relatedClient = CreateClient(organization, "Csrf Client", 2);
+        LegalProcess legalProcess = CreateProcess(
+            organization,
+            relatedClient,
+            "Original",
+            1);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient],
+            [legalProcess]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        foreach ((string path, object body) in GetOperationalRequests(
+            organization.Id,
+            legalProcess.Id,
+            membership.Id))
+        {
+            using HttpResponseMessage anonymousResponse = await client.PutAsJsonAsync(
+                path,
+                body);
+            using HttpResponseMessage missingCsrfResponse = await SendMutationAsync(
+                HttpMethod.Put,
+                path,
+                rawHandle,
+                csrf: null,
+                body);
+            using HttpResponseMessage invalidCsrfResponse = await SendMutationAsync(
+                HttpMethod.Put,
+                path,
+                rawHandle,
+                csrf,
+                body,
+                requestTokenOverride: "malformed");
+
+            await AssertEmptyResponseAsync(
+                anonymousResponse,
+                HttpStatusCode.Unauthorized);
+            await AssertEmptyResponseAsync(
+                missingCsrfResponse,
+                HttpStatusCode.BadRequest);
+            await AssertEmptyResponseAsync(
+                invalidCsrfResponse,
+                HttpStatusCode.BadRequest);
+        }
+
+        await AssertOperationalStateUnchangedAsync(legalProcess.Id);
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner, HttpStatusCode.NoContent)]
+    [InlineData(OrganizationRole.Administrator, HttpStatusCode.NoContent)]
+    [InlineData(OrganizationRole.Member, HttpStatusCode.Forbidden)]
+    public async Task OperationalEndpoints_CurrentRole_AppliesMutationPermission(
+        OrganizationRole role,
+        HttpStatusCode expectedStatus)
+    {
+        User user = CreateUser($"operational-role-{role}");
+        Organization organization = CreateOrganization($"Operational Role {role}");
+        Organization otherOrganization = CreateOrganization($"Operational Body {role}");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            role);
+        ClientEntity relatedClient = CreateClient(organization, $"{role} Client", 2);
+        LegalProcess legalProcess = CreateProcess(
+            organization,
+            relatedClient,
+            $"{role} Process",
+            1);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization, otherOrganization],
+            [membership],
+            [relatedClient],
+            [legalProcess]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage detailsResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, legalProcess.Id, "details"),
+            rawHandle,
+            csrf,
+            new
+            {
+                processNumber = "  0001234-56.2026.8.19.0001  ",
+                courtOrAuthority = " 1ª Vara Cível ",
+                organizationId = otherOrganization.Id,
+                normalizedProcessNumber = "INJECTED"
+            });
+        using HttpResponseMessage statusResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, legalProcess.Id, "status"),
+            rawHandle,
+            csrf,
+            new { status = "suspended", organizationId = otherOrganization.Id });
+        using HttpResponseMessage responsibleResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, legalProcess.Id, "responsible"),
+            rawHandle,
+            csrf,
+            new { responsibleMembershipId = membership.Id });
+
+        await AssertEmptyResponseAsync(detailsResponse, expectedStatus);
+        await AssertEmptyResponseAsync(statusResponse, expectedStatus);
+        await AssertEmptyResponseAsync(responsibleResponse, expectedStatus);
+
+        using HttpResponseMessage getResponse = await SendGetAsync(
+            GetProcessPath(organization.Id, legalProcess.Id),
+            rawHandle);
+        using HttpResponseMessage listResponse = await SendGetAsync(
+            GetProcessesPath(organization.Id),
+            rawHandle);
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        using JsonDocument getDocument = JsonDocument.Parse(
+            await getResponse.Content.ReadAsStringAsync());
+        ListLegalProcessesResponse? list = await listResponse.Content
+            .ReadFromJsonAsync<ListLegalProcessesResponse>();
+        Assert.NotNull(list);
+        LegalProcessResponse listItem = Assert.Single(list.Items);
+        JsonElement root = getDocument.RootElement;
+
+        if (expectedStatus == HttpStatusCode.NoContent)
+        {
+            Assert.Equal(
+                "0001234-56.2026.8.19.0001",
+                root.GetProperty("processNumber").GetString());
+            Assert.Equal("suspended", root.GetProperty("status").GetString());
+            Assert.Equal(
+                "1ª Vara Cível",
+                root.GetProperty("courtOrAuthority").GetString());
+            Assert.Equal(
+                membership.Id,
+                root.GetProperty("responsibleMembershipId").GetGuid());
+            Assert.Equal(
+                user.Name,
+                root.GetProperty("responsibleDisplayName").GetString());
+            Assert.Equal("0001234-56.2026.8.19.0001", listItem.ProcessNumber);
+            Assert.Equal(LegalProcessStatusResponse.Suspended, listItem.Status);
+            Assert.Equal(membership.Id, listItem.ResponsibleMembershipId);
+            Assert.Equal(user.Name, listItem.ResponsibleDisplayName);
+            LegalProcess persisted = await GetPersistedProcessAsync(legalProcess.Id);
+            Assert.Equal(organization.Id, persisted.OrganizationId);
+            Assert.Equal("00012345620268190001", persisted.NormalizedProcessNumber);
+        }
+        else
+        {
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("processNumber").ValueKind);
+            Assert.Equal("inProgress", root.GetProperty("status").GetString());
+            Assert.Equal(
+                JsonValueKind.Null,
+                root.GetProperty("responsibleMembershipId").ValueKind);
+            await AssertOperationalStateUnchangedAsync(legalProcess.Id);
+        }
+    }
+
+    [Fact]
+    public async Task OperationalEndpoints_MissingOrCrossTenantProcess_ReturnSameNotFound()
+    {
+        User user = CreateUser("operational-tenant");
+        Organization organizationA = CreateOrganization("Operational Tenant A");
+        Organization organizationB = CreateOrganization("Operational Tenant B");
+        OrganizationMembership membershipA = CreateMembership(
+            user,
+            organizationA,
+            OrganizationRole.Owner);
+        OrganizationMembership membershipB = CreateMembership(
+            user,
+            organizationB,
+            OrganizationRole.Owner);
+        ClientEntity clientA = CreateClient(organizationA, "Tenant Client A", 3);
+        ClientEntity clientB = CreateClient(organizationB, "Tenant Client B", 3);
+        LegalProcess processA = CreateProcess(organizationA, clientA, "Tenant A", 2);
+        LegalProcess processB = CreateProcess(organizationB, clientB, "Tenant B", 1);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organizationA, organizationB],
+            [membershipA, membershipB],
+            [clientA, clientB],
+            [processA, processB]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        foreach (Guid processId in new[] { processB.Id, Guid.NewGuid() })
+        {
+            foreach ((string path, object body) in GetOperationalRequests(
+                organizationA.Id,
+                processId,
+                membershipA.Id))
+            {
+                using HttpResponseMessage response = await SendMutationAsync(
+                    HttpMethod.Put,
+                    path,
+                    rawHandle,
+                    csrf,
+                    body);
+
+                await AssertEmptyResponseAsync(response, HttpStatusCode.NotFound);
+            }
+        }
+
+        using HttpResponseMessage assignForeignResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organizationA.Id, processA.Id, "responsible"),
+            rawHandle,
+            csrf,
+            new { responsibleMembershipId = membershipB.Id });
+        using HttpResponseMessage assignLocalResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organizationA.Id, processA.Id, "responsible"),
+            rawHandle,
+            csrf,
+            new { responsibleMembershipId = membershipA.Id });
+        using HttpResponseMessage crossContextGet = await SendGetAsync(
+            GetProcessPath(organizationB.Id, processA.Id),
+            rawHandle);
+        using HttpResponseMessage listB = await SendGetAsync(
+            GetProcessesPath(organizationB.Id),
+            rawHandle);
+
+        ProblemDetails foreignProblem = await AssertSafeBadRequestAsync(
+            assignForeignResponse);
+        Assert.Equal("Related responsible member unavailable", foreignProblem.Title);
+        await AssertEmptyResponseAsync(assignLocalResponse, HttpStatusCode.NoContent);
+        await AssertEmptyResponseAsync(crossContextGet, HttpStatusCode.NotFound);
+        string listBJson = await listB.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(processA.Id.ToString(), listBJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(membershipA.Id.ToString(), listBJson, StringComparison.OrdinalIgnoreCase);
+        await AssertOperationalStateUnchangedAsync(processB.Id);
+        Assert.Equal(
+            membershipA.Id,
+            (await GetPersistedProcessAsync(processA.Id)).ResponsibleMembershipId);
+    }
+
+    [Fact]
+    public async Task OperationalEndpoints_InvalidBodies_ReturnSafeBadRequestWithoutMutation()
+    {
+        User user = CreateUser("operational-validation");
+        Organization organization = CreateOrganization("Operational Validation");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        ClientEntity relatedClient = CreateClient(organization, "Validation Client", 2);
+        LegalProcess legalProcess = CreateProcess(
+            organization,
+            relatedClient,
+            "Original",
+            1);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient],
+            [legalProcess]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        string detailsPath = GetProcessOperationPath(
+            organization.Id,
+            legalProcess.Id,
+            "details");
+        string statusPath = GetProcessOperationPath(
+            organization.Id,
+            legalProcess.Id,
+            "status");
+        string responsiblePath = GetProcessOperationPath(
+            organization.Id,
+            legalProcess.Id,
+            "responsible");
+
+        (string Path, object Body)[] invalidRequests =
+        [
+            (detailsPath, new { processNumber = "ABC" }),
+            (detailsPath, new { courtOrAuthority = "Court" }),
+            (detailsPath, new { processNumber = new string('A', 101), courtOrAuthority = (string?)null }),
+            (detailsPath, new { processNumber = (string?)null, courtOrAuthority = new string('B', 201) }),
+            (statusPath, new { }),
+            (statusPath, new { status = "archived" }),
+            (statusPath, new { status = "InProgress" }),
+            (statusPath, new { status = 2 }),
+            (responsiblePath, new { }),
+            (responsiblePath, new { responsibleMembershipId = Guid.Empty }),
+            (responsiblePath, new { responsibleMembershipId = "not-a-guid" })
+        ];
+
+        foreach ((string path, object body) in invalidRequests)
+        {
+            using HttpResponseMessage response = await SendMutationAsync(
+                HttpMethod.Put,
+                path,
+                rawHandle,
+                csrf,
+                body);
+
+            await AssertSafeBadRequestAsync(response);
+        }
+
+        foreach (string path in new[] { detailsPath, statusPath, responsiblePath })
+        {
+            using HttpResponseMessage response = await SendMalformedJsonAsync(
+                HttpMethod.Put,
+                path,
+                rawHandle,
+                csrf);
+
+            await AssertSafeBadRequestAsync(response);
+        }
+
+        await AssertOperationalStateUnchangedAsync(legalProcess.Id);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
+    public async Task OperationalEndpoints_ConflictsAndUnavailableResponsible_ReturnNeutralProblems()
+    {
+        User user = CreateUser("operational-conflict");
+        Organization organization = CreateOrganization("Operational Conflict");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        ClientEntity relatedClient = CreateClient(organization, "Conflict Client", 3);
+        LegalProcess firstProcess = CreateProcess(
+            organization,
+            relatedClient,
+            "First",
+            2);
+        LegalProcess secondProcess = CreateProcess(
+            organization,
+            relatedClient,
+            "Second",
+            1);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient],
+            [firstProcess, secondProcess]);
+        User responsibleUser = CreateUser("operational-responsible");
+        OrganizationMembership responsibleMembership = CreateMembership(
+            responsibleUser,
+            organization,
+            OrganizationRole.Member);
+        await using (EnmaDbContext seedContext = fixture.CreateDbContext())
+        {
+            seedContext.AddRange(responsibleUser, responsibleMembership);
+            await seedContext.SaveChangesAsync();
+        }
+
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage firstNumber = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, firstProcess.Id, "details"),
+            rawHandle,
+            csrf,
+            new { processNumber = "0001234-56.2026.8.19.0001", courtOrAuthority = (string?)null });
+        using HttpResponseMessage duplicateNumber = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, secondProcess.Id, "details"),
+            rawHandle,
+            csrf,
+            new { processNumber = "00012345620268190001", courtOrAuthority = (string?)null });
+        using HttpResponseMessage closeFirst = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, firstProcess.Id, "status"),
+            rawHandle,
+            csrf,
+            new { status = "closed" });
+        using HttpResponseMessage suspendClosed = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, firstProcess.Id, "status"),
+            rawHandle,
+            csrf,
+            new { status = "suspended" });
+        using HttpResponseMessage assignResponsible = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, secondProcess.Id, "responsible"),
+            rawHandle,
+            csrf,
+            new { responsibleMembershipId = responsibleMembership.Id });
+        using HttpResponseMessage closeSecond = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, secondProcess.Id, "status"),
+            rawHandle,
+            csrf,
+            new { status = "closed" });
+
+        await using (EnmaDbContext mutationContext = fixture.CreateDbContext())
+        {
+            OrganizationMembership persistedMembership = await mutationContext
+                .OrganizationMemberships
+                .SingleAsync(candidate => candidate.Id == responsibleMembership.Id);
+            persistedMembership.Deactivate();
+            await mutationContext.SaveChangesAsync();
+        }
+
+        using HttpResponseMessage reopenSecond = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, secondProcess.Id, "status"),
+            rawHandle,
+            csrf,
+            new { status = "inProgress" });
+        using HttpResponseMessage assignInactive = await SendMutationAsync(
+            HttpMethod.Put,
+            GetProcessOperationPath(organization.Id, firstProcess.Id, "responsible"),
+            rawHandle,
+            csrf,
+            new { responsibleMembershipId = responsibleMembership.Id });
+
+        await AssertEmptyResponseAsync(firstNumber, HttpStatusCode.NoContent);
+        await AssertEmptyResponseAsync(closeFirst, HttpStatusCode.NoContent);
+        await AssertEmptyResponseAsync(assignResponsible, HttpStatusCode.NoContent);
+        await AssertEmptyResponseAsync(closeSecond, HttpStatusCode.NoContent);
+        ProblemDetails duplicateProblem = await AssertConflictProblemAsync(
+            duplicateNumber);
+        ProblemDetails transitionProblem = await AssertConflictProblemAsync(
+            suspendClosed);
+        ProblemDetails reopenProblem = await AssertConflictProblemAsync(reopenSecond);
+        ProblemDetails unavailableProblem = await AssertSafeBadRequestAsync(
+            assignInactive);
+        Assert.Equal("Resource conflict", duplicateProblem.Title);
+        Assert.Equal("Resource conflict", transitionProblem.Title);
+        Assert.Equal("Resource conflict", reopenProblem.Title);
+        Assert.Contains("responsible", reopenProblem.Detail, StringComparison.Ordinal);
+        Assert.Equal("Related responsible member unavailable", unavailableProblem.Title);
+
+        LegalProcess persistedFirst = await GetPersistedProcessAsync(firstProcess.Id);
+        LegalProcess persistedSecond = await GetPersistedProcessAsync(secondProcess.Id);
+        Assert.Equal(LegalProcessStatus.Closed, persistedFirst.Status);
+        Assert.Null(persistedFirst.ResponsibleMembershipId);
+        Assert.Null(persistedSecond.ProcessNumber);
+        Assert.Equal(LegalProcessStatus.Closed, persistedSecond.Status);
+        Assert.Equal(responsibleMembership.Id, persistedSecond.ResponsibleMembershipId);
+    }
+
+    [Fact]
+    public async Task OperationalMutations_AppearInAuditLogWithCodesAndWithoutValues()
+    {
+        User user = CreateUser("operational-audit");
+        Organization organization = CreateOrganization("Operational Audit");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        ClientEntity relatedClient = CreateClient(organization, "Audit Client", 2);
+        LegalProcess legalProcess = CreateProcess(
+            organization,
+            relatedClient,
+            "Audited",
+            1);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [relatedClient],
+            [legalProcess]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        foreach ((string path, object body) in GetOperationalRequests(
+            organization.Id,
+            legalProcess.Id,
+            membership.Id))
+        {
+            using HttpResponseMessage response = await SendMutationAsync(
+                HttpMethod.Put,
+                path,
+                rawHandle,
+                csrf,
+                body);
+            await AssertEmptyResponseAsync(response, HttpStatusCode.NoContent);
+        }
+
+        using HttpResponseMessage auditResponse = await SendGetAsync(
+            $"/api/organizations/{organization.Id:D}/audit-logs",
+            rawHandle);
+
+        Assert.Equal(HttpStatusCode.OK, auditResponse.StatusCode);
+        string auditJson = await auditResponse.Content.ReadAsStringAsync();
+        using JsonDocument auditDocument = JsonDocument.Parse(auditJson);
+        JsonElement[] items = auditDocument.RootElement
+            .GetProperty("items")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(
+            new[]
+            {
+                "legal_process.details_changed",
+                "legal_process.responsible_changed",
+                "legal_process.status_changed"
+            },
+            items
+                .Select(item => item.GetProperty("eventType").GetString())
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+        Assert.All(items, item =>
+        {
+            Assert.Equal("legal_process", item.GetProperty("entityType").GetString());
+            Assert.Equal(legalProcess.Id, item.GetProperty("entityId").GetGuid());
+            Assert.Equal(
+                item.GetProperty("eventType").GetString(),
+                item.GetProperty("details").GetProperty("type").GetString());
+        });
+        JsonElement detailsChanged = items.Single(item =>
+            item.GetProperty("eventType").GetString() == "legal_process.details_changed");
+        JsonElement statusChanged = items.Single(item =>
+            item.GetProperty("eventType").GetString() == "legal_process.status_changed");
+        JsonElement responsibleChanged = items.Single(item =>
+            item.GetProperty("eventType").GetString() ==
+                "legal_process.responsible_changed");
+        Assert.Equal(
+            new[] { "ProcessNumber", "CourtOrAuthority" },
+            detailsChanged.GetProperty("details")
+                .GetProperty("changedFields")
+                .EnumerateArray()
+                .Select(field => field.GetString())
+                .ToArray());
+        Assert.Equal(
+            "InProgress",
+            statusChanged.GetProperty("details").GetProperty("oldStatus").GetString());
+        Assert.Equal(
+            "Suspended",
+            statusChanged.GetProperty("details").GetProperty("newStatus").GetString());
+        Assert.Equal(
+            membership.Id,
+            responsibleChanged.GetProperty("details")
+                .GetProperty("newResponsibleMembershipId")
+                .GetGuid());
+        Assert.DoesNotContain("0001234", auditJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("Vara", auditJson, StringComparison.Ordinal);
+    }
+
+    private static (string Path, object Body)[] GetOperationalRequests(
+        Guid organizationId,
+        Guid processId,
+        Guid responsibleMembershipId)
+    {
+        return
+        [
+            (
+                GetProcessOperationPath(organizationId, processId, "details"),
+                new
+                {
+                    processNumber = "0001234-56.2026.8.19.0001",
+                    courtOrAuthority = "1ª Vara Cível"
+                }),
+            (
+                GetProcessOperationPath(organizationId, processId, "status"),
+                new { status = "suspended" }),
+            (
+                GetProcessOperationPath(organizationId, processId, "responsible"),
+                new { responsibleMembershipId })
+        ];
+    }
+
+    private async Task AssertOperationalStateUnchangedAsync(Guid processId)
+    {
+        LegalProcess persisted = await GetPersistedProcessAsync(processId);
+        Assert.Null(persisted.ProcessNumber);
+        Assert.Null(persisted.NormalizedProcessNumber);
+        Assert.Null(persisted.CourtOrAuthority);
+        Assert.Equal(LegalProcessStatus.InProgress, persisted.Status);
+        Assert.Null(persisted.ResponsibleMembershipId);
+    }
+
+    private static async Task<ProblemDetails> AssertConflictProblemAsync(
+        HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers.ContentType?.MediaType);
+        string responseContent = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("System.", responseContent);
+        Assert.DoesNotContain("organizationId", responseContent);
+        Assert.DoesNotContain("0001234", responseContent);
+        ProblemDetails? problemDetails = JsonSerializer.Deserialize<ProblemDetails>(
+            responseContent,
+            JsonSerializerOptions.Web);
+        return Assert.IsType<ProblemDetails>(problemDetails);
+    }
+
+    private static string GetProcessOperationPath(
+        Guid organizationId,
+        Guid processId,
+        string operation)
+    {
+        return $"{GetProcessPath(organizationId, processId)}/{operation}";
     }
 
     private static string[] GetPropertyNames<T>()

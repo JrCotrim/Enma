@@ -6,6 +6,7 @@ using Enma.Api.Endpoints;
 using Enma.Application.Auditing.List;
 using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 
 namespace Enma.Api.Endpoints.Auditing;
 
@@ -121,6 +122,17 @@ public static class AuditLogEndpoints
                 new CalendarEventAssigneeChangedAuditLogDetailsResponse(
                     value.OldAssigneeMembershipId,
                     value.NewAssigneeMembershipId),
+            LegalProcessDetailsChangedAuditDetails value =>
+                new LegalProcessDetailsChangedAuditLogDetailsResponse(
+                    value.ChangedFields.Select(MapChangedField).ToArray()),
+            LegalProcessStatusChangedAuditDetails value =>
+                new LegalProcessStatusChangedAuditLogDetailsResponse(
+                    MapLegalProcessStatus(value.OldStatus),
+                    MapLegalProcessStatus(value.NewStatus)),
+            LegalProcessResponsibleChangedAuditDetails value =>
+                new LegalProcessResponsibleChangedAuditLogDetailsResponse(
+                    value.OldResponsibleMembershipId,
+                    value.NewResponsibleMembershipId),
             _ => throw new InvalidOperationException(
                 "The audit log contains unsupported details.")
         };
@@ -175,6 +187,29 @@ public static class AuditLogEndpoints
             CalendarEventChangedField.ProcessId => "ProcessId",
             _ => throw new InvalidOperationException(
                 "The audit log contains an unsupported calendar field.")
+        };
+    }
+
+    private static string MapChangedField(LegalProcessChangedField field)
+    {
+        return field switch
+        {
+            LegalProcessChangedField.ProcessNumber => "ProcessNumber",
+            LegalProcessChangedField.CourtOrAuthority => "CourtOrAuthority",
+            _ => throw new InvalidOperationException(
+                "The audit log contains an unsupported process field.")
+        };
+    }
+
+    private static string MapLegalProcessStatus(LegalProcessStatus status)
+    {
+        return status switch
+        {
+            LegalProcessStatus.InProgress => "InProgress",
+            LegalProcessStatus.Suspended => "Suspended",
+            LegalProcessStatus.Closed => "Closed",
+            _ => throw new InvalidOperationException(
+                "The audit log contains an unsupported process status.")
         };
     }
 }

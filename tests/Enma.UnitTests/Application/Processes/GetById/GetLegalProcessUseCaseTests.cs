@@ -2,6 +2,7 @@ using Enma.Application.Authorization;
 using Enma.Application.Processes;
 using Enma.Application.Processes.GetById;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 
 namespace Enma.UnitTests.Application.Processes.GetById;
 
@@ -52,7 +53,12 @@ public sealed class GetLegalProcessUseCaseTests
             "Contract Review",
             ClientId,
             "Acme Legal",
-            CreatedAt);
+            CreatedAt,
+            null,
+            LegalProcessStatus.InProgress,
+            null,
+            null,
+            null);
         var queries = new FakeLegalProcessReadQueries(expectedProcess);
         GetLegalProcessUseCase useCase = CreateUseCase(
             OrganizationRole.Member,

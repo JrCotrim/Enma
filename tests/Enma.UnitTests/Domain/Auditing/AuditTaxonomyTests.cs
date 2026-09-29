@@ -263,6 +263,24 @@ public sealed class AuditTaxonomyTests
                 "legal_document.deleted",
                 AuditEntityType.LegalDocument
             },
+            {
+                AuditEventType.LegalProcessDetailsChanged,
+                33,
+                "legal_process.details_changed",
+                AuditEntityType.LegalProcess
+            },
+            {
+                AuditEventType.LegalProcessStatusChanged,
+                34,
+                "legal_process.status_changed",
+                AuditEntityType.LegalProcess
+            },
+            {
+                AuditEventType.LegalProcessResponsibleChanged,
+                35,
+                "legal_process.responsible_changed",
+                AuditEntityType.LegalProcess
+            },
         };
 
     public static TheoryData<AuditEntityType, int, string> ExpectedEntities =>

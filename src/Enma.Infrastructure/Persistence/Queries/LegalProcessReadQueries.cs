@@ -31,6 +31,24 @@ public sealed class LegalProcessReadQueries : ILegalProcessReadQueries
                     client.OrganizationId,
                     ClientId = client.Id
                 }
+            join responsibleMembership in
+                _dbContext.OrganizationMemberships.AsNoTracking()
+                on new
+                {
+                    legalProcess.OrganizationId,
+                    MembershipId = legalProcess.ResponsibleMembershipId
+                }
+                equals new
+                {
+                    responsibleMembership.OrganizationId,
+                    MembershipId = (Guid?)responsibleMembership.Id
+                }
+                into responsibleMemberships
+            from responsibleMembership in responsibleMemberships.DefaultIfEmpty()
+            join responsibleUser in _dbContext.Users.AsNoTracking()
+                on responsibleMembership.UserId equals responsibleUser.Id
+                into responsibleUsers
+            from responsibleUser in responsibleUsers.DefaultIfEmpty()
             where legalProcess.Id == processId &&
                 legalProcess.OrganizationId == organizationId
             select new LegalProcessReadModel(
@@ -38,7 +56,12 @@ public sealed class LegalProcessReadQueries : ILegalProcessReadQueries
                 legalProcess.Title,
                 legalProcess.ClientId,
                 client.Name,
-                legalProcess.CreatedAt);
+                legalProcess.CreatedAt,
+                legalProcess.ProcessNumber,
+                legalProcess.Status,
+                legalProcess.CourtOrAuthority,
+                legalProcess.ResponsibleMembershipId,
+                responsibleUser == null ? null : responsibleUser.Name);
 
         return query.SingleOrDefaultAsync(cancellationToken);
     }
@@ -69,6 +92,24 @@ public sealed class LegalProcessReadQueries : ILegalProcessReadQueries
                     client.OrganizationId,
                     ClientId = client.Id
                 }
+            join responsibleMembership in
+                _dbContext.OrganizationMemberships.AsNoTracking()
+                on new
+                {
+                    legalProcess.OrganizationId,
+                    MembershipId = legalProcess.ResponsibleMembershipId
+                }
+                equals new
+                {
+                    responsibleMembership.OrganizationId,
+                    MembershipId = (Guid?)responsibleMembership.Id
+                }
+                into responsibleMemberships
+            from responsibleMembership in responsibleMemberships.DefaultIfEmpty()
+            join responsibleUser in _dbContext.Users.AsNoTracking()
+                on responsibleMembership.UserId equals responsibleUser.Id
+                into responsibleUsers
+            from responsibleUser in responsibleUsers.DefaultIfEmpty()
             where legalProcess.OrganizationId == organizationId
             orderby legalProcess.Title, legalProcess.Id
             select new LegalProcessReadModel(
@@ -76,7 +117,12 @@ public sealed class LegalProcessReadQueries : ILegalProcessReadQueries
                 legalProcess.Title,
                 legalProcess.ClientId,
                 client.Name,
-                legalProcess.CreatedAt);
+                legalProcess.CreatedAt,
+                legalProcess.ProcessNumber,
+                legalProcess.Status,
+                legalProcess.CourtOrAuthority,
+                legalProcess.ResponsibleMembershipId,
+                responsibleUser == null ? null : responsibleUser.Name);
 
         return await query
             .Skip((int)skippedItems)

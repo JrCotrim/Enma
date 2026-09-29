@@ -1,3 +1,4 @@
+using Enma.Domain.Auditing;
 using Enma.Domain.Processes;
 
 namespace Enma.UnitTests.Domain.Processes;
@@ -409,6 +410,217 @@ public sealed class LegalProcessTests
         Assert.Equal("status", exception.ParamName);
         Assert.Contains(LegalProcessErrors.StatusInvalid, exception.Message);
         Assert.Equal(LegalProcessStatus.InProgress, legalProcess.Status);
+    }
+
+    [Fact]
+    public void ChangeStatus_ReportsWhetherStatusChanged()
+    {
+        LegalProcess legalProcess = CreateLegalProcess();
+
+        Assert.True(legalProcess.ChangeStatus(LegalProcessStatus.Closed));
+        Assert.False(legalProcess.ChangeStatus(LegalProcessStatus.Closed));
+        Assert.True(legalProcess.ChangeStatus(LegalProcessStatus.InProgress));
+    }
+
+    [Theory]
+    [InlineData(LegalProcessStatus.InProgress, LegalProcessStatus.InProgress, true)]
+    [InlineData(LegalProcessStatus.InProgress, LegalProcessStatus.Suspended, true)]
+    [InlineData(LegalProcessStatus.Suspended, LegalProcessStatus.Closed, true)]
+    [InlineData(LegalProcessStatus.Closed, LegalProcessStatus.InProgress, true)]
+    [InlineData(LegalProcessStatus.Closed, LegalProcessStatus.Closed, true)]
+    [InlineData(LegalProcessStatus.Closed, LegalProcessStatus.Suspended, false)]
+    [InlineData(LegalProcessStatus.InProgress, (LegalProcessStatus)0, false)]
+    [InlineData(LegalProcessStatus.Closed, (LegalProcessStatus)999, false)]
+    public void CanChangeStatusTo_MatchesTransitionRules(
+        LegalProcessStatus initial,
+        LegalProcessStatus target,
+        bool expected)
+    {
+        LegalProcess legalProcess = CreateLegalProcessWithStatus(initial);
+
+        Assert.Equal(expected, legalProcess.CanChangeStatusTo(target));
+        Assert.Equal(initial, legalProcess.Status);
+    }
+
+    [Fact]
+    public void ChangeDetails_WithNewValues_NormalizesAndReportsBothFields()
+    {
+        LegalProcess legalProcess = CreateLegalProcess();
+
+        IReadOnlyList<LegalProcessChangedField> changedFields =
+            legalProcess.ChangeDetails(
+                "  0001234-56.2026.8.19.0001  ",
+                "  1ª Vara Cível  ");
+
+        Assert.Equal(
+            [
+                LegalProcessChangedField.ProcessNumber,
+                LegalProcessChangedField.CourtOrAuthority
+            ],
+            changedFields);
+        Assert.Equal("0001234-56.2026.8.19.0001", legalProcess.ProcessNumber);
+        Assert.Equal("00012345620268190001", legalProcess.NormalizedProcessNumber);
+        Assert.Equal("1ª Vara Cível", legalProcess.CourtOrAuthority);
+    }
+
+    [Fact]
+    public void ChangeDetails_WithSameTrimmedValues_IsNoOp()
+    {
+        LegalProcess legalProcess = CreateLegalProcess("abc-123", "Court");
+
+        IReadOnlyList<LegalProcessChangedField> changedFields =
+            legalProcess.ChangeDetails("  abc-123 ", " Court ");
+
+        Assert.Empty(changedFields);
+        Assert.Equal("abc-123", legalProcess.ProcessNumber);
+        Assert.Equal("ABC-123", legalProcess.NormalizedProcessNumber);
+        Assert.Equal("Court", legalProcess.CourtOrAuthority);
+    }
+
+    [Fact]
+    public void ChangeDetails_WithRepresentationOnlyChange_ReportsProcessNumber()
+    {
+        LegalProcess legalProcess = CreateLegalProcess(
+            "0001234-56.2026.8.19.0001",
+            "Court");
+
+        IReadOnlyList<LegalProcessChangedField> changedFields =
+            legalProcess.ChangeDetails("00012345620268190001", "Court");
+
+        Assert.Equal([LegalProcessChangedField.ProcessNumber], changedFields);
+        Assert.Equal("00012345620268190001", legalProcess.ProcessNumber);
+        Assert.Equal("00012345620268190001", legalProcess.NormalizedProcessNumber);
+    }
+
+    [Fact]
+    public void ChangeDetails_WithOnlyCourtChange_ReportsCourtOrAuthority()
+    {
+        LegalProcess legalProcess = CreateLegalProcess("ABC 1", "Old Court");
+
+        IReadOnlyList<LegalProcessChangedField> changedFields =
+            legalProcess.ChangeDetails("ABC 1", "New Court");
+
+        Assert.Equal([LegalProcessChangedField.CourtOrAuthority], changedFields);
+        Assert.Equal("ABC 1", legalProcess.ProcessNumber);
+        Assert.Equal("New Court", legalProcess.CourtOrAuthority);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    [InlineData("   ", "\t")]
+    public void ChangeDetails_WithUnusableValues_ClearsFields(
+        string? processNumber,
+        string? courtOrAuthority)
+    {
+        LegalProcess legalProcess = CreateLegalProcess("ABC-123", "Court");
+
+        IReadOnlyList<LegalProcessChangedField> changedFields =
+            legalProcess.ChangeDetails(processNumber, courtOrAuthority);
+
+        Assert.Equal(
+            [
+                LegalProcessChangedField.ProcessNumber,
+                LegalProcessChangedField.CourtOrAuthority
+            ],
+            changedFields);
+        Assert.Null(legalProcess.ProcessNumber);
+        Assert.Null(legalProcess.NormalizedProcessNumber);
+        Assert.Null(legalProcess.CourtOrAuthority);
+    }
+
+    [Fact]
+    public void ChangeDetails_AtMaximumLengths_AcceptsValues()
+    {
+        LegalProcess legalProcess = CreateLegalProcess();
+        string processNumber = new('A', 100);
+        string courtOrAuthority = new('B', 200);
+
+        legalProcess.ChangeDetails(processNumber, courtOrAuthority);
+
+        Assert.Equal(processNumber, legalProcess.ProcessNumber);
+        Assert.Equal(courtOrAuthority, legalProcess.CourtOrAuthority);
+    }
+
+    [Fact]
+    public void ChangeDetails_WithProcessNumberBeyondMaximum_ThrowsAndPreservesState()
+    {
+        LegalProcess legalProcess = CreateLegalProcess("ABC-123", "Court");
+
+        ArgumentOutOfRangeException exception =
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                legalProcess.ChangeDetails(new string('A', 101), "Other Court"));
+
+        Assert.Equal("processNumber", exception.ParamName);
+        Assert.Equal("ABC-123", legalProcess.ProcessNumber);
+        Assert.Equal("ABC-123", legalProcess.NormalizedProcessNumber);
+        Assert.Equal("Court", legalProcess.CourtOrAuthority);
+    }
+
+    [Fact]
+    public void ChangeDetails_WithCourtBeyondMaximum_ThrowsAndPreservesState()
+    {
+        LegalProcess legalProcess = CreateLegalProcess("ABC-123", "Court");
+
+        ArgumentOutOfRangeException exception =
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                legalProcess.ChangeDetails("XYZ-9", new string('B', 201)));
+
+        Assert.Equal("courtOrAuthority", exception.ParamName);
+        Assert.Equal("ABC-123", legalProcess.ProcessNumber);
+        Assert.Equal("Court", legalProcess.CourtOrAuthority);
+    }
+
+    [Fact]
+    public void ChangeDetails_PreservesIdentityTitleStatusAndResponsible()
+    {
+        Guid responsibleMembershipId = Guid.NewGuid();
+        LegalProcess legalProcess = CreateLegalProcess();
+        legalProcess.ChangeResponsible(responsibleMembershipId);
+        legalProcess.ChangeStatus(LegalProcessStatus.Suspended);
+        Guid id = legalProcess.Id;
+
+        legalProcess.ChangeDetails("ABC-123", "Court");
+
+        Assert.Equal(id, legalProcess.Id);
+        Assert.Equal(OrganizationId, legalProcess.OrganizationId);
+        Assert.Equal(ClientId, legalProcess.ClientId);
+        Assert.Equal("Contract Review", legalProcess.Title);
+        Assert.Equal(CreatedAt, legalProcess.CreatedAt);
+        Assert.Equal(LegalProcessStatus.Suspended, legalProcess.Status);
+        Assert.Equal(responsibleMembershipId, legalProcess.ResponsibleMembershipId);
+    }
+
+    [Fact]
+    public void ChangeResponsible_SetsClearsAndReportsChanges()
+    {
+        Guid firstMembershipId = Guid.NewGuid();
+        Guid secondMembershipId = Guid.NewGuid();
+        LegalProcess legalProcess = CreateLegalProcess();
+
+        Assert.False(legalProcess.ChangeResponsible(null));
+        Assert.True(legalProcess.ChangeResponsible(firstMembershipId));
+        Assert.Equal(firstMembershipId, legalProcess.ResponsibleMembershipId);
+        Assert.False(legalProcess.ChangeResponsible(firstMembershipId));
+        Assert.True(legalProcess.ChangeResponsible(secondMembershipId));
+        Assert.Equal(secondMembershipId, legalProcess.ResponsibleMembershipId);
+        Assert.True(legalProcess.ChangeResponsible(null));
+        Assert.Null(legalProcess.ResponsibleMembershipId);
+        Assert.Equal(LegalProcessStatus.InProgress, legalProcess.Status);
+    }
+
+    [Fact]
+    public void ChangeResponsible_WithEmptyIdentifier_ThrowsAndPreservesState()
+    {
+        Guid responsibleMembershipId = Guid.NewGuid();
+        LegalProcess legalProcess = CreateLegalProcess();
+        legalProcess.ChangeResponsible(responsibleMembershipId);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            legalProcess.ChangeResponsible(Guid.Empty));
+
+        Assert.Equal("responsibleMembershipId", exception.ParamName);
+        Assert.Equal(responsibleMembershipId, legalProcess.ResponsibleMembershipId);
     }
 
     public static TheoryData<LegalProcessStatus, LegalProcessStatus>

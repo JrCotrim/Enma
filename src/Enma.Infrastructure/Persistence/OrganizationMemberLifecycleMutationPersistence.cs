@@ -3,6 +3,7 @@ using Enma.Application.Auditing;
 using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -308,13 +309,23 @@ public sealed class OrganizationMemberLifecycleMutationPersistence
                     legalTask.CompletedAt == null,
                 cancellationToken);
 
-        return hasPendingTask || await dbContext.CalendarEvents
+        bool hasActiveTaskOrEvent = hasPendingTask || await dbContext.CalendarEvents
             .AsNoTracking()
             .AnyAsync(
                 calendarEvent =>
                     calendarEvent.OrganizationId == organizationId &&
                     calendarEvent.AssigneeMembershipId == targetMembershipId &&
                     calendarEvent.EndsAt > nowUtc,
+                cancellationToken);
+
+        return hasActiveTaskOrEvent || await dbContext.LegalProcesses
+            .AsNoTracking()
+            .AnyAsync(
+                legalProcess =>
+                    legalProcess.OrganizationId == organizationId &&
+                    legalProcess.ResponsibleMembershipId == targetMembershipId &&
+                    (legalProcess.Status == LegalProcessStatus.InProgress ||
+                        legalProcess.Status == LegalProcessStatus.Suspended),
                 cancellationToken);
     }
 

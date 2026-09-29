@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 
 namespace Enma.UnitTests.Domain.Auditing;
 
@@ -274,6 +275,82 @@ public sealed class AuditEventDetailsTests
                 new CalendarEventAssigneeChangedAuditDetails(
                     MembershipAId,
                     MembershipBId)
+            },
+            {
+                AuditEventType.LegalProcessDetailsChanged,
+                new LegalProcessDetailsChangedAuditDetails(
+                    [
+                        LegalProcessChangedField.CourtOrAuthority,
+                        LegalProcessChangedField.ProcessNumber
+                    ])
+            },
+            {
+                AuditEventType.LegalProcessStatusChanged,
+                new LegalProcessStatusChangedAuditDetails(
+                    LegalProcessStatus.Closed,
+                    LegalProcessStatus.InProgress)
+            },
+            {
+                AuditEventType.LegalProcessResponsibleChanged,
+                new LegalProcessResponsibleChangedAuditDetails(
+                    null,
+                    MembershipAId)
             }
         };
+
+    [Fact]
+    public void LegalProcessStatusChanged_WithInvalidChange_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new LegalProcessStatusChangedAuditDetails(
+                (LegalProcessStatus)99,
+                LegalProcessStatus.Closed));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new LegalProcessStatusChangedAuditDetails(
+                LegalProcessStatus.Closed,
+                (LegalProcessStatus)0));
+        ArgumentException sameStatus = Assert.Throws<ArgumentException>(() =>
+            new LegalProcessStatusChangedAuditDetails(
+                LegalProcessStatus.Suspended,
+                LegalProcessStatus.Suspended));
+
+        Assert.Equal("newStatus", sameStatus.ParamName);
+    }
+
+    [Theory]
+    [InlineData(true, false, "oldResponsibleMembershipId")]
+    [InlineData(false, true, "newResponsibleMembershipId")]
+    public void LegalProcessResponsibleChanged_WithEmptyIdentifier_Throws(
+        bool oldIsEmpty,
+        bool newIsEmpty,
+        string expectedParameterName)
+    {
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            new LegalProcessResponsibleChangedAuditDetails(
+                oldIsEmpty ? Guid.Empty : MembershipAId,
+                newIsEmpty ? Guid.Empty : MembershipBId));
+
+        Assert.Equal(expectedParameterName, exception.ParamName);
+    }
+
+    [Fact]
+    public void LegalProcessResponsibleChanged_WithoutChange_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new LegalProcessResponsibleChangedAuditDetails(null, null));
+        Assert.Throws<ArgumentException>(() =>
+            new LegalProcessResponsibleChangedAuditDetails(
+                MembershipAId,
+                MembershipAId));
+    }
+
+    [Fact]
+    public void LegalProcessDetailsChanged_SerializesOnlyFieldIdentifiers()
+    {
+        string serialized = Assert.IsType<string>(AuditEventDetails.Serialize(
+            new LegalProcessDetailsChangedAuditDetails(
+                [LegalProcessChangedField.ProcessNumber])));
+
+        Assert.Equal("""{"changedFields":[1]}""", serialized);
+    }
 }

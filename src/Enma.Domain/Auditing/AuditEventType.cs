@@ -53,7 +53,10 @@ public enum AuditEventType
     ClientProfileUpdated = 29,
     PaymentPlanCreated = 30,
     PaymentInstallmentPaid = 31,
-    LegalDocumentDeleted = 32
+    LegalDocumentDeleted = 32,
+    LegalProcessDetailsChanged = 33,
+    LegalProcessStatusChanged = 34,
+    LegalProcessResponsibleChanged = 35
 }
 
 public static class AuditEventTypeExtensions
@@ -106,6 +109,12 @@ public static class AuditEventTypeExtensions
             AuditEventType.PaymentInstallmentPaid =>
                 "payment_installment.paid",
             AuditEventType.LegalDocumentDeleted => "legal_document.deleted",
+            AuditEventType.LegalProcessDetailsChanged =>
+                "legal_process.details_changed",
+            AuditEventType.LegalProcessStatusChanged =>
+                "legal_process.status_changed",
+            AuditEventType.LegalProcessResponsibleChanged =>
+                "legal_process.responsible_changed",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -127,7 +136,11 @@ public static class AuditEventTypeExtensions
                 AuditEventType.ClientReactivated or
                 AuditEventType.ClientProfileUpdated => AuditEntityType.Client,
             AuditEventType.LegalProcessCreated or
-                AuditEventType.LegalProcessTitleChanged => AuditEntityType.LegalProcess,
+                AuditEventType.LegalProcessTitleChanged or
+                AuditEventType.LegalProcessDetailsChanged or
+                AuditEventType.LegalProcessStatusChanged or
+                AuditEventType.LegalProcessResponsibleChanged =>
+                AuditEntityType.LegalProcess,
             AuditEventType.LegalDeadlineCreated or
                 AuditEventType.LegalDeadlineDetailsChanged or
                 AuditEventType.LegalDeadlineCompleted or
@@ -181,6 +194,12 @@ public static class AuditEventTypeExtensions
                 typeof(CalendarEventAssigneeChangedAuditDetails),
             AuditEventType.OrganizationInvitationCreated =>
                 typeof(OrganizationInvitationCreatedAuditDetails),
+            AuditEventType.LegalProcessDetailsChanged =>
+                typeof(LegalProcessDetailsChangedAuditDetails),
+            AuditEventType.LegalProcessStatusChanged =>
+                typeof(LegalProcessStatusChangedAuditDetails),
+            AuditEventType.LegalProcessResponsibleChanged =>
+                typeof(LegalProcessResponsibleChangedAuditDetails),
             AuditEventType.OrganizationMembershipDeactivated or
                 AuditEventType.OrganizationMembershipReactivated or
                 AuditEventType.ClientCreated or

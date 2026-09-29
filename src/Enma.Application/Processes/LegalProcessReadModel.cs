@@ -1,3 +1,5 @@
+using Enma.Domain.Processes;
+
 namespace Enma.Application.Processes;
 
 public sealed record LegalProcessReadModel(
@@ -5,4 +7,9 @@ public sealed record LegalProcessReadModel(
     string Title,
     Guid ClientId,
     string ClientName,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? ProcessNumber,
+    LegalProcessStatus Status,
+    string? CourtOrAuthority,
+    Guid? ResponsibleMembershipId,
+    string? ResponsibleDisplayName);

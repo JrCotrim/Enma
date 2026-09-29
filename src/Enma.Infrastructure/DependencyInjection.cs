@@ -62,9 +62,12 @@ using Enma.Application.Organizations.Members.Role;
 using Enma.Application.Organizations.UpdateName;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
+using Enma.Application.Processes.Details;
 using Enma.Application.Processes.GetById;
 using Enma.Application.Processes.List;
 using Enma.Application.Processes.Lookup;
+using Enma.Application.Processes.Responsible;
+using Enma.Application.Processes.Status;
 using Enma.Application.Processes.Update;
 using Enma.Application.Security;
 using Enma.Application.Tasks;
@@ -354,6 +357,9 @@ public static class DependencyInjection
         services.AddScoped<
             ILegalProcessMutationPersistence,
             LegalProcessMutationPersistence>();
+        services.AddScoped<
+            ILegalProcessOperationalMutationPersistence,
+            LegalProcessMutationPersistence>();
         services.AddScoped<ILegalProcessReadQueries, LegalProcessReadQueries>();
         services.AddScoped<
             ILegalProcessLookupQueries,
@@ -487,6 +493,9 @@ public static class DependencyInjection
         services.AddScoped<ListLegalProcessesUseCase>();
         services.AddScoped<SearchLegalProcessesUseCase>();
         services.AddScoped<UpdateLegalProcessUseCase>();
+        services.AddScoped<ChangeLegalProcessDetailsUseCase>();
+        services.AddScoped<ChangeLegalProcessStatusUseCase>();
+        services.AddScoped<ChangeLegalProcessResponsibleUseCase>();
         services.AddScoped<CreateLegalDeadlineUseCase>();
         services.AddScoped<CompleteLegalDeadlineUseCase>();
         services.AddScoped<GetLegalDeadlineUseCase>();

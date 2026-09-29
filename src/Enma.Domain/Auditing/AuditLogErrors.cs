@@ -29,5 +29,9 @@ public static class AuditLogErrors
         "Assignee membership identifier is invalid.";
     public const string OrganizationInvitationRoleInvalid =
         "Organization invitation role is invalid.";
+    public const string LegalProcessStatusInvalid =
+        "Legal process status is invalid.";
+    public const string ResponsibleMembershipIdInvalid =
+        "Responsible membership identifier is invalid.";
     public const string TraceIdInvalid = "Audit trace identifier is invalid.";
 }

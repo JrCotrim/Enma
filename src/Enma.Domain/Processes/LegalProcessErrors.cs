@@ -18,6 +18,8 @@ public static class LegalProcessErrors
         "Legal process status is invalid.";
     public const string StatusTransitionInvalid =
         "Legal process status transition is not allowed.";
+    public const string ResponsibleMembershipIdInvalid =
+        "Legal process responsible membership must be a valid identifier.";
     public const string CreatedAtInvalid =
         "Legal process creation date must be a valid value.";
 }

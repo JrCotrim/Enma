@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Enma.Domain.Organizations;
+using Enma.Domain.Processes;
 
 namespace Enma.Domain.Auditing;
 
@@ -161,6 +162,16 @@ public abstract class AuditEventDetails
                         serializedDetails)),
             AuditEventType.CalendarEventAssigneeChanged =>
                 Deserialize<CalendarEventAssigneeChangedAuditDetails>(
+                    serializedDetails),
+            AuditEventType.LegalProcessDetailsChanged =>
+                new LegalProcessDetailsChangedAuditDetails(
+                    DeserializeChangedFields<LegalProcessChangedField>(
+                        serializedDetails)),
+            AuditEventType.LegalProcessStatusChanged =>
+                Deserialize<LegalProcessStatusChangedAuditDetails>(
+                    serializedDetails),
+            AuditEventType.LegalProcessResponsibleChanged =>
+                Deserialize<LegalProcessResponsibleChangedAuditDetails>(
                     serializedDetails),
             _ => throw new JsonException(
                 AuditLogErrors.DetailsInvalidForEventType)
@@ -375,4 +386,96 @@ public sealed class CalendarEventAssigneeChangedAuditDetails : AuditEventDetails
     public Guid? OldAssigneeMembershipId { get; }
 
     public Guid? NewAssigneeMembershipId { get; }
+}
+
+/// <summary>
+/// Numeric values are permanent. Only append new values; never reuse one.
+/// </summary>
+public enum LegalProcessChangedField
+{
+    ProcessNumber = 1,
+    CourtOrAuthority = 2
+}
+
+public sealed class LegalProcessDetailsChangedAuditDetails : AuditEventDetails
+{
+    public LegalProcessDetailsChangedAuditDetails(
+        IEnumerable<LegalProcessChangedField> changedFields)
+    {
+        ChangedFields = ValidateChangedFields(changedFields);
+    }
+
+    public IReadOnlyList<LegalProcessChangedField> ChangedFields { get; }
+}
+
+public sealed class LegalProcessStatusChangedAuditDetails : AuditEventDetails
+{
+    public LegalProcessStatusChangedAuditDetails(
+        LegalProcessStatus oldStatus,
+        LegalProcessStatus newStatus)
+    {
+        if (!Enum.IsDefined(oldStatus))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(oldStatus),
+                AuditLogErrors.LegalProcessStatusInvalid);
+        }
+
+        if (!Enum.IsDefined(newStatus))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(newStatus),
+                AuditLogErrors.LegalProcessStatusInvalid);
+        }
+
+        if (oldStatus == newStatus)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.DetailsMustRepresentChange,
+                nameof(newStatus));
+        }
+
+        OldStatus = oldStatus;
+        NewStatus = newStatus;
+    }
+
+    public LegalProcessStatus OldStatus { get; }
+
+    public LegalProcessStatus NewStatus { get; }
+}
+
+public sealed class LegalProcessResponsibleChangedAuditDetails : AuditEventDetails
+{
+    public LegalProcessResponsibleChangedAuditDetails(
+        Guid? oldResponsibleMembershipId,
+        Guid? newResponsibleMembershipId)
+    {
+        if (oldResponsibleMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.ResponsibleMembershipIdInvalid,
+                nameof(oldResponsibleMembershipId));
+        }
+
+        if (newResponsibleMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.ResponsibleMembershipIdInvalid,
+                nameof(newResponsibleMembershipId));
+        }
+
+        if (oldResponsibleMembershipId == newResponsibleMembershipId)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.DetailsMustRepresentChange,
+                nameof(newResponsibleMembershipId));
+        }
+
+        OldResponsibleMembershipId = oldResponsibleMembershipId;
+        NewResponsibleMembershipId = newResponsibleMembershipId;
+    }
+
+    public Guid? OldResponsibleMembershipId { get; }
+
+    public Guid? NewResponsibleMembershipId { get; }
 }

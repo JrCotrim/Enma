@@ -5,4 +5,9 @@ public sealed record LegalProcessResponse(
     string Title,
     Guid ClientId,
     string ClientName,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? ProcessNumber,
+    LegalProcessStatusResponse Status,
+    string? CourtOrAuthority,
+    Guid? ResponsibleMembershipId,
+    string? ResponsibleDisplayName);

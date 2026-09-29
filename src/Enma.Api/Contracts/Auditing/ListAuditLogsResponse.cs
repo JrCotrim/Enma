@@ -43,6 +43,15 @@ public sealed record AuditLogResponse(
 [JsonDerivedType(
     typeof(CalendarEventAssigneeChangedAuditLogDetailsResponse),
     "calendar_event.assignee_changed")]
+[JsonDerivedType(
+    typeof(LegalProcessDetailsChangedAuditLogDetailsResponse),
+    "legal_process.details_changed")]
+[JsonDerivedType(
+    typeof(LegalProcessStatusChangedAuditLogDetailsResponse),
+    "legal_process.status_changed")]
+[JsonDerivedType(
+    typeof(LegalProcessResponsibleChangedAuditLogDetailsResponse),
+    "legal_process.responsible_changed")]
 public abstract record AuditLogDetailsResponse;
 
 public sealed record OrganizationRenamedAuditLogDetailsResponse(
@@ -72,3 +81,14 @@ public sealed record CalendarEventUpdatedAuditLogDetailsResponse(
 public sealed record CalendarEventAssigneeChangedAuditLogDetailsResponse(
     Guid? OldAssigneeMembershipId,
     Guid? NewAssigneeMembershipId) : AuditLogDetailsResponse;
+
+public sealed record LegalProcessDetailsChangedAuditLogDetailsResponse(
+    IReadOnlyList<string> ChangedFields) : AuditLogDetailsResponse;
+
+public sealed record LegalProcessStatusChangedAuditLogDetailsResponse(
+    string OldStatus,
+    string NewStatus) : AuditLogDetailsResponse;
+
+public sealed record LegalProcessResponsibleChangedAuditLogDetailsResponse(
+    Guid? OldResponsibleMembershipId,
+    Guid? NewResponsibleMembershipId) : AuditLogDetailsResponse;

@@ -133,7 +133,12 @@ public sealed class LegalProcessQueriesTests(
                 processA.Title,
                 clientA.Id,
                 clientA.Name,
-                processA.CreatedAt),
+                processA.CreatedAt,
+                null,
+                LegalProcessStatus.InProgress,
+                null,
+                null,
+                null),
             sameTenant);
         Assert.Null(crossTenant);
         Assert.Equal(processB.Id, changedContext?.Id);
