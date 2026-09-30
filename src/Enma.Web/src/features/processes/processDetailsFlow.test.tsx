@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -620,16 +627,17 @@ describe('Processes D2 flow', () => {
   })
 
   it.each([
-    [403, 'Você não tem permissão para alterar este processo.'],
-    [400, 'Não foi possível validar a alteração.'],
+    [403, 'Você não tem permissão para alterar este processo.', false],
+    [400, 'Não foi possível validar a alteração.', true],
   ] as const)(
     'ProcessEdit_Status%s_KeepsAuthoritativeDetailWithoutRetry',
-    async (status, expectedMessage) => {
+    async (status, expectedMessage, reloads) => {
       const fetchMock = authenticatedFetch(
         [organizationB],
         response(200, processA),
         response(200, { requestToken: 'test-token' }),
         response(status, { detail: 'private mutation detail' }),
+        ...(reloads ? [response(200, processA)] : []),
       )
       vi.stubGlobal('fetch', fetchMock)
 
@@ -641,7 +649,14 @@ describe('Processes D2 flow', () => {
       expect(alert).toHaveTextContent(expectedMessage)
       expect(alert).not.toHaveTextContent('private mutation detail')
       expect(screen.getByRole('heading', { name: processA.title })).toBeInTheDocument()
-      expect(fetchMock).toHaveBeenCalledTimes(5)
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledTimes(reloads ? 6 : 5),
+      )
+      const methods = fetchMock.mock.calls
+        .slice(2)
+        .map(([, init]) => (init as RequestInit | undefined)?.method)
+      expect(methods.filter((method) => method === 'PUT')).toHaveLength(1)
+      if (reloads) expect(methods.at(-1)).toBe('GET')
     },
   )
 
@@ -670,7 +685,9 @@ describe('Processes D2 flow', () => {
       [organizationA],
       response(200, processA),
       response(200, { requestToken: 'test-token' }),
-    ).mockRejectedValueOnce(new Error('private connection detail'))
+    )
+      .mockRejectedValueOnce(new Error('private connection detail'))
+      .mockResolvedValueOnce(response(200, processA))
     vi.stubGlobal('fetch', fetchMock)
 
     renderRoute(detailPath(organizationA, processA))
@@ -681,7 +698,8 @@ describe('Processes D2 flow', () => {
     expect(alert).toHaveTextContent('Atualize os dados antes de tentar novamente.')
     expect(alert).not.toHaveTextContent('private connection detail')
     expect(screen.getByRole('heading', { name: processA.title })).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenCalledTimes(6)
+    expect(fetchMock.mock.calls[5]?.[1]?.method).toBe('GET')
   })
 
   it('ProcessDetail_OldProcessResponseCompletesLast_RemainsOnCurrentProcess', async () => {
@@ -848,7 +866,8 @@ describe('Processes D2 flow', () => {
 
     await screen.findByRole('heading', { name: processA.title })
     openEditAndSubmit(updatedProcessA.title)
-    await screen.findByText('Carregando processo...')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6))
+    expect(screen.getByRole('button', { name: 'Salvando...' })).toBeDisabled()
     await act(async () => router.navigate(detailPath(organizationA, processB)))
     expect(
       await screen.findByRole('heading', { name: processB.title }),
@@ -892,5 +911,580 @@ describe('Processes D2 flow', () => {
         String(url).includes('/clients/lookup'),
       ),
     ).toBe(false)
+  })
+})
+
+const cnjProcessNumber = '0001234-56.2026.8.26.0100'
+const responsibleMember = {
+  id: '99999999-9999-4999-8999-999999999999',
+  displayName: 'Ana Responsável',
+}
+const operationalProcess: LegalProcess = {
+  ...processA,
+  processNumber: cnjProcessNumber,
+  courtOrAuthority: '2ª Vara Cível de São Paulo',
+  responsibleMembershipId: responsibleMember.id,
+  responsibleDisplayName: responsibleMember.displayName,
+}
+
+function csrfResponse(): Response {
+  return response(200, { requestToken: 'test-token' })
+}
+
+function memberLookupResponse(
+  items: readonly { readonly id: string; readonly displayName: string }[],
+): Response {
+  return response(200, { items, pageNumber: 1, pageSize: 20, hasNext: false })
+}
+
+function processUrl(organization = organizationA, legalProcess = processA) {
+  return `/api/organizations/${organization.id}/processes/${legalProcess.id}`
+}
+
+function mutationCalls(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls
+    .filter(([, init]) => (init as RequestInit | undefined)?.method === 'PUT')
+    .map(([url, init]) => ({
+      url: String(url),
+      body: JSON.parse(String((init as RequestInit).body)) as unknown,
+    }))
+}
+
+function metadataList(): HTMLElement {
+  return screen.getByText('Criado em').closest('dl') as HTMLElement
+}
+
+function metadataValue(term: string): HTMLElement {
+  return within(metadataList())
+    .getByText(term)
+    .parentElement!.querySelector('dd') as HTMLElement
+}
+
+async function renderOwnerDetail(
+  legalProcess: LegalProcess,
+  ...scopedResponses: readonly (Response | Promise<Response>)[]
+) {
+  const fetchMock = authenticatedFetch(
+    [organizationA],
+    response(200, legalProcess),
+    ...scopedResponses,
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  renderRoute(detailPath(organizationA, legalProcess))
+  await screen.findByRole('heading', { name: legalProcess.title })
+  return fetchMock
+}
+
+function submitEditForm(values: {
+  readonly title?: string
+  readonly processNumber?: string
+  readonly courtOrAuthority?: string
+}) {
+  fireEvent.click(screen.getByRole('button', { name: 'Editar processo' }))
+  if (values.title !== undefined) {
+    fireEvent.change(screen.getByLabelText('Título'), {
+      target: { value: values.title },
+    })
+  }
+  if (values.processNumber !== undefined) {
+    fireEvent.change(screen.getByLabelText('Número do processo'), {
+      target: { value: values.processNumber },
+    })
+  }
+  if (values.courtOrAuthority !== undefined) {
+    fireEvent.change(screen.getByLabelText('Órgão/tribunal'), {
+      target: { value: values.courtOrAuthority },
+    })
+  }
+  fireEvent.submit(
+    screen.getByRole('button', { name: 'Salvar alterações' }).closest('form')!,
+  )
+}
+
+describe('Process detail operations (Phase 9B.2D-c)', () => {
+  it('ProcessDetail_Metadata_ShowsOperationalValues', async () => {
+    await renderOwnerDetail({ ...operationalProcess, status: 'suspended' })
+
+    const status = within(metadataValue('Status')).getByText('Suspenso')
+    expect(status).toHaveClass('process-status', 'is-pending')
+    expect(metadataValue('Cliente')).toHaveTextContent(processA.clientName)
+    expect(metadataValue('Número')).toHaveTextContent(cnjProcessNumber)
+    expect(metadataValue('Órgão/tribunal')).toHaveTextContent(
+      '2ª Vara Cível de São Paulo',
+    )
+    expect(metadataValue('Responsável')).toHaveTextContent(
+      responsibleMember.displayName,
+    )
+    expect(metadataValue('Criado em')).toHaveTextContent(/12\/08\/2026/)
+    expect(within(metadataList()).queryByText('Criado por')).not.toBeInTheDocument()
+  })
+
+  it('ProcessDetail_Metadata_ShowsFallbacksForEmptyOperationalFields', async () => {
+    await renderOwnerDetail(processA)
+
+    expect(
+      within(metadataValue('Status')).getByText('Em andamento'),
+    ).toHaveClass('process-status', 'is-active')
+    expect(metadataValue('Número')).toHaveTextContent('Não informado')
+    expect(metadataValue('Órgão/tribunal')).toHaveTextContent('Não informado')
+    expect(metadataValue('Responsável')).toHaveTextContent('Sem responsável')
+  })
+
+  it('ProcessDetail_Member_SeesMetadataWithoutOperationalControls', async () => {
+    const member = { ...organizationA, role: 'Member' as const }
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([member], response(200, operationalProcess)),
+    )
+    renderRoute(detailPath(member, operationalProcess))
+    await screen.findByRole('heading', { name: operationalProcess.title })
+
+    expect(metadataValue('Número')).toHaveTextContent(cnjProcessNumber)
+    expect(metadataValue('Responsável')).toHaveTextContent(
+      responsibleMember.displayName,
+    )
+    for (const name of [
+      'Suspender',
+      'Encerrar',
+      'Retomar',
+      'Reabrir',
+      'Editar processo',
+      'Alterar responsável',
+    ]) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+    }
+    expect(
+      screen.queryByRole('heading', { name: 'Responsável' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['inProgress', ['Suspender', 'Encerrar']],
+    ['suspended', ['Retomar', 'Encerrar']],
+    ['closed', ['Reabrir']],
+  ] as const)(
+    'ProcessStatus_%s_OffersOnlyValidTransitions',
+    async (status, expectedActions) => {
+      await renderOwnerDetail({ ...processA, status })
+
+      const actions = screen
+        .getByRole('button', { name: 'Editar processo' })
+        .closest('.process-detail-actions') as HTMLElement
+      expect(
+        within(actions)
+          .getAllByRole('button')
+          .map((button) => button.textContent),
+      ).toEqual([...expectedActions, 'Editar processo'])
+    },
+  )
+
+  it.each([
+    ['inProgress', 'Suspender', 'suspended', 'Processo suspenso.'],
+    ['inProgress', 'Encerrar', 'closed', 'Processo encerrado.'],
+    ['suspended', 'Retomar', 'inProgress', 'Processo retomado.'],
+    ['suspended', 'Encerrar', 'closed', 'Processo encerrado.'],
+    ['closed', 'Reabrir', 'inProgress', 'Processo reaberto.'],
+  ] as const)(
+    'ProcessStatus_%s_%s_SendsTargetStatusAndReloads',
+    async (status, actionLabel, target, successMessage) => {
+      const fetchMock = await renderOwnerDetail(
+        { ...processA, status },
+        csrfResponse(),
+        response(204),
+        response(200, { ...processA, status: target }),
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: actionLabel }))
+
+      expect(await screen.findByText(successMessage)).toBeInTheDocument()
+      expect(mutationCalls(fetchMock)).toEqual([
+        { url: `${processUrl()}/status`, body: { status: target } },
+      ])
+      expect(fetchMock).toHaveBeenCalledTimes(6)
+      expect(fetchMock.mock.calls[5]?.[0]).toBe(processUrl())
+      expect(fetchMock.mock.calls[5]?.[1]?.method).toBe('GET')
+      expect(
+        within(metadataValue('Status')).getByText(
+          target === 'inProgress'
+            ? 'Em andamento'
+            : target === 'suspended'
+              ? 'Suspenso'
+              : 'Encerrado',
+        ),
+      ).toBeInTheDocument()
+    },
+  )
+
+  it('ProcessStatus_PendingMutation_DisablesAllActions', async () => {
+    let resolveStatus: ((value: Response) => void) | undefined
+    const pendingStatus = new Promise<Response>((resolve) => {
+      resolveStatus = resolve
+    })
+    const fetchMock = await renderOwnerDetail(
+      processA,
+      csrfResponse(),
+      pendingStatus,
+      response(200, { ...processA, status: 'suspended' }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Suspender' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Suspender' })).toBeDisabled(),
+    )
+    expect(screen.getByRole('button', { name: 'Encerrar' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Editar processo' })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Alterar responsável' }),
+    ).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Encerrar' }))
+    await waitFor(() => expect(mutationCalls(fetchMock)).toHaveLength(1))
+
+    await act(async () => {
+      resolveStatus?.(response(204))
+      await pendingStatus
+    })
+    expect(await screen.findByRole('button', { name: 'Retomar' })).toBeEnabled()
+    expect(mutationCalls(fetchMock)).toHaveLength(1)
+  })
+
+  it('ProcessStatus_Conflict_ShowsGenericMessageAndReloadsWithoutServerText', async () => {
+    const fetchMock = await renderOwnerDetail(
+      { ...operationalProcess, status: 'closed' },
+      csrfResponse(),
+      response(409, {
+        title: 'Related responsible member unavailable',
+        detail: 'private conflict detail',
+      }),
+      response(200, { ...operationalProcess, status: 'closed' }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reabrir' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Não foi possível alterar o status. Os dados foram atualizados; se o processo tiver um responsável indisponível, altere o responsável antes de reabrir.',
+    )
+    expect(alert).not.toHaveTextContent('private conflict detail')
+    expect(fetchMock).toHaveBeenCalledTimes(6)
+    expect(fetchMock.mock.calls[5]?.[1]?.method).toBe('GET')
+    expect(screen.getByRole('button', { name: 'Reabrir' })).toBeEnabled()
+  })
+
+  it('ProcessEdit_OnlyTitleChanged_SendsOnlyTitleRequest', async () => {
+    const fetchMock = await renderOwnerDetail(
+      operationalProcess,
+      csrfResponse(),
+      response(204),
+      response(200, { ...operationalProcess, title: 'Título revisado' }),
+    )
+
+    submitEditForm({ title: '  Título revisado  ' })
+
+    expect(
+      await screen.findByRole('heading', { name: 'Título revisado' }),
+    ).toBeInTheDocument()
+    expect(mutationCalls(fetchMock)).toEqual([
+      { url: processUrl(), body: { title: 'Título revisado' } },
+    ])
+    expect(screen.getByText('Processo atualizado com sucesso.')).toBeInTheDocument()
+  })
+
+  it('ProcessEdit_OnlyDetailsChanged_SendsBothTrimmedDetailValues', async () => {
+    const updatedProcess = {
+      ...operationalProcess,
+      processNumber: '5000000-00.2026.8.26.0001',
+      courtOrAuthority: null,
+    }
+    const fetchMock = await renderOwnerDetail(
+      operationalProcess,
+      csrfResponse(),
+      response(204),
+      response(200, updatedProcess),
+    )
+
+    submitEditForm({
+      processNumber: '  5000000-00.2026.8.26.0001  ',
+      courtOrAuthority: '   ',
+    })
+
+    expect(
+      await screen.findByText('Processo atualizado com sucesso.'),
+    ).toBeInTheDocument()
+    expect(mutationCalls(fetchMock)).toEqual([
+      {
+        url: `${processUrl()}/details`,
+        body: {
+          processNumber: '5000000-00.2026.8.26.0001',
+          courtOrAuthority: null,
+        },
+      },
+    ])
+    expect(metadataValue('Órgão/tribunal')).toHaveTextContent('Não informado')
+  })
+
+  it('ProcessEdit_TitleAndDetailsChanged_SendsDetailsBeforeTitle', async () => {
+    const updatedProcess = {
+      ...processA,
+      title: 'Título e número',
+      processNumber: cnjProcessNumber,
+    }
+    const fetchMock = await renderOwnerDetail(
+      processA,
+      csrfResponse(),
+      response(204),
+      response(204),
+      response(200, updatedProcess),
+    )
+
+    submitEditForm({ title: 'Título e número', processNumber: cnjProcessNumber })
+
+    expect(
+      await screen.findByRole('heading', { name: updatedProcess.title }),
+    ).toBeInTheDocument()
+    expect(mutationCalls(fetchMock)).toEqual([
+      {
+        url: `${processUrl()}/details`,
+        body: { processNumber: cnjProcessNumber, courtOrAuthority: null },
+      },
+      { url: processUrl(), body: { title: 'Título e número' } },
+    ])
+    expect(fetchMock.mock.calls.at(-1)?.[1]?.method).toBe('GET')
+  })
+
+  it('ProcessEdit_DetailsConflict_DoesNotSendTitleAndMarksNumberField', async () => {
+    const fetchMock = await renderOwnerDetail(
+      processA,
+      csrfResponse(),
+      response(409, { detail: 'private duplicate detail' }),
+      response(200, processA),
+    )
+
+    submitEditForm({ title: 'Título não enviado', processNumber: cnjProcessNumber })
+
+    expect(
+      await screen.findByText(
+        'Já existe um processo com este número nesta organização.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Número do processo')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+    expect(mutationCalls(fetchMock)).toEqual([
+      {
+        url: `${processUrl()}/details`,
+        body: { processNumber: cnjProcessNumber, courtOrAuthority: null },
+      },
+    ])
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6))
+    expect(fetchMock.mock.calls[5]?.[1]?.method).toBe('GET')
+    expect(screen.queryByText('private duplicate detail')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Título')).toHaveValue('Título não enviado')
+  })
+
+  it('ProcessEdit_TitleFailsAfterDetails_ReportsPartialSuccessAndReloads', async () => {
+    const savedDetails = { ...processA, processNumber: cnjProcessNumber }
+    const fetchMock = await renderOwnerDetail(
+      processA,
+      csrfResponse(),
+      response(204),
+      response(500, { detail: 'private server detail' }),
+      response(200, savedDetails),
+    )
+
+    submitEditForm({ title: 'Título que falha', processNumber: cnjProcessNumber })
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Número e órgão foram salvos, mas o título não pôde ser salvo.',
+    )
+    expect(alert).not.toHaveTextContent('private server detail')
+    expect(mutationCalls(fetchMock).map(({ url }) => url)).toEqual([
+      `${processUrl()}/details`,
+      processUrl(),
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(7)
+    expect(metadataValue('Número')).toHaveTextContent(cnjProcessNumber)
+    expect(screen.getByRole('heading', { name: processA.title })).toBeInTheDocument()
+  })
+
+  it('ProcessEdit_NothingChanged_ClosesWithoutRequest', async () => {
+    const fetchMock = await renderOwnerDetail(operationalProcess)
+
+    submitEditForm({ title: `  ${operationalProcess.title} ` })
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Título')).not.toBeInTheDocument(),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('ProcessEdit_OverlongOptionalFields_AreRejectedLocally', async () => {
+    const fetchMock = await renderOwnerDetail(processA)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Editar processo' }))
+    const numberInput = screen.getByLabelText('Número do processo')
+    const courtInput = screen.getByLabelText('Órgão/tribunal')
+    expect(numberInput).toHaveAttribute('maxLength', '100')
+    expect(courtInput).toHaveAttribute('maxLength', '200')
+    fireEvent.change(numberInput, { target: { value: '1'.repeat(101) } })
+    fireEvent.change(courtInput, { target: { value: 'x'.repeat(201) } })
+    fireEvent.submit(numberInput.closest('form')!)
+
+    expect(
+      await screen.findByText('O número deve ter no máximo 100 caracteres.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('O órgão/tribunal deve ter no máximo 200 caracteres.'),
+    ).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('ProcessResponsible_PickerLoadsOnlyForOtherPerson', async () => {
+    const fetchMock = await renderOwnerDetail(
+      processA,
+      memberLookupResponse([responsibleMember]),
+    )
+
+    expect(screen.queryByText(/Responsável atual/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Alterar responsável' }))
+    const mode = screen.getByLabelText('Novo responsável')
+    expect(mode).toHaveValue('unassigned')
+    expect(
+      within(mode).getAllByRole('option').map((option) => option.textContent),
+    ).toEqual(['Sem responsável', 'Eu', 'Outra pessoa'])
+
+    fireEvent.change(mode, { target: { value: 'self' } })
+    expect(screen.queryByLabelText('Buscar novo responsável')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    fireEvent.change(mode, { target: { value: 'other' } })
+    expect(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    ).toBeInTheDocument()
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      `/api/organizations/${organizationA.id}/members/lookup?search=&pageNumber=1&pageSize=20`,
+    )
+  })
+
+  it.each([
+    ['unassigned', operationalProcess, null],
+    ['self', processA, organizationA.membershipId],
+  ] as const)(
+    'ProcessResponsible_%sMode_SendsExpectedMembership',
+    async (mode, initialProcess, expectedMembershipId) => {
+      const opensWithCurrentMember = initialProcess.responsibleMembershipId !== null
+      const fetchMock = await renderOwnerDetail(
+        initialProcess,
+        ...(opensWithCurrentMember
+          ? [memberLookupResponse([responsibleMember])]
+          : []),
+        csrfResponse(),
+        response(204),
+        response(200, initialProcess),
+      )
+
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Alterar responsável' }),
+      )
+      if (opensWithCurrentMember) {
+        expect(screen.getByLabelText('Novo responsável')).toHaveValue('other')
+        expect(
+          await screen.findByRole('button', {
+            name: responsibleMember.displayName,
+            pressed: true,
+          }),
+        ).toBeInTheDocument()
+      }
+      fireEvent.change(screen.getByLabelText('Novo responsável'), {
+        target: { value: mode },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+
+      expect(
+        await screen.findByText('Responsável atualizado com sucesso.'),
+      ).toBeInTheDocument()
+      expect(mutationCalls(fetchMock)).toEqual([
+        {
+          url: `${processUrl()}/responsible`,
+          body: { responsibleMembershipId: expectedMembershipId },
+        },
+      ])
+      expect(fetchMock.mock.calls.at(-1)?.[1]?.method).toBe('GET')
+    },
+  )
+
+  it('ProcessResponsible_OtherPerson_RequiresSelectionThenSendsSelectedMember', async () => {
+    const fetchMock = await renderOwnerDetail(
+      processA,
+      memberLookupResponse([responsibleMember]),
+      csrfResponse(),
+      response(204),
+      response(200, operationalProcess),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alterar responsável' }))
+    fireEvent.change(screen.getByLabelText('Novo responsável'), {
+      target: { value: 'other' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+    expect(
+      await screen.findByText('Selecione uma pessoa responsável.'),
+    ).toBeInTheDocument()
+    expect(mutationCalls(fetchMock)).toHaveLength(0)
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+
+    expect(
+      await screen.findByText('Responsável atualizado com sucesso.'),
+    ).toBeInTheDocument()
+    expect(mutationCalls(fetchMock)).toEqual([
+      {
+        url: `${processUrl()}/responsible`,
+        body: { responsibleMembershipId: responsibleMember.id },
+      },
+    ])
+    expect(metadataValue('Responsável')).toHaveTextContent(
+      responsibleMember.displayName,
+    )
+  })
+
+  it('ProcessResponsible_Unavailable_ClearsSelectionAndAsksForAnotherPerson', async () => {
+    const fetchMock = await renderOwnerDetail(
+      processA,
+      memberLookupResponse([responsibleMember]),
+      csrfResponse(),
+      response(400, {
+        title: 'Related responsible member unavailable',
+        detail: 'private membership detail',
+      }),
+      response(200, processA),
+      memberLookupResponse([]),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Alterar responsável' }))
+    fireEvent.change(screen.getByLabelText('Novo responsável'), {
+      target: { value: 'other' },
+    })
+    fireEvent.click(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    )
+    expect(screen.getByText(/Responsável selecionado:/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+
+    expect(
+      await screen.findByText(
+        'O responsável selecionado não está mais disponível. Escolha outra pessoa.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Responsável selecionado:/)).not.toBeInTheDocument()
+    expect(screen.queryByText('private membership detail')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Novo responsável')).toHaveValue('other')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(8))
+    expect(fetchMock.mock.calls[6]?.[0]).toBe(processUrl())
   })
 })

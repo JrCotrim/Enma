@@ -585,7 +585,9 @@ describe('team administration flow', () => {
     )
 
     expect(
-      await screen.findByText(/reatribua o trabalho antes de desativá-lo/i),
+      await screen.findByText(
+        /tarefas, compromissos ou processos em aberto\. reatribua antes de desativá-lo/i,
+      ),
     ).toBeInTheDocument()
     expect(
       screen.queryByText('private active assignment implementation'),
