@@ -110,15 +110,25 @@
 }
 
 .client-lookup-search-row input,
-.process-create-form input {
+.process-create-form input,
+.process-create-form select {
   width: 100%;
+}
+
+.process-create-form > label:not(:first-child) {
+  margin-top: 0.5rem;
+}
+
+.process-create-form > .task-lookup {
+  margin-top: 0.2rem;
 }
 
 .client-lookup-search-row .secondary-button {
   min-width: 7rem;
 }
 
-.selected-client {
+.selected-client,
+.process-selected-responsible {
   width: fit-content;
   max-width: 100%;
   margin: 0.85rem 0 0.2rem;
@@ -128,6 +138,11 @@
   color: #d9cbe0;
   background: rgba(71, 151, 108, 0.08);
   font-size: 0.78rem;
+}
+
+.process-selected-responsible {
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
 }
 
 .client-lookup-status {
@@ -181,10 +196,41 @@
   cursor: pointer;
 }
 
-.client-result-button:hover:not(:disabled),
-.client-result-button[aria-pressed="true"] {
-  border-color: rgba(164, 91, 214, 0.28);
-  background: rgba(164, 91, 214, 0.07);
+/* Overrides the legacy light theme in styles.css (dark green pressed text). */
+.processes-page .client-result-button {
+  border-color: var(--processes-border);
+  color: #d6b3e9;
+  background: #211b26;
+}
+
+.processes-page .client-result-button:hover:not(:disabled) {
+  border-color: rgba(190, 123, 227, 0.28);
+  background: rgba(164, 91, 214, 0.12);
+}
+
+.processes-page .client-result-button[aria-pressed="true"],
+.processes-page .client-result-button[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: rgba(190, 123, 227, 0.34);
+  color: #f2ddff;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(164, 91, 214, 0.24),
+      rgba(164, 91, 214, 0.10)
+    );
+}
+
+.processes-page .client-result-button:focus-visible {
+  outline-color: #a45bd6;
+}
+
+/* Same autofill neutralization as public-auth-shell.css, scoped to creation. */
+.processes-page .process-create-panel input:-webkit-autofill,
+.processes-page .process-create-panel input:-webkit-autofill:hover,
+.processes-page .process-create-panel input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--processes-text);
+  box-shadow: inset 0 0 0 1000px #211b26;
+  caret-color: #d8a9ef;
 }
 
 .load-more-clients {
@@ -231,6 +277,75 @@
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 0.18em;
+}
+
+/* ---------- List filters ---------- */
+
+.process-filters {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.5fr)
+    minmax(0, 0.8fr)
+    minmax(0, 1fr);
+  align-items: start;
+  gap: 0.9rem;
+  min-width: 0;
+  padding: 0.95rem 0;
+  border-block: 1px solid var(--processes-border);
+}
+
+.process-search,
+.process-filter-control {
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.process-search > label,
+.process-filter-control > label {
+  color: var(--processes-muted);
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.process-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+}
+
+.process-search-row input,
+.process-filter-control select {
+  width: 100%;
+  min-width: 0;
+}
+
+.process-search-row .secondary-button {
+  min-width: 7rem;
+}
+
+.process-active-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  min-height: 2.65rem;
+  padding: 0.58rem 0.68rem;
+  border: 1px solid rgba(164, 91, 214, 0.18);
+  border-radius: 0.68rem;
+  background: rgba(164, 91, 214, 0.08);
+}
+
+.process-active-filter > span {
+  min-width: 0;
+  color: #dec4ed;
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.process-filter-control > .task-lookup {
+  margin-top: 0;
 }
 
 /* ---------- List states/records ---------- */
@@ -330,29 +445,52 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * Every item carries its "•" in a fixed leading slot. The container is
+ * shifted left by one slot and that slot is clipped, so whichever item
+ * starts a visual line (first item or after a wrap) never shows a bullet.
+ */
 .process-record-metadata {
+  --process-metadata-separator: 1.7rem;
+
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 0.25rem 0.7rem;
+  gap: 0.25rem 0;
   min-width: 0;
+  margin-left: calc(-1 * var(--process-metadata-separator));
   color: var(--processes-muted);
   font-size: 0.78rem;
   line-height: 1.45;
+  clip-path: inset(0 0 0 var(--process-metadata-separator));
 }
 
 .process-record-metadata > * {
   overflow-wrap: anywhere;
 }
 
-.process-record-metadata time {
+.process-record-metadata > :not(.process-status) {
+  position: relative;
+  padding-left: var(--process-metadata-separator);
+}
+
+.process-record-metadata > :not(.process-status)::before {
+  position: absolute;
+  left: 0;
+  width: var(--process-metadata-separator);
+  color: #756a7a;
+  text-align: center;
+  content: "•";
+}
+
+.process-record-metadata time,
+.process-record-number {
   font-variant-numeric: tabular-nums;
 }
 
-.process-record-metadata time::before {
-  margin-right: 0.7rem;
-  color: #756a7a;
-  content: "•";
+.process-record-metadata > .process-status {
+  align-self: center;
+  margin-left: var(--process-metadata-separator);
 }
 
 .process-record-chevron {
@@ -679,6 +817,16 @@
 
 /* ---------- Responsive ---------- */
 
+@media (max-width: 68rem) {
+  .process-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .process-search {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 52rem) {
   .process-details-header {
     align-items: start;
@@ -735,6 +883,23 @@
     width: 100%;
   }
 
+  .process-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .process-search-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .process-search-row .secondary-button {
+    width: 100%;
+  }
+
+  .process-active-filter {
+    align-items: start;
+    flex-direction: column;
+  }
+
   .process-form-actions {
     flex-direction: column-reverse;
   }
@@ -776,8 +941,9 @@
     gap: 0.12rem;
   }
 
-  .process-record-metadata time::before {
-    content: none;
+  .process-record-metadata > .process-status {
+    align-self: flex-start;
+    margin-top: 0.2rem;
   }
 
   .process-document-actions {

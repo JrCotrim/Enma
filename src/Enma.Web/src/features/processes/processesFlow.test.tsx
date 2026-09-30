@@ -69,8 +69,9 @@ function organizationResponse(
 function processListResponse(
   items: readonly LegalProcessListItem[],
   pageNumber = 1,
+  hasNext = false,
 ): Response {
-  return response(200, { items, pageNumber, pageSize: 20, hasNext: false })
+  return response(200, { items, pageNumber, pageSize: 20, hasNext })
 }
 
 function lookupResponse(
@@ -277,9 +278,9 @@ describe('Processes D1 flow', () => {
     }))
     const fetchMock = authenticatedFetch(
       [memberOrganization],
-      processListResponse(fullPage, 2),
+      processListResponse(fullPage, 2, true),
       processListResponse([], 3),
-      processListResponse(fullPage, 2),
+      processListResponse(fullPage, 2, true),
     )
     vi.stubGlobal('fetch', fetchMock)
     const router = renderRoute(
@@ -975,3 +976,588 @@ describe('Processes D1 flow', () => {
 
 const genericListErrorForTest =
   'Não foi possível carregar os processos. Tente novamente.'
+
+const responsibleMember = {
+  id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  displayName: 'Bruna Costa',
+}
+
+function memberLookupResponse(
+  items: readonly { readonly id: string; readonly displayName: string }[],
+): Response {
+  return response(200, { items, pageNumber: 1, pageSize: 20, hasNext: false })
+}
+
+function processesUrl(organizationId: string, query: string): string {
+  return `/api/organizations/${organizationId}/processes?${query}`
+}
+
+function memberLookupUrl(organizationId: string): string {
+  return `/api/organizations/${organizationId}/members/lookup?search=&pageNumber=1&pageSize=20`
+}
+
+function requestedUrls(fetchMock: ReturnType<typeof vi.fn>): string[] {
+  return fetchMock.mock.calls.map((call) => String(call[0]))
+}
+
+function filters() {
+  return screen.getByRole('group', { name: 'Filtros de processos' })
+}
+
+function createForm(): HTMLFormElement {
+  const form = screen.getByRole('button', { name: 'Cadastrar' }).closest('form')
+  expect(form).not.toBeNull()
+  return form!
+}
+
+async function openCreateWithSelectedClient() {
+  await openCreate()
+  await screen.findByRole('button', { name: `Selecionar ${lookupClient.name}` })
+  selectClient()
+}
+
+describe('Processes operational list and create (Phase 9B.2D-b)', () => {
+  it('ProcessList_OperationalMetadata_RendersNumberResponsibleDateAndStatusBadgeLast', async () => {
+    const numberedProcess: LegalProcessListItem = {
+      ...legalProcess,
+      processNumber: '0001234-56.2026.8.26.0100',
+      status: 'suspended',
+      responsibleMembershipId: responsibleMember.id,
+      responsibleDisplayName: responsibleMember.displayName,
+    }
+    const unnumberedProcess: LegalProcessListItem = {
+      ...legalProcess,
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      title: 'Processo sem número',
+      status: 'closed',
+    }
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch(
+        [memberOrganization],
+        processListResponse([numberedProcess, unnumberedProcess]),
+      ),
+    )
+
+    renderRoute(`/organizations/${memberOrganization.id}/processes`)
+
+    const results = await screen.findByRole('region', {
+      name: 'Processos cadastrados',
+    })
+    const [numberedItem, unnumberedItem] = within(results).getAllByRole('listitem')
+    const numberedMetadata = numberedItem!.querySelector('.process-record-metadata')!
+    expect(
+      [...numberedMetadata.children].map((child) => child.textContent),
+    ).toEqual([
+      numberedProcess.clientName,
+      numberedProcess.processNumber,
+      responsibleMember.displayName,
+      expect.stringMatching(/12\/08\/2026/),
+      'Suspenso',
+    ])
+    expect(numberedMetadata.lastElementChild).toHaveClass(
+      'process-status',
+      'is-pending',
+    )
+    expect(
+      within(numberedItem!).getByRole('link', {
+        name: new RegExp(numberedProcess.title),
+      }),
+    ).toHaveAccessibleDescription(/0001234-56\.2026\.8\.26\.0100.*Bruna Costa.*Suspenso/)
+
+    const unnumberedMetadata = unnumberedItem!.querySelector('.process-record-metadata')!
+    expect(unnumberedMetadata.querySelector('.process-record-number')).toBeNull()
+    expect(within(unnumberedItem!).getByText('Sem responsável')).toBeInTheDocument()
+    expect(unnumberedMetadata.lastElementChild).toHaveTextContent('Encerrado')
+    expect(unnumberedMetadata.lastElementChild).toHaveClass(
+      'process-status',
+      'is-inactive',
+    )
+  })
+
+  it('ProcessFilters_EachFilter_BuildsQuerySyncsUrlAndReturnsToFirstPage', async () => {
+    const fetchMock = authenticatedFetch(
+      [memberOrganization],
+      processListResponse([legalProcess], 2),
+      processListResponse([legalProcess], 1, true),
+      processListResponse([legalProcess], 2),
+      processListResponse([legalProcess]),
+      processListResponse([legalProcess]),
+      processListResponse([legalProcess]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute(
+      `/organizations/${memberOrganization.id}/processes?page=2`,
+    )
+    await screen.findByText(legalProcess.title)
+
+    fireEvent.change(within(filters()).getByLabelText(/Buscar por título/), {
+      target: { value: '  Cobrança  ' },
+    })
+    fireEvent.click(within(filters()).getByRole('button', { name: 'Buscar processos' }))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(router.state.location.search).toBe('?search=Cobran%C3%A7a')
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      processesUrl(
+        memberOrganization.id,
+        'pageNumber=1&pageSize=20&search=Cobran%C3%A7a',
+      ),
+    )
+
+    await screen.findByText(legalProcess.title)
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Próxima página de processos' }),
+    )
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5))
+    expect(router.state.location.search).toBe('?search=Cobran%C3%A7a&page=2')
+
+    await screen.findByText(legalProcess.title)
+    fireEvent.change(within(filters()).getByLabelText('Status'), {
+      target: { value: 'suspended' },
+    })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6))
+    expect(router.state.location.search).toBe(
+      '?search=Cobran%C3%A7a&status=suspended',
+    )
+    expect(fetchMock.mock.calls[5]?.[0]).toBe(
+      processesUrl(
+        memberOrganization.id,
+        'pageNumber=1&pageSize=20&search=Cobran%C3%A7a&status=suspended',
+      ),
+    )
+
+    await screen.findByText(legalProcess.title)
+    fireEvent.change(within(filters()).getByLabelText('Responsável'), {
+      target: { value: 'self' },
+    })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(7))
+    expect(router.state.location.search).toBe(
+      '?search=Cobran%C3%A7a&status=suspended&responsible=self',
+    )
+    expect(fetchMock.mock.calls[6]?.[0]).toBe(
+      processesUrl(
+        memberOrganization.id,
+        'pageNumber=1&pageSize=20&search=Cobran%C3%A7a&status=suspended&responsible=self',
+      ),
+    )
+
+    await screen.findByText(legalProcess.title)
+    fireEvent.change(within(filters()).getByLabelText('Responsável'), {
+      target: { value: 'unassigned' },
+    })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(8))
+    expect(fetchMock.mock.calls[7]?.[0]).toBe(
+      processesUrl(
+        memberOrganization.id,
+        'pageNumber=1&pageSize=20&search=Cobran%C3%A7a&status=suspended&responsible=unassigned',
+      ),
+    )
+    expect(requestedUrls(fetchMock).some((url) => url.includes('/members/lookup'))).toBe(false)
+  })
+
+  it('ProcessFilters_SpecificPerson_LoadsMembersOnlyWhenChosenAndFiltersById', async () => {
+    const fetchMock = authenticatedFetch(
+      [memberOrganization],
+      processListResponse([legalProcess]),
+      memberLookupResponse([responsibleMember]),
+      processListResponse([legalProcess]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute(`/organizations/${memberOrganization.id}/processes`)
+    await screen.findByText(legalProcess.title)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    fireEvent.change(within(filters()).getByLabelText('Responsável'), {
+      target: { value: 'specific' },
+    })
+    fireEvent.click(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    )
+
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(memberLookupUrl(memberOrganization.id))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5))
+    expect(router.state.location.search).toBe(`?responsible=${responsibleMember.id}`)
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(
+      processesUrl(
+        memberOrganization.id,
+        `pageNumber=1&pageSize=20&responsible=${responsibleMember.id}`,
+      ),
+    )
+    expect(within(filters()).getByLabelText('Responsável')).toHaveValue('specific')
+    expect(within(filters()).getByText(responsibleMember.displayName)).toBeInTheDocument()
+  })
+
+  it('ProcessFilters_UrlState_RestoresControlsAndRequestsFilteredList', async () => {
+    const fetchMock = authenticatedFetch(
+      [memberOrganization],
+      processListResponse([legalProcess]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(
+      `/organizations/${memberOrganization.id}/processes?search=A%C3%A7%C3%A3o&status=closed&responsible=unassigned`,
+    )
+    await screen.findByText(legalProcess.title)
+
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      processesUrl(
+        memberOrganization.id,
+        'pageNumber=1&pageSize=20&search=A%C3%A7%C3%A3o&status=closed&responsible=unassigned',
+      ),
+    )
+    expect(within(filters()).getByLabelText(/Buscar por título/)).toHaveValue('Ação')
+    expect(within(filters()).getByLabelText('Status')).toHaveValue('closed')
+    expect(within(filters()).getByLabelText('Responsável')).toHaveValue('unassigned')
+    expect(
+      within(filters()).getByRole('button', { name: 'Limpar busca' }),
+    ).toBeInTheDocument()
+  })
+
+  it('ProcessFilters_InvalidUrlValues_NormalizeToDefaultRequest', async () => {
+    const fetchMock = authenticatedFetch(
+      [memberOrganization],
+      processListResponse([legalProcess]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const router = renderRoute(
+      `/organizations/${memberOrganization.id}/processes?search=%20%20&status=archived&responsible=someone`,
+    )
+    await screen.findByText(legalProcess.title)
+
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      processesUrl(memberOrganization.id, 'pageNumber=1&pageSize=20'),
+    )
+    await vi.waitFor(() => expect(router.state.location.search).toBe(''))
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('ProcessList_FilteredEmpty_IsDistinctFromUnfilteredEmptyAndClearsFilters', async () => {
+    const fetchMock = authenticatedFetch(
+      [memberOrganization],
+      processListResponse([]),
+      processListResponse([]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute(
+      `/organizations/${memberOrganization.id}/processes?status=closed&responsible=self`,
+    )
+
+    expect(
+      await screen.findByText('Nenhum processo encontrado com estes filtros.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Nenhum processo cadastrado nesta organização.'),
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar filtros' }))
+
+    expect(
+      await screen.findByText('Nenhum processo cadastrado nesta organização.'),
+    ).toBeInTheDocument()
+    expect(router.state.location.search).toBe('')
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      processesUrl(memberOrganization.id, 'pageNumber=1&pageSize=20'),
+    )
+    expect(
+      screen.queryByText('Nenhum processo encontrado com estes filtros.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('ProcessList_MemberRole_SeesFiltersButNoCreateAction', async () => {
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([memberOrganization], processListResponse([legalProcess])),
+    )
+
+    renderRoute(`/organizations/${memberOrganization.id}/processes`)
+    await screen.findByText(legalProcess.title)
+
+    expect(within(filters()).getByLabelText(/Buscar por título/)).toBeInTheDocument()
+    expect(within(filters()).getByLabelText('Status')).toBeInTheDocument()
+    expect(within(filters()).getByLabelText('Responsável')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Cadastrar/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { label: 'FullPageWithoutNext', count: 20, hasNext: false, disabled: true },
+    { label: 'PartialPageWithNext', count: 1, hasNext: true, disabled: false },
+  ])(
+    'ProcessPagination_HasNextControlsNextButton_$label',
+    async ({ count, hasNext, disabled }) => {
+      const items = Array.from({ length: count }, (_, index) => ({
+        ...legalProcess,
+        id: `aaaaaaaa-aaaa-4aaa-8aaa-${index.toString().padStart(12, '0')}`,
+        title: `Processo ${index + 1}`,
+      }))
+      vi.stubGlobal(
+        'fetch',
+        authenticatedFetch(
+          [memberOrganization],
+          processListResponse(items, 1, hasNext),
+        ),
+      )
+
+      renderRoute(`/organizations/${memberOrganization.id}/processes`)
+      await screen.findByText('Processo 1')
+
+      const next = screen.getByRole('button', {
+        name: 'Próxima página de processos',
+      })
+      if (disabled) {
+        expect(next).toBeDisabled()
+      } else {
+        expect(next).toBeEnabled()
+      }
+    },
+  )
+
+  it('ProcessList_OldFilterResponseCompletesLast_DoesNotReplaceCurrentFilter', async () => {
+    let resolveUnfiltered: ((value: Response) => void) | undefined
+    const pendingUnfiltered = new Promise<Response>((resolve) => {
+      resolveUnfiltered = resolve
+    })
+    const staleProcess = { ...legalProcess, title: 'Processo sem filtro' }
+    const filteredProcess = {
+      ...legalProcess,
+      id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      title: 'Processo filtrado',
+    }
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch(
+        [memberOrganization],
+        pendingUnfiltered,
+        processListResponse([filteredProcess]),
+      ),
+    )
+    const router = renderRoute(`/organizations/${memberOrganization.id}/processes`)
+
+    await screen.findByText('Carregando processos...')
+    await act(async () => {
+      await router.navigate(
+        `/organizations/${memberOrganization.id}/processes?status=suspended`,
+      )
+    })
+    expect(await screen.findByText(filteredProcess.title)).toBeInTheDocument()
+
+    await act(async () => {
+      resolveUnfiltered?.(processListResponse([staleProcess]))
+      await pendingUnfiltered
+    })
+
+    expect(screen.getByText(filteredProcess.title)).toBeInTheDocument()
+    expect(screen.queryByText(staleProcess.title)).not.toBeInTheDocument()
+  })
+
+  it('ProcessCreate_BlankOperationalFields_SendsBodyIdenticalToTitleOnlyCreate', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      processListResponse([]),
+      lookupResponse([lookupClient]),
+      response(200, { requestToken: 'test-token' }),
+      response(201, { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }),
+      processListResponse([]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationA.id}/processes`)
+    await screen.findByText('Nenhum processo cadastrado nesta organização.')
+    await openCreateWithSelectedClient()
+    fireEvent.change(within(createForm()).getByLabelText('Número do processo'), {
+      target: { value: '   ' },
+    })
+    fireEvent.change(within(createForm()).getByLabelText('Órgão/tribunal'), {
+      target: { value: '  ' },
+    })
+    expect(within(createForm()).getByLabelText('Status')).toHaveValue('inProgress')
+    expect(within(createForm()).getByLabelText('Responsável')).toHaveValue('unassigned')
+    submitCreate('Processo simples')
+
+    expect(
+      await screen.findByText('Processo cadastrado com sucesso.'),
+    ).toBeInTheDocument()
+    const body = JSON.parse(
+      (fetchMock.mock.calls[5]?.[1] as RequestInit).body as string,
+    ) as Record<string, unknown>
+    expect(Object.keys(body)).toEqual(['clientId', 'title'])
+    expect(body).toEqual({ clientId: lookupClient.id, title: 'Processo simples' })
+  })
+
+  it('ProcessCreate_OperationalFields_SendsTrimmedValuesAndOwnMembershipForSelf', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      processListResponse([]),
+      lookupResponse([lookupClient]),
+      response(200, { requestToken: 'test-token' }),
+      response(201, { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }),
+      processListResponse([]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationA.id}/processes`)
+    await screen.findByText('Nenhum processo cadastrado nesta organização.')
+    await openCreateWithSelectedClient()
+    const form = createForm()
+    expect(within(form).getByLabelText('Número do processo')).toHaveAttribute(
+      'maxLength',
+      '100',
+    )
+    expect(within(form).getByLabelText('Órgão/tribunal')).toHaveAttribute(
+      'maxLength',
+      '200',
+    )
+    fireEvent.change(within(form).getByLabelText('Número do processo'), {
+      target: { value: '  0001234-56.2026.8.26.0100  ' },
+    })
+    fireEvent.change(within(form).getByLabelText('Órgão/tribunal'), {
+      target: { value: ' Tribunal de Justiça ' },
+    })
+    fireEvent.change(within(form).getByLabelText('Status'), {
+      target: { value: 'suspended' },
+    })
+    fireEvent.change(within(form).getByLabelText('Responsável'), {
+      target: { value: 'self' },
+    })
+    submitCreate('Processo operacional')
+
+    expect(
+      await screen.findByText('Processo cadastrado com sucesso.'),
+    ).toBeInTheDocument()
+    const body = JSON.parse(
+      (fetchMock.mock.calls[5]?.[1] as RequestInit).body as string,
+    ) as Record<string, unknown>
+    expect(body).toEqual({
+      clientId: lookupClient.id,
+      title: 'Processo operacional',
+      processNumber: '0001234-56.2026.8.26.0100',
+      status: 'suspended',
+      courtOrAuthority: 'Tribunal de Justiça',
+      responsibleMembershipId: organizationA.membershipId,
+    })
+    expect(requestedUrls(fetchMock).some((url) => url.includes('/members/lookup'))).toBe(false)
+  })
+
+  it('ProcessCreate_OtherPerson_LoadsPickerOnlyWhenChosenAndSendsSelectedMember', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      processListResponse([]),
+      lookupResponse([lookupClient]),
+      memberLookupResponse([responsibleMember]),
+      response(200, { requestToken: 'test-token' }),
+      response(201, { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }),
+      processListResponse([]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationA.id}/processes`)
+    await screen.findByText('Nenhum processo cadastrado nesta organização.')
+    await openCreateWithSelectedClient()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(
+      screen.queryByLabelText('Buscar responsável para processo'),
+    ).not.toBeInTheDocument()
+
+    fireEvent.change(within(createForm()).getByLabelText('Responsável'), {
+      target: { value: 'other' },
+    })
+    const memberButton = await screen.findByRole('button', {
+      name: responsibleMember.displayName,
+    })
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(memberLookupUrl(organizationA.id))
+
+    submitCreate('Processo delegado')
+    expect(
+      await screen.findByText('Selecione uma pessoa responsável.'),
+    ).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+
+    fireEvent.click(memberButton)
+    expect(screen.getByText(/Responsável selecionado:/)).toHaveTextContent(
+      responsibleMember.displayName,
+    )
+    fireEvent.submit(createForm())
+
+    expect(
+      await screen.findByText('Processo cadastrado com sucesso.'),
+    ).toBeInTheDocument()
+    const body = JSON.parse(
+      (fetchMock.mock.calls[6]?.[1] as RequestInit).body as string,
+    ) as Record<string, unknown>
+    expect(body).toEqual({
+      clientId: lookupClient.id,
+      title: 'Processo delegado',
+      responsibleMembershipId: responsibleMember.id,
+    })
+  })
+
+  it('ProcessCreate_DuplicateNumberConflict_ShowsErrorOnNumberField', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      processListResponse([]),
+      lookupResponse([lookupClient]),
+      response(200, { requestToken: 'test-token' }),
+      response(409, { title: 'private conflict detail' }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationA.id}/processes`)
+    await screen.findByText('Nenhum processo cadastrado nesta organização.')
+    await openCreateWithSelectedClient()
+    fireEvent.change(within(createForm()).getByLabelText('Número do processo'), {
+      target: { value: '0001234-56.2026.8.26.0100' },
+    })
+    submitCreate('Processo duplicado')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Já existe um processo com este número nesta organização.',
+    )
+    expect(alert).not.toHaveTextContent('private conflict detail')
+    const numberInput = within(createForm()).getByLabelText('Número do processo')
+    expect(numberInput).toHaveAttribute('aria-invalid', 'true')
+    expect(numberInput).toHaveAccessibleDescription(
+      'Já existe um processo com este número nesta organização.',
+    )
+    expect(numberInput).toHaveValue('0001234-56.2026.8.26.0100')
+    expect(
+      screen.queryByText('Não foi possível cadastrar o processo. Tente novamente.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('ProcessCreate_ResponsibleUnavailable_ClearsSelectionAndAsksForAnotherPerson', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      processListResponse([]),
+      lookupResponse([lookupClient]),
+      memberLookupResponse([responsibleMember]),
+      response(200, { requestToken: 'test-token' }),
+      response(400, { title: 'Related responsible member unavailable' }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationA.id}/processes`)
+    await screen.findByText('Nenhum processo cadastrado nesta organização.')
+    await openCreateWithSelectedClient()
+    fireEvent.change(within(createForm()).getByLabelText('Responsável'), {
+      target: { value: 'other' },
+    })
+    fireEvent.click(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    )
+    submitCreate('Processo com responsável removido')
+
+    expect(
+      await screen.findByText(
+        'O responsável selecionado não está mais disponível. Escolha outra pessoa.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Responsável selecionado:/)).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: responsibleMember.displayName }),
+    ).toHaveAttribute('aria-pressed', 'false')
+    expect(fetchMock).toHaveBeenCalledTimes(7)
+  })
+})

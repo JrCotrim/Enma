@@ -174,7 +174,8 @@
   .deadline-status,
   .task-status,
   .team-status,
-  .invitation-status
+  .invitation-status,
+  .process-status
 ) {
   display: inline-flex;
   align-items: center;
@@ -194,7 +195,8 @@
   .team-status.is-active,
   .deadline-status.is-completed,
   .task-status.is-completed,
-  .invitation-status.is-accepted
+  .invitation-status.is-accepted,
+  .process-status.is-active
 ) {
   color: #9fe5bd;
   border-color: #2e6c4b;
@@ -205,7 +207,8 @@
 :is(
   .deadline-status.is-pending,
   .task-status.is-pending,
-  .invitation-status.is-pending
+  .invitation-status.is-pending,
+  .process-status.is-pending
 ) {
   color: #f3cd70;
   border-color: #74581a;
@@ -217,7 +220,8 @@
   .client-status.is-inactive,
   .team-status.is-inactive,
   .invitation-status.is-revoked,
-  .invitation-status.is-expired
+  .invitation-status.is-expired,
+  .process-status.is-inactive
 ) {
   color: #d9aaa2;
   border-color: #6d4541;

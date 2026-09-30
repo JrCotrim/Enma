@@ -5,21 +5,36 @@ import {
   useCurrentOrganization,
   useOrganizationDiscovery,
 } from '../organizations/OrganizationContext'
+import { isValidGuid } from '../deadlines/legalDeadlineFormatting'
+import type { OrganizationMemberLookupItem } from '../tasks/legalTaskTypes'
+import { lookupOrganizationMembers } from '../tasks/organizationMemberLookupService'
+import { TaskLookupPicker } from '../tasks/TaskLookupPicker'
 import { lookupActiveClients } from './activeClientLookupService'
-import { formatLegalProcessCreatedAt } from './legalProcessFormatting'
+import {
+  formatLegalProcessCreatedAt,
+  getLegalProcessStatusLabel,
+  getLegalProcessStatusTone,
+  isLegalProcessStatus,
+} from './legalProcessFormatting'
 import {
   createLegalProcess,
   LegalProcessRequestError,
   listLegalProcesses,
 } from './legalProcessService'
-import type {
-  ActiveClientLookupItem,
-  LegalProcessListResponse,
+import {
+  legalProcessStatuses,
+  type ActiveClientLookupItem,
+  type LegalProcessListResponse,
+  type LegalProcessStatus,
 } from './legalProcessTypes'
 
 const pageSize = 20
 const maximumPageNumber = 2_147_483_647
 const maximumTitleLength = 150
+const maximumSearchLength = 150
+const maximumProcessNumberLength = 100
+const maximumCourtOrAuthorityLength = 200
+const defaultCreateStatus: LegalProcessStatus = 'inProgress'
 const genericListError =
   'Não foi possível carregar os processos. Tente novamente.'
 const genericLookupError =
@@ -32,6 +47,12 @@ const selectedClientUnavailableError =
   'O cliente selecionado não está disponível para este cadastro.'
 const createValidationError =
   'Não foi possível validar o cadastro. Verifique os dados e tente novamente.'
+const duplicateProcessNumberError =
+  'Já existe um processo com este número nesta organização.'
+const responsibleUnavailableError =
+  'O responsável selecionado não está mais disponível. Escolha outra pessoa.'
+
+type CreateResponsibleMode = 'unassigned' | 'self' | 'other'
 
 type ListState =
   | { readonly status: 'loading'; readonly scope: string }
@@ -98,6 +119,21 @@ function isCanonicalPage(value: string | null, page: number): boolean {
   return value === null || value === page.toString()
 }
 
+function resolveSearch(value: string | null): string {
+  return (value ?? '').trim().slice(0, maximumSearchLength)
+}
+
+function resolveStatusFilter(
+  value: string | null,
+): LegalProcessStatus | undefined {
+  return isLegalProcessStatus(value) ? value : undefined
+}
+
+function resolveResponsibleFilter(value: string | null): string {
+  if (value === 'self' || value === 'unassigned') return value
+  return value !== null && isValidGuid(value) ? value : 'any'
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
@@ -134,8 +170,21 @@ export function ProcessesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const pageParameter = searchParams.get('page')
   const page = resolvePage(pageParameter)
+  const searchParameter = searchParams.get('search')
+  const search = resolveSearch(searchParameter)
+  const statusParameter = searchParams.get('status')
+  const statusFilter = resolveStatusFilter(statusParameter)
+  const responsibleParameter = searchParams.get('responsible')
+  const responsibleFilter = resolveResponsibleFilter(responsibleParameter)
   const [refreshVersion, setRefreshVersion] = useState(0)
-  const listScope = `${currentOrganization.id}:${page}:${refreshVersion}`
+  const listScope = JSON.stringify([
+    currentOrganization.id,
+    page,
+    search,
+    statusFilter ?? '',
+    responsibleFilter,
+    refreshVersion,
+  ])
   const [listState, setListState] = useState<ListState>({
     status: 'loading',
     scope: listScope,
@@ -144,12 +193,26 @@ export function ProcessesPage() {
   const currentOrganizationIdRef = useRef(currentOrganization.id)
   const mountedRef = useRef(true)
 
+  const [selectedFilterMember, setSelectedFilterMember] =
+    useState<OrganizationMemberLookupItem>()
+  const [isMemberFilterOpen, setIsMemberFilterOpen] = useState(false)
+
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [formContext, setFormContext] = useState<FormContext>()
   const formContextRef = useRef<FormContext | undefined>(undefined)
   const formSessionRef = useRef(0)
   const [title, setTitle] = useState('')
   const [titleError, setTitleError] = useState<string>()
+  const [processNumber, setProcessNumber] = useState('')
+  const [processNumberError, setProcessNumberError] = useState<string>()
+  const [courtOrAuthority, setCourtOrAuthority] = useState('')
+  const [createStatus, setCreateStatus] =
+    useState<LegalProcessStatus>(defaultCreateStatus)
+  const [createResponsibleMode, setCreateResponsibleMode] =
+    useState<CreateResponsibleMode>('unassigned')
+  const [selectedCreateMember, setSelectedCreateMember] =
+    useState<OrganizationMemberLookupItem>()
+  const [responsibleError, setResponsibleError] = useState<string>()
   const [selectedClient, setSelectedClient] =
     useState<ActiveClientLookupItem>()
   const [clientError, setClientError] = useState<string>()
@@ -178,12 +241,51 @@ export function ProcessesPage() {
   }, [currentOrganization.id])
 
   useEffect(() => {
+    const normalized = new URLSearchParams(searchParams)
+    let changed = false
+
     if (!isCanonicalPage(pageParameter, page)) {
-      const normalized = new URLSearchParams(searchParams)
       normalized.delete('page')
+      changed = true
+    }
+
+    if (searchParameter !== null && searchParameter !== search) {
+      if (search.length > 0) {
+        normalized.set('search', search)
+      } else {
+        normalized.delete('search')
+      }
+      changed = true
+    }
+
+    if (statusParameter !== null && !statusFilter) {
+      normalized.delete('status')
+      changed = true
+    }
+
+    if (
+      responsibleParameter !== null &&
+      responsibleParameter !== responsibleFilter
+    ) {
+      normalized.delete('responsible')
+      changed = true
+    }
+
+    if (changed) {
       setSearchParams(normalized, { replace: true })
     }
-  }, [page, pageParameter, searchParams, setSearchParams])
+  }, [
+    page,
+    pageParameter,
+    responsibleFilter,
+    responsibleParameter,
+    search,
+    searchParameter,
+    searchParams,
+    setSearchParams,
+    statusFilter,
+    statusParameter,
+  ])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -195,6 +297,11 @@ export function ProcessesPage() {
       pageSize,
       handleUnauthorized,
       controller.signal,
+      {
+        search: search || undefined,
+        status: statusFilter,
+        responsible: responsibleFilter,
+      },
     )
       .then((response) => {
         if (
@@ -234,6 +341,9 @@ export function ProcessesPage() {
     listScope,
     page,
     refreshVersion,
+    responsibleFilter,
+    search,
+    statusFilter,
   ])
 
   useEffect(() => {
@@ -335,6 +445,39 @@ export function ProcessesPage() {
       ? lookupState
       : undefined
 
+  function updateFilters(changes: Record<string, string | undefined>) {
+    const nextSearchParams = new URLSearchParams(searchParams)
+
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === undefined) {
+        nextSearchParams.delete(key)
+      } else {
+        nextSearchParams.set(key, value)
+      }
+    }
+
+    nextSearchParams.delete('page')
+    setSearchParams(nextSearchParams)
+  }
+
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const value = new FormData(event.currentTarget).get('search')
+    const normalizedSearch =
+      typeof value === 'string' ? resolveSearch(value) : ''
+    updateFilters({ search: normalizedSearch || undefined })
+  }
+
+  function clearFilters() {
+    setSelectedFilterMember(undefined)
+    setIsMemberFilterOpen(false)
+    updateFilters({
+      search: undefined,
+      status: undefined,
+      responsible: undefined,
+    })
+  }
+
   function navigateToPage(nextPage: number) {
     const nextSearchParams = new URLSearchParams(searchParams)
 
@@ -374,6 +517,16 @@ export function ProcessesPage() {
     })
   }
 
+  function resetOperationalFields() {
+    setProcessNumber('')
+    setProcessNumberError(undefined)
+    setCourtOrAuthority('')
+    setCreateStatus(defaultCreateStatus)
+    setCreateResponsibleMode('unassigned')
+    setSelectedCreateMember(undefined)
+    setResponsibleError(undefined)
+  }
+
   function openCreate() {
     const context = {
       organizationId: currentOrganization.id,
@@ -384,6 +537,7 @@ export function ProcessesPage() {
     setIsCreateOpen(true)
     setTitle('')
     setTitleError(undefined)
+    resetOperationalFields()
     setSelectedClient(undefined)
     setClientError(undefined)
     setCreateError(undefined)
@@ -399,6 +553,7 @@ export function ProcessesPage() {
     setIsCreateOpen(false)
     setTitle('')
     setTitleError(undefined)
+    resetOperationalFields()
     setSelectedClient(undefined)
     setClientError(undefined)
     setCreateError(undefined)
@@ -491,6 +646,11 @@ export function ProcessesPage() {
       isValid = false
     }
 
+    if (createResponsibleMode === 'other' && !selectedCreateMember) {
+      setResponsibleError('Selecione uma pessoa responsável.')
+      isValid = false
+    }
+
     if (
       !isValid ||
       !selectedClient ||
@@ -502,11 +662,22 @@ export function ProcessesPage() {
 
     const operationId = ++createOperationRef.current
     const selectedClientId = selectedClient.id
+    const trimmedProcessNumber = processNumber.trim()
+    const trimmedCourtOrAuthority = courtOrAuthority.trim()
+    const submittedResponsibleMode = createResponsibleMode
+    const responsibleMembershipId =
+      submittedResponsibleMode === 'self'
+        ? currentOrganization.membershipId
+        : submittedResponsibleMode === 'other'
+          ? selectedCreateMember?.id
+          : undefined
     const controller = new AbortController()
     createControllerRef.current = controller
     isSubmittingRef.current = true
     setIsSubmitting(true)
     setTitleError(undefined)
+    setProcessNumberError(undefined)
+    setResponsibleError(undefined)
     setClientError(undefined)
     setCreateError(undefined)
     setSuccessMessage(undefined)
@@ -525,6 +696,20 @@ export function ProcessesPage() {
         trimmedTitle,
         handleUnauthorized,
         controller.signal,
+        {
+          ...(trimmedProcessNumber.length > 0
+            ? { processNumber: trimmedProcessNumber }
+            : {}),
+          ...(createStatus !== defaultCreateStatus
+            ? { status: createStatus }
+            : {}),
+          ...(trimmedCourtOrAuthority.length > 0
+            ? { courtOrAuthority: trimmedCourtOrAuthority }
+            : {}),
+          ...(responsibleMembershipId !== undefined
+            ? { responsibleMembershipId }
+            : {}),
+        },
       )
 
       if (!isCurrentOperation()) {
@@ -563,6 +748,20 @@ export function ProcessesPage() {
         setCreateError(selectedClientUnavailableError)
       } else if (
         error instanceof LegalProcessRequestError &&
+        error.failure === 'conflict'
+      ) {
+        setProcessNumberError(duplicateProcessNumberError)
+      } else if (
+        error instanceof LegalProcessRequestError &&
+        error.failure === 'related-responsible-unavailable'
+      ) {
+        setSelectedCreateMember(undefined)
+        if (submittedResponsibleMode === 'self') {
+          setCreateResponsibleMode('unassigned')
+        }
+        setResponsibleError(responsibleUnavailableError)
+      } else if (
+        error instanceof LegalProcessRequestError &&
         error.failure === 'bad-request'
       ) {
         setCreateError(createValidationError)
@@ -582,6 +781,18 @@ export function ProcessesPage() {
     currentLookupState && currentLookupState.status !== 'forbidden'
       ? currentLookupState.items
       : []
+  const hasSpecificResponsible =
+    responsibleFilter !== 'any' &&
+    responsibleFilter !== 'self' &&
+    responsibleFilter !== 'unassigned'
+  const currentFilterMember =
+    selectedFilterMember?.id === responsibleFilter
+      ? selectedFilterMember
+      : undefined
+  const isFiltered =
+    search.length > 0 ||
+    statusFilter !== undefined ||
+    responsibleFilter !== 'any'
 
   return (
     <section className="processes-page" aria-labelledby="processes-title">
@@ -762,6 +973,119 @@ export function ProcessesPage() {
                 {titleError}
               </p>
             ) : null}
+
+            <label htmlFor="process-number">Número do processo</label>
+            <input
+              id="process-number"
+              name="processNumber"
+              value={processNumber}
+              maxLength={maximumProcessNumberLength}
+              onChange={(event) => {
+                setProcessNumber(event.target.value)
+                setProcessNumberError(undefined)
+              }}
+              aria-describedby={
+                processNumberError ? 'process-number-error' : undefined
+              }
+              aria-invalid={processNumberError ? true : undefined}
+              disabled={isSubmitting}
+              autoComplete="off"
+            />
+            {processNumberError ? (
+              <p id="process-number-error" className="form-error" role="alert">
+                {processNumberError}
+              </p>
+            ) : null}
+
+            <label htmlFor="process-court">Órgão/tribunal</label>
+            <input
+              id="process-court"
+              name="courtOrAuthority"
+              value={courtOrAuthority}
+              maxLength={maximumCourtOrAuthorityLength}
+              onChange={(event) => setCourtOrAuthority(event.target.value)}
+              disabled={isSubmitting}
+              autoComplete="off"
+            />
+
+            <label htmlFor="process-status">Status</label>
+            <select
+              id="process-status"
+              name="status"
+              value={createStatus}
+              onChange={(event) => {
+                if (isLegalProcessStatus(event.target.value)) {
+                  setCreateStatus(event.target.value)
+                }
+              }}
+              disabled={isSubmitting}
+            >
+              {legalProcessStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {getLegalProcessStatusLabel(status)}
+                </option>
+              ))}
+            </select>
+
+            <label htmlFor="process-responsible">Responsável</label>
+            <select
+              id="process-responsible"
+              name="responsible"
+              value={createResponsibleMode}
+              onChange={(event) => {
+                setCreateResponsibleMode(
+                  event.target.value as CreateResponsibleMode,
+                )
+                setSelectedCreateMember(undefined)
+                setResponsibleError(undefined)
+              }}
+              aria-describedby={
+                responsibleError ? 'process-responsible-error' : undefined
+              }
+              aria-invalid={responsibleError ? true : undefined}
+              disabled={isSubmitting}
+            >
+              <option value="unassigned">Sem responsável</option>
+              <option value="self">Eu</option>
+              <option value="other">Outra pessoa</option>
+            </select>
+            {createResponsibleMode === 'other' ? (
+              <TaskLookupPicker
+                organizationId={currentOrganization.id}
+                searchLabel="Buscar responsável para processo"
+                resultsLabel="Responsáveis encontrados para o processo"
+                loadingMessage="Carregando responsáveis..."
+                emptyMessage="Não há responsáveis disponíveis."
+                noResultsMessage="Nenhum responsável encontrado para esta busca."
+                errorMessage="Não foi possível carregar os responsáveis. Tente novamente."
+                selectedId={selectedCreateMember?.id}
+                disabled={isSubmitting}
+                load={lookupOrganizationMembers}
+                onUnauthorized={handleUnauthorized}
+                onSelect={(item) => {
+                  setSelectedCreateMember(item)
+                  setResponsibleError(undefined)
+                  setCreateError(undefined)
+                }}
+                renderItem={(item) => <span>{item.displayName}</span>}
+              />
+            ) : null}
+            {selectedCreateMember && createResponsibleMode === 'other' ? (
+              <p className="process-selected-responsible" role="status">
+                Responsável selecionado:{' '}
+                <strong>{selectedCreateMember.displayName}</strong>
+              </p>
+            ) : null}
+            {responsibleError ? (
+              <p
+                id="process-responsible-error"
+                className="form-error"
+                role="alert"
+              >
+                {responsibleError}
+              </p>
+            ) : null}
+
             {createError ? (
               <div className="process-create-error">
                 <p className="form-error" role="alert">
@@ -799,6 +1123,133 @@ export function ProcessesPage() {
           </form>
         </div>
       ) : null}
+
+      <div className="process-filters" role="group" aria-label="Filtros de processos">
+        <form key={search} className="process-search" onSubmit={submitSearch}>
+          <label htmlFor="process-search">Buscar por título, cliente ou número</label>
+          <div className="process-search-row">
+            <input
+              id="process-search"
+              name="search"
+              type="search"
+              defaultValue={search}
+              maxLength={maximumSearchLength}
+              autoComplete="off"
+            />
+            <button
+              className="secondary-button"
+              type="submit"
+              aria-label="Buscar processos"
+            >
+              Buscar
+            </button>
+          </div>
+          {search ? (
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => updateFilters({ search: undefined })}
+            >
+              Limpar busca
+            </button>
+          ) : null}
+        </form>
+
+        <div className="process-filter-control">
+          <label htmlFor="process-status-filter">Status</label>
+          <select
+            id="process-status-filter"
+            value={statusFilter ?? 'any'}
+            onChange={(event) => {
+              const value = event.target.value
+              updateFilters({
+                status: isLegalProcessStatus(value) ? value : undefined,
+              })
+            }}
+          >
+            <option value="any">Todos</option>
+            {legalProcessStatuses.map((status) => (
+              <option key={status} value={status}>
+                {getLegalProcessStatusLabel(status)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="process-filter-control">
+          <label htmlFor="process-responsible-filter">Responsável</label>
+          <select
+            id="process-responsible-filter"
+            value={
+              isMemberFilterOpen || hasSpecificResponsible
+                ? 'specific'
+                : responsibleFilter
+            }
+            onChange={(event) => {
+              const value = event.target.value
+              setSelectedFilterMember(undefined)
+              if (value === 'specific') {
+                setIsMemberFilterOpen(true)
+              } else {
+                setIsMemberFilterOpen(false)
+                updateFilters({
+                  responsible: value === 'any' ? undefined : value,
+                })
+              }
+            }}
+          >
+            <option value="any">Todos</option>
+            <option value="self">Meus</option>
+            <option value="unassigned">Sem responsável</option>
+            <option value="specific">Pessoa específica</option>
+          </select>
+          {hasSpecificResponsible ? (
+            <div className="process-active-filter">
+              <span>{currentFilterMember?.displayName ?? 'Pessoa selecionada'}</span>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => {
+                  setSelectedFilterMember(undefined)
+                  setIsMemberFilterOpen(false)
+                  updateFilters({ responsible: undefined })
+                }}
+              >
+                Limpar responsável
+              </button>
+            </div>
+          ) : null}
+          {hasSpecificResponsible && !isMemberFilterOpen ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setIsMemberFilterOpen(true)}
+            >
+              Alterar pessoa
+            </button>
+          ) : null}
+          {isMemberFilterOpen ? (
+            <TaskLookupPicker
+              organizationId={currentOrganization.id}
+              searchLabel="Buscar pessoa para filtro"
+              resultsLabel="Pessoas encontradas para o filtro"
+              loadingMessage="Carregando pessoas..."
+              emptyMessage="Não há pessoas disponíveis."
+              noResultsMessage="Nenhuma pessoa encontrada para esta busca."
+              errorMessage="Não foi possível carregar as pessoas. Tente novamente."
+              selectedId={hasSpecificResponsible ? responsibleFilter : undefined}
+              load={lookupOrganizationMembers}
+              onUnauthorized={handleUnauthorized}
+              onSelect={(item) => {
+                setSelectedFilterMember(item)
+                setIsMemberFilterOpen(false)
+                updateFilters({ responsible: item.id })
+              }}
+              renderItem={(item) => <span>{item.displayName}</span>}
+            />
+          ) : null}
+        </div>
+      </div>
 
       {currentListState.status === 'loading' ? (
         <p className="processes-state" role="status">
@@ -840,7 +1291,18 @@ export function ProcessesPage() {
 
       {currentListState.status === 'success' ? (
         <>
-          {currentListState.response.items.length === 0 ? (
+          {currentListState.response.items.length === 0 && isFiltered ? (
+            <div className="processes-state" role="status">
+              <p>Nenhum processo encontrado com estes filtros.</p>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={clearFilters}
+              >
+                Limpar filtros
+              </button>
+            </div>
+          ) : currentListState.response.items.length === 0 ? (
             <div className="processes-state" role="status">
               <p>
                 {page === 1
@@ -889,9 +1351,23 @@ export function ProcessesPage() {
                           id={`process-${legalProcess.id}-metadata`}
                         >
                           <span>{legalProcess.clientName}</span>
+                          {legalProcess.processNumber ? (
+                            <span className="process-record-number">
+                              {legalProcess.processNumber}
+                            </span>
+                          ) : null}
+                          <span className="process-record-responsible">
+                            {legalProcess.responsibleDisplayName ??
+                              'Sem responsável'}
+                          </span>
                           <time dateTime={legalProcess.createdAt}>
                             {formatLegalProcessCreatedAt(legalProcess.createdAt)}
                           </time>
+                          <span
+                            className={`process-status ${getLegalProcessStatusTone(legalProcess.status)}`}
+                          >
+                            {getLegalProcessStatusLabel(legalProcess.status)}
+                          </span>
                         </span>
                       </span>
                       <span className="process-record-chevron" aria-hidden="true">
@@ -926,7 +1402,7 @@ export function ProcessesPage() {
               onClick={() => navigateToPage(page + 1)}
               disabled={
                 page === maximumPageNumber ||
-                currentListState.response.items.length < pageSize
+                !currentListState.response.hasNext
               }
               aria-label="Próxima página de processos"
             >
