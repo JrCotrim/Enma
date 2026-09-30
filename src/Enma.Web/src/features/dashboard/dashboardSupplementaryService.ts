@@ -51,6 +51,7 @@ export async function getDashboardSupplementaryData(
     5,
     onUnauthorized,
     signal,
+    { sort: 'newest' },
   )
   const documentPromise = listDocuments(
     organizationId,

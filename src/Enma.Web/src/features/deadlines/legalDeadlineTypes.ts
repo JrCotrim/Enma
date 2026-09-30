@@ -1,3 +1,5 @@
+import type { LegalProcessStatus } from '../processes/legalProcessTypes'
+
 export type LegalDeadlineState = 'Pending' | 'Completed'
 
 export interface LegalDeadlineListItem {
@@ -40,6 +42,8 @@ export interface LegalProcessLookupItem {
   readonly id: string
   readonly title: string
   readonly clientName: string
+  readonly processNumber?: string | null
+  readonly status?: LegalProcessStatus
 }
 
 export interface LegalProcessLookupResponse {

@@ -437,6 +437,112 @@ describe('Audit G flow', () => {
     expect(screen.getAllByText('Não atribuído')).toHaveLength(2)
   })
 
+  it('LegalProcessOperationalEvents_RenderLabelsDetailsAndFilterOptions', async () => {
+    const oldResponsibleId = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc3'
+    const newResponsibleId = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd4'
+    vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333350',
+        eventType: 'legal_process.details_changed',
+        entityType: 'legal_process',
+        details: {
+          type: 'legal_process.details_changed',
+          changedFields: ['ProcessNumber', 'CourtOrAuthority'],
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333351',
+        eventType: 'legal_process.status_changed',
+        entityType: 'legal_process',
+        details: {
+          type: 'legal_process.status_changed',
+          oldStatus: 'InProgress',
+          newStatus: 'Suspended',
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333352',
+        eventType: 'legal_process.status_changed',
+        entityType: 'legal_process',
+        details: {
+          type: 'legal_process.status_changed',
+          oldStatus: 'Suspended',
+          newStatus: 'Closed',
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333353',
+        eventType: 'legal_process.responsible_changed',
+        entityType: 'legal_process',
+        details: {
+          type: 'legal_process.responsible_changed',
+          oldResponsibleMembershipId: null,
+          newResponsibleMembershipId: newResponsibleId,
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333354',
+        eventType: 'legal_process.responsible_changed',
+        entityType: 'legal_process',
+        details: {
+          type: 'legal_process.responsible_changed',
+          oldResponsibleMembershipId: oldResponsibleId,
+          newResponsibleMembershipId: null,
+        },
+      }),
+    ])))
+
+    renderRoute()
+
+    const detailsCell = await screen.findByRole('cell', {
+      name: 'Dados do processo alterados',
+    })
+    expect(
+      within(detailsCell.closest('tr')!).getByText(
+        'Campos alterados: Número do processo, Órgão/tribunal',
+      ),
+    ).toBeInTheDocument()
+
+    const statusRows = screen
+      .getAllByRole('cell', { name: 'Status do processo alterado' })
+      .map((cell) => cell.closest('tr')!)
+    expect(statusRows).toHaveLength(2)
+    expect(within(statusRows[0]!).getByText('Status anterior')).toBeInTheDocument()
+    expect(within(statusRows[0]!).getByText('Em andamento')).toBeInTheDocument()
+    expect(within(statusRows[0]!).getByText('Novo status')).toBeInTheDocument()
+    expect(within(statusRows[0]!).getAllByText('Suspenso')).toHaveLength(1)
+    expect(within(statusRows[1]!).getByText('Suspenso')).toBeInTheDocument()
+    expect(within(statusRows[1]!).getByText('Encerrado')).toBeInTheDocument()
+    expect(screen.queryByText('InProgress')).not.toBeInTheDocument()
+    expect(screen.queryByText('Suspended')).not.toBeInTheDocument()
+    expect(screen.queryByText('Closed')).not.toBeInTheDocument()
+
+    const responsibleRows = screen
+      .getAllByRole('cell', { name: 'Responsável do processo alterado' })
+      .map((cell) => cell.closest('tr')!)
+    expect(responsibleRows).toHaveLength(2)
+    expect(within(responsibleRows[0]!).getByText('Sem responsável')).toBeInTheDocument()
+    expect(within(responsibleRows[0]!).getByText(newResponsibleId)).toHaveClass(
+      'audit-membership-id',
+    )
+    expect(within(responsibleRows[1]!).getByText(oldResponsibleId)).toHaveClass(
+      'audit-membership-id',
+    )
+    expect(within(responsibleRows[1]!).getByText('Sem responsável')).toBeInTheDocument()
+    expect(screen.queryByText('Não atribuído')).not.toBeInTheDocument()
+
+    const eventTypeFilter = screen.getByLabelText('Tipo de evento')
+    expect(
+      within(eventTypeFilter).getByRole('option', { name: 'Dados do processo alterados' }),
+    ).toHaveValue('legal_process.details_changed')
+    expect(
+      within(eventTypeFilter).getByRole('option', { name: 'Status do processo alterado' }),
+    ).toHaveValue('legal_process.status_changed')
+    expect(
+      within(eventTypeFilter).getByRole('option', { name: 'Responsável do processo alterado' }),
+    ).toHaveValue('legal_process.responsible_changed')
+  })
+
   it('não mostra actorMembershipId nem campos internos adicionais', async () => {
     const internalActorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'
     vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([
@@ -483,16 +589,65 @@ describe('Audit G flow', () => {
           newRole: 'Owner',
         },
       }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333343',
+        eventType: 'legal_process.details_changed',
+        entityType: 'legal_process',
+        details: {
+          type: 'legal_process.details_changed',
+          changedFields: ['ProcessNumber', 'segredo-em-campo-de-processo'],
+          processNumber: '0009999-99.2026.8.26.0100',
+          courtOrAuthority: 'Tribunal secreto',
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333344',
+        eventType: 'legal_process.status_changed',
+        entityType: 'legal_process',
+        details: {
+          type: 'legal_process.status_changed',
+          oldStatus: 'segredo-em-status-desconhecido',
+          newStatus: 'Closed',
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333345',
+        eventType: 'legal_process.status_changed',
+        entityType: 'legal_process',
+        details: {
+          type: 'legal_process.status_changed',
+          oldStatus: 'inProgress',
+          newStatus: 'closed',
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333346',
+        eventType: 'legal_process.responsible_changed',
+        entityType: 'legal_process',
+        details: {
+          type: 'legal_process.responsible_changed',
+          oldResponsibleMembershipId: 'segredo-em-responsavel',
+          newResponsibleMembershipId: null,
+          responsibleDisplayName: 'Nome secreto',
+        },
+      }),
     ])))
 
     renderRoute()
 
     expect(await screen.findByText('Evento desconhecido (future.event)')).toBeInTheDocument()
-    expect(screen.getAllByText('Detalhes indisponíveis para este tipo de evento.')).toHaveLength(3)
+    expect(screen.getAllByText('Detalhes indisponíveis para este tipo de evento.')).toHaveLength(7)
     expect(screen.queryByText('segredo arbitrário')).not.toBeInTheDocument()
     expect(screen.queryByText('trace-interno')).not.toBeInTheDocument()
     expect(screen.queryByText('segredo-em-campo-desconhecido')).not.toBeInTheDocument()
     expect(screen.queryByText('segredo-em-papel-desconhecido')).not.toBeInTheDocument()
+    expect(screen.queryByText(/segredo-em-campo-de-processo/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/0009999-99/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Tribunal secreto/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/segredo-em-status-desconhecido/)).not.toBeInTheDocument()
+    expect(screen.queryByText('closed')).not.toBeInTheDocument()
+    expect(screen.queryByText(/segredo-em-responsavel/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Nome secreto/)).not.toBeInTheDocument()
   })
 
   it('trata 403 como acesso negado sem exibir detalhes da resposta', async () => {

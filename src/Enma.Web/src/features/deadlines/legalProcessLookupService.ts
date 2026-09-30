@@ -2,6 +2,8 @@ import {
   fetchWithSession,
   type UnauthorizedHandler,
 } from '../authentication/sessionClient'
+import { isLegalProcessStatus } from '../processes/legalProcessFormatting'
+import type { LegalProcessStatus } from '../processes/legalProcessTypes'
 import { LegalDeadlineRequestError } from './legalDeadlineService'
 import type {
   LegalProcessLookupItem,
@@ -23,7 +25,12 @@ function parseLegalProcessLookupItem(
     typeof candidate.title !== 'string' ||
     candidate.title.length === 0 ||
     typeof candidate.clientName !== 'string' ||
-    candidate.clientName.length === 0
+    candidate.clientName.length === 0 ||
+    (candidate.processNumber !== undefined &&
+      candidate.processNumber !== null &&
+      (typeof candidate.processNumber !== 'string' ||
+        candidate.processNumber.length === 0)) ||
+    (candidate.status !== undefined && !isLegalProcessStatus(candidate.status))
   ) {
     return undefined
   }
@@ -32,6 +39,12 @@ function parseLegalProcessLookupItem(
     id: candidate.id,
     title: candidate.title,
     clientName: candidate.clientName,
+    ...(candidate.processNumber !== undefined
+      ? { processNumber: candidate.processNumber as string | null }
+      : {}),
+    ...(candidate.status !== undefined
+      ? { status: candidate.status as LegalProcessStatus }
+      : {}),
   }
 }
 

@@ -1,5 +1,7 @@
 import { getOrganizationRoleLabel } from '../organizations/organizationTypes'
 import type { OrganizationRole } from '../organizations/organizationTypes'
+import { getLegalProcessStatusLabel } from '../processes/legalProcessFormatting'
+import type { LegalProcessStatus } from '../processes/legalProcessTypes'
 import type {
   AuditEntityType,
   AuditEventType,
@@ -20,6 +22,9 @@ export const auditEventOptions: readonly {
   { value: 'client.reactivated', label: 'Cliente reativado' },
   { value: 'legal_process.created', label: 'Processo cadastrado' },
   { value: 'legal_process.title_changed', label: 'Título de processo alterado' },
+  { value: 'legal_process.details_changed', label: 'Dados do processo alterados' },
+  { value: 'legal_process.status_changed', label: 'Status do processo alterado' },
+  { value: 'legal_process.responsible_changed', label: 'Responsável do processo alterado' },
   { value: 'legal_deadline.created', label: 'Prazo cadastrado' },
   { value: 'legal_deadline.details_changed', label: 'Dados de prazo alterados' },
   { value: 'legal_deadline.completed', label: 'Prazo concluído' },
@@ -64,6 +69,13 @@ const changedFieldLabels = new Map([
   ['EndsAt', 'Término'],
   ['Location', 'Local'],
   ['ClientId', 'Cliente'],
+  ['ProcessNumber', 'Número do processo'],
+  ['CourtOrAuthority', 'Órgão/tribunal'],
+])
+const legalProcessStatusesByAuditValue = new Map<string, LegalProcessStatus>([
+  ['InProgress', 'inProgress'],
+  ['Suspended', 'suspended'],
+  ['Closed', 'closed'],
 ])
 const timestampFormatter = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short',
@@ -90,6 +102,11 @@ export function getAuditRoleLabel(value: string): string {
 
 export function getAuditChangedFieldLabel(value: string): string {
   return changedFieldLabels.get(value) ?? 'Campo desconhecido'
+}
+
+export function getAuditLegalProcessStatusLabel(value: string): string {
+  const status = legalProcessStatusesByAuditValue.get(value)
+  return status ? getLegalProcessStatusLabel(status) : 'Status desconhecido'
 }
 
 export function formatAuditTimestamp(value: string): string {

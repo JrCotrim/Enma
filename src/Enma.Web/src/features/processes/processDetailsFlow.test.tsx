@@ -46,6 +46,11 @@ const processA: LegalProcess = {
   clientId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
   clientName: 'Cliente inativo permanece relacionado',
   createdAt: '2026-08-12T14:30:00Z',
+  processNumber: null,
+  status: 'inProgress',
+  courtOrAuthority: null,
+  responsibleMembershipId: null,
+  responsibleDisplayName: null,
 }
 
 const processB: LegalProcess = {
@@ -54,6 +59,11 @@ const processB: LegalProcess = {
   clientId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
   clientName: 'Cliente Beta',
   createdAt: '2026-08-11T12:00:00Z',
+  processNumber: null,
+  status: 'inProgress',
+  courtOrAuthority: null,
+  responsibleMembershipId: null,
+  responsibleDisplayName: null,
 }
 
 const documentA: LegalDocumentMetadata = {
@@ -92,7 +102,7 @@ function organizationResponse(
 }
 
 function processListResponse(items: readonly LegalProcess[]): Response {
-  return response(200, { items, pageNumber: 1, pageSize: 20 })
+  return response(200, { items, pageNumber: 1, pageSize: 20, hasNext: false })
 }
 
 function documentListResponse(items: readonly LegalDocumentMetadata[]) {

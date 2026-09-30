@@ -6,8 +6,10 @@ import { isValidGuid } from '../deadlines/legalDeadlineFormatting'
 import {
   auditEntityTypes,
   auditEventTypes,
+  auditLegalProcessStatuses,
   type AuditEntityType,
   type AuditEventType,
+  type AuditLegalProcessStatus,
   type AuditLogDetails,
   type AuditLogFilters,
   type AuditLogItem,
@@ -47,7 +49,13 @@ const knownChangedFields = {
     'ClientId',
     'ProcessId',
   ]),
+  'legal_process.details_changed': new Set(['ProcessNumber', 'CourtOrAuthority']),
 } as const
+const knownLegalProcessStatuses = new Set<unknown>(auditLegalProcessStatuses)
+
+function isAuditLegalProcessStatus(value: unknown): value is AuditLegalProcessStatus {
+  return knownLegalProcessStatuses.has(value)
+}
 
 export function isAuditEventType(value: string): value is AuditEventType {
   return knownEventTypes.has(value)
@@ -120,7 +128,8 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
       return { type: 'unsupported' }
     case 'legal_deadline.details_changed':
     case 'legal_task.details_changed':
-    case 'calendar_event.updated': {
+    case 'calendar_event.updated':
+    case 'legal_process.details_changed': {
       const changedFields = parseChangedFields(value.changedFields, value.type)
       if (changedFields) return { type: value.type, changedFields }
       return { type: 'unsupported' }
@@ -138,6 +147,31 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
           type: value.type,
           oldAssigneeMembershipId,
           newAssigneeMembershipId,
+        }
+      }
+      return { type: 'unsupported' }
+    }
+    case 'legal_process.status_changed':
+      if (
+        isAuditLegalProcessStatus(value.oldStatus) &&
+        isAuditLegalProcessStatus(value.newStatus) &&
+        value.oldStatus !== value.newStatus
+      ) {
+        return { type: value.type, oldStatus: value.oldStatus, newStatus: value.newStatus }
+      }
+      return { type: 'unsupported' }
+    case 'legal_process.responsible_changed': {
+      const oldResponsibleMembershipId = parseNullableGuid(value.oldResponsibleMembershipId)
+      const newResponsibleMembershipId = parseNullableGuid(value.newResponsibleMembershipId)
+      if (
+        oldResponsibleMembershipId !== undefined &&
+        newResponsibleMembershipId !== undefined &&
+        oldResponsibleMembershipId !== newResponsibleMembershipId
+      ) {
+        return {
+          type: value.type,
+          oldResponsibleMembershipId,
+          newResponsibleMembershipId,
         }
       }
       return { type: 'unsupported' }

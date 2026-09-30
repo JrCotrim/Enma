@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listAuditLogs } from '../audit-log/auditLogService'
 import { listDocuments } from '../documents/documentService'
 import { listInvitations } from '../invitations/invitationService'
@@ -21,6 +21,7 @@ beforeEach(() => {
     items: [],
     pageNumber: 1,
     pageSize: 5,
+    hasNext: false,
   })
   vi.mocked(listDocuments).mockResolvedValue({
     items: [],
@@ -46,6 +47,10 @@ beforeEach(() => {
     pageSize: 3,
     totalCount: 0,
   })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('getDashboardSupplementaryData', () => {
@@ -143,5 +148,41 @@ describe('getDashboardSupplementaryData', () => {
     expect(result.processes.status).toBe('error')
     expect(result.documents.status).toBe('success')
     expect(result.documents.items).toHaveLength(1)
+  })
+
+  it('RecentProcesses_RequestsNewestFirstFromServer', async () => {
+    const actual = await vi.importActual<
+      typeof import('../processes/legalProcessService')
+    >('../processes/legalProcessService')
+    vi.mocked(listLegalProcesses).mockImplementation(actual.listLegalProcesses)
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ items: [], pageNumber: 1, pageSize: 5, hasNext: false }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await getDashboardSupplementaryData(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'Member',
+      onUnauthorized,
+    )
+
+    expect(listLegalProcesses).toHaveBeenCalledWith(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      1,
+      5,
+      onUnauthorized,
+      undefined,
+      { sort: 'newest' },
+    )
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]), 'https://enma.test')
+    expect(url.pathname).toBe(
+      '/api/organizations/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/processes',
+    )
+    expect(url.search).toBe('?pageNumber=1&pageSize=5&sort=newest')
+    expect(result.processes.status).toBe('success')
   })
 })

@@ -3,12 +3,20 @@ import {
   fetchWithSession,
   type UnauthorizedHandler,
 } from '../authentication/sessionClient'
+import { isValidGuid } from '../deadlines/legalDeadlineFormatting'
+import { isLegalProcessStatus } from './legalProcessFormatting'
 import type {
+  ChangeLegalProcessDetailsRequest,
+  ChangeLegalProcessResponsibleRequest,
+  ChangeLegalProcessStatusRequest,
+  CreateLegalProcessOptions,
   CreateLegalProcessRequest,
   CreateLegalProcessResponse,
   LegalProcess,
+  LegalProcessListFilters,
   LegalProcessListItem,
   LegalProcessListResponse,
+  LegalProcessStatus,
   UpdateLegalProcessRequest,
 } from './legalProcessTypes'
 
@@ -17,6 +25,8 @@ export type LegalProcessRequestFailure =
   | 'forbidden'
   | 'not-found'
   | 'bad-request'
+  | 'conflict'
+  | 'related-responsible-unavailable'
   | 'unexpected'
 
 export class LegalProcessRequestError extends Error {
@@ -25,12 +35,23 @@ export class LegalProcessRequestError extends Error {
   }
 }
 
+function isNullableNonEmptyString(value: unknown): value is string | null {
+  return value === null || (typeof value === 'string' && value.length > 0)
+}
+
 function parseLegalProcess(value: unknown): LegalProcess | undefined {
   if (typeof value !== 'object' || value === null) {
     return undefined
   }
 
   const candidate = value as Record<string, unknown>
+  const hasConsistentResponsible =
+    (candidate.responsibleMembershipId === null &&
+      candidate.responsibleDisplayName === null) ||
+    (typeof candidate.responsibleMembershipId === 'string' &&
+      isValidGuid(candidate.responsibleMembershipId) &&
+      typeof candidate.responsibleDisplayName === 'string' &&
+      candidate.responsibleDisplayName.length > 0)
 
   if (
     typeof candidate.id !== 'string' ||
@@ -42,7 +63,11 @@ function parseLegalProcess(value: unknown): LegalProcess | undefined {
     typeof candidate.clientName !== 'string' ||
     candidate.clientName.length === 0 ||
     typeof candidate.createdAt !== 'string' ||
-    Number.isNaN(Date.parse(candidate.createdAt))
+    Number.isNaN(Date.parse(candidate.createdAt)) ||
+    !isNullableNonEmptyString(candidate.processNumber) ||
+    !isLegalProcessStatus(candidate.status) ||
+    !isNullableNonEmptyString(candidate.courtOrAuthority) ||
+    !hasConsistentResponsible
   ) {
     return undefined
   }
@@ -53,6 +78,11 @@ function parseLegalProcess(value: unknown): LegalProcess | undefined {
     clientId: candidate.clientId,
     clientName: candidate.clientName,
     createdAt: candidate.createdAt,
+    processNumber: candidate.processNumber,
+    status: candidate.status,
+    courtOrAuthority: candidate.courtOrAuthority,
+    responsibleMembershipId: candidate.responsibleMembershipId as string | null,
+    responsibleDisplayName: candidate.responsibleDisplayName as string | null,
   }
 }
 
@@ -77,7 +107,8 @@ function parseLegalProcessListResponse(
     typeof candidate.pageSize !== 'number' ||
     !Number.isInteger(candidate.pageSize) ||
     candidate.pageSize < 1 ||
-    candidate.pageSize > 100
+    candidate.pageSize > 100 ||
+    typeof candidate.hasNext !== 'boolean'
   ) {
     throw new LegalProcessRequestError('unexpected')
   }
@@ -86,6 +117,7 @@ function parseLegalProcessListResponse(
     items: items as LegalProcessListItem[],
     pageNumber: candidate.pageNumber,
     pageSize: candidate.pageSize,
+    hasNext: candidate.hasNext,
   }
 }
 
@@ -122,7 +154,24 @@ function throwForStatus(status: number): never {
     throw new LegalProcessRequestError('bad-request')
   }
 
+  if (status === 409) {
+    throw new LegalProcessRequestError('conflict')
+  }
+
   throw new LegalProcessRequestError('unexpected')
+}
+
+async function throwForRelatedResponsibleUnavailable(
+  response: Response,
+): Promise<void> {
+  try {
+    const problem = (await response.json()) as Record<string, unknown>
+    if (problem.title === 'Related responsible member unavailable') {
+      throw new LegalProcessRequestError('related-responsible-unavailable')
+    }
+  } catch (error) {
+    if (error instanceof LegalProcessRequestError) throw error
+  }
 }
 
 function getLegalProcessesEndpoint(organizationId: string): string {
@@ -142,13 +191,18 @@ export async function listLegalProcesses(
   pageSize: number,
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
+  filters: LegalProcessListFilters = {},
 ): Promise<LegalProcessListResponse> {
   if (
     !Number.isInteger(pageNumber) ||
     pageNumber < 1 ||
     !Number.isInteger(pageSize) ||
     pageSize < 1 ||
-    pageSize > 100
+    pageSize > 100 ||
+    (filters.status !== undefined && !isLegalProcessStatus(filters.status)) ||
+    (filters.sort !== undefined &&
+      filters.sort !== 'title' &&
+      filters.sort !== 'newest')
   ) {
     throw new LegalProcessRequestError('bad-request')
   }
@@ -157,6 +211,14 @@ export async function listLegalProcesses(
     pageNumber: pageNumber.toString(),
     pageSize: pageSize.toString(),
   })
+  const search = filters.search?.trim()
+  if (search) query.set('search', search)
+  if (filters.status) query.set('status', filters.status)
+  const responsible = filters.responsible?.trim()
+  if (responsible && responsible !== 'any') {
+    query.set('responsible', responsible)
+  }
+  if (filters.sort === 'newest') query.set('sort', filters.sort)
   const response = await fetchWithSession(
     `${getLegalProcessesEndpoint(organizationId)}?${query.toString()}`,
     {
@@ -186,9 +248,23 @@ export async function createLegalProcess(
   title: string,
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
+  options: CreateLegalProcessOptions = {},
 ): Promise<CreateLegalProcessResponse> {
   const requestToken = await getCsrfToken()
-  const body: CreateLegalProcessRequest = { clientId, title }
+  const body: CreateLegalProcessRequest = {
+    clientId,
+    title,
+    ...(options.processNumber !== undefined
+      ? { processNumber: options.processNumber }
+      : {}),
+    ...(options.status !== undefined ? { status: options.status } : {}),
+    ...(options.courtOrAuthority !== undefined
+      ? { courtOrAuthority: options.courtOrAuthority }
+      : {}),
+    ...(options.responsibleMembershipId !== undefined
+      ? { responsibleMembershipId: options.responsibleMembershipId }
+      : {}),
+  }
   const response = await fetchWithSession(
     getLegalProcessesEndpoint(organizationId),
     {
@@ -207,6 +283,7 @@ export async function createLegalProcess(
   if (response.status !== 201) {
     if (response.status === 400) {
       clearCsrfToken()
+      await throwForRelatedResponsibleUnavailable(response)
     }
 
     throwForStatus(response.status)
@@ -275,4 +352,93 @@ export async function updateLegalProcess(
 
     throwForStatus(response.status)
   }
+}
+
+async function sendLegalProcessChange(
+  endpoint: string,
+  body:
+    | ChangeLegalProcessDetailsRequest
+    | ChangeLegalProcessStatusRequest
+    | ChangeLegalProcessResponsibleRequest,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const requestToken = await getCsrfToken()
+  const response = await fetchWithSession(
+    endpoint,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': requestToken,
+      },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+
+  if (response.status !== 204) {
+    if (response.status === 400) {
+      clearCsrfToken()
+      await throwForRelatedResponsibleUnavailable(response)
+    }
+
+    throwForStatus(response.status)
+  }
+}
+
+export function changeLegalProcessDetails(
+  organizationId: string,
+  processId: string,
+  details: ChangeLegalProcessDetailsRequest,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const body: ChangeLegalProcessDetailsRequest = {
+    processNumber: details.processNumber,
+    courtOrAuthority: details.courtOrAuthority,
+  }
+
+  return sendLegalProcessChange(
+    `${getLegalProcessEndpoint(organizationId, processId)}/details`,
+    body,
+    onUnauthorized,
+    signal,
+  )
+}
+
+export function changeLegalProcessStatus(
+  organizationId: string,
+  processId: string,
+  status: LegalProcessStatus,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const body: ChangeLegalProcessStatusRequest = { status }
+
+  return sendLegalProcessChange(
+    `${getLegalProcessEndpoint(organizationId, processId)}/status`,
+    body,
+    onUnauthorized,
+    signal,
+  )
+}
+
+export function changeLegalProcessResponsible(
+  organizationId: string,
+  processId: string,
+  responsibleMembershipId: string | null,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const body: ChangeLegalProcessResponsibleRequest = { responsibleMembershipId }
+
+  return sendLegalProcessChange(
+    `${getLegalProcessEndpoint(organizationId, processId)}/responsible`,
+    body,
+    onUnauthorized,
+    signal,
+  )
 }

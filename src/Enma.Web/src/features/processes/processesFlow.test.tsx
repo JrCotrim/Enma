@@ -40,6 +40,11 @@ const legalProcess: LegalProcessListItem = {
   clientId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   clientName: 'Cliente Exemplo',
   createdAt: '2026-08-12T14:30:00Z',
+  processNumber: null,
+  status: 'inProgress',
+  courtOrAuthority: null,
+  responsibleMembershipId: null,
+  responsibleDisplayName: null,
 }
 
 const lookupClient: ActiveClientLookupItem = {
@@ -65,7 +70,7 @@ function processListResponse(
   items: readonly LegalProcessListItem[],
   pageNumber = 1,
 ): Response {
-  return response(200, { items, pageNumber, pageSize: 20 })
+  return response(200, { items, pageNumber, pageSize: 20, hasNext: false })
 }
 
 function lookupResponse(

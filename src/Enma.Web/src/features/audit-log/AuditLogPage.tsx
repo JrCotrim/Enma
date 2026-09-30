@@ -12,6 +12,7 @@ import {
   getAuditChangedFieldLabel,
   getAuditEntityLabel,
   getAuditEventLabel,
+  getAuditLegalProcessStatusLabel,
   getAuditRoleLabel,
 } from './auditLogFormatting'
 import {
@@ -48,9 +49,15 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-function MembershipValue({ value }: { readonly value: string | null }) {
+function MembershipValue({
+  value,
+  emptyLabel = 'Não atribuído',
+}: {
+  readonly value: string | null
+  readonly emptyLabel?: string
+}) {
   return value === null ? (
-    <>Não atribuído</>
+    <>{emptyLabel}</>
   ) : (
     <code className="audit-membership-id">{value}</code>
   )
@@ -77,6 +84,7 @@ function AuditDetails({ details }: { readonly details: AuditLogDetails | null })
     case 'legal_deadline.details_changed':
     case 'legal_task.details_changed':
     case 'calendar_event.updated':
+    case 'legal_process.details_changed':
       return (
         <span>
           Campos alterados: {details.changedFields.map(getAuditChangedFieldLabel).join(', ')}
@@ -93,6 +101,42 @@ function AuditDetails({ details }: { readonly details: AuditLogDetails | null })
           <div>
             <dt>Novo responsável</dt>
             <dd><MembershipValue value={details.newAssigneeMembershipId} /></dd>
+          </div>
+        </dl>
+      )
+    case 'legal_process.status_changed':
+      return (
+        <dl className="audit-details-list">
+          <div>
+            <dt>Status anterior</dt>
+            <dd>{getAuditLegalProcessStatusLabel(details.oldStatus)}</dd>
+          </div>
+          <div>
+            <dt>Novo status</dt>
+            <dd>{getAuditLegalProcessStatusLabel(details.newStatus)}</dd>
+          </div>
+        </dl>
+      )
+    case 'legal_process.responsible_changed':
+      return (
+        <dl className="audit-details-list">
+          <div>
+            <dt>Responsável anterior</dt>
+            <dd>
+              <MembershipValue
+                value={details.oldResponsibleMembershipId}
+                emptyLabel="Sem responsável"
+              />
+            </dd>
+          </div>
+          <div>
+            <dt>Novo responsável</dt>
+            <dd>
+              <MembershipValue
+                value={details.newResponsibleMembershipId}
+                emptyLabel="Sem responsável"
+              />
+            </dd>
           </div>
         </dl>
       )

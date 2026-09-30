@@ -10,6 +10,9 @@ export const auditEventTypes = [
   'client.reactivated',
   'legal_process.created',
   'legal_process.title_changed',
+  'legal_process.details_changed',
+  'legal_process.status_changed',
+  'legal_process.responsible_changed',
   'legal_deadline.created',
   'legal_deadline.details_changed',
   'legal_deadline.completed',
@@ -44,6 +47,10 @@ export const auditEntityTypes = [
 
 export type AuditEntityType = (typeof auditEntityTypes)[number]
 
+export const auditLegalProcessStatuses = ['InProgress', 'Suspended', 'Closed'] as const
+
+export type AuditLegalProcessStatus = (typeof auditLegalProcessStatuses)[number]
+
 export type AuditLogDetails =
   | {
       readonly type: 'organization.renamed'
@@ -60,6 +67,7 @@ export type AuditLogDetails =
         | 'legal_deadline.details_changed'
         | 'legal_task.details_changed'
         | 'calendar_event.updated'
+        | 'legal_process.details_changed'
       readonly changedFields: readonly string[]
     }
   | {
@@ -68,6 +76,16 @@ export type AuditLogDetails =
         | 'calendar_event.assignee_changed'
       readonly oldAssigneeMembershipId: string | null
       readonly newAssigneeMembershipId: string | null
+    }
+  | {
+      readonly type: 'legal_process.status_changed'
+      readonly oldStatus: AuditLegalProcessStatus
+      readonly newStatus: AuditLegalProcessStatus
+    }
+  | {
+      readonly type: 'legal_process.responsible_changed'
+      readonly oldResponsibleMembershipId: string | null
+      readonly newResponsibleMembershipId: string | null
     }
   | { readonly type: 'unsupported' }
 
