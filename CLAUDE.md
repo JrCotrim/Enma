@@ -99,6 +99,8 @@ Unless explicitly requested, do not:
 
 Never use `git reset --hard` or `git clean` without explicit authorization.
 
+Do not stop, kill, or restart processes the task did not start (user dev servers, APIs, containers, other tools). Never kill processes generically by name.
+
 When a commit is requested:
 
 - inspect the final diff;
