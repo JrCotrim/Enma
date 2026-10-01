@@ -277,6 +277,7 @@ public sealed class LegalDeadlineMutationPersistenceTests(
     {
         return persistence.ReopenAsync(
             CreateRequest(organizationId, deadlineId),
+            _ => null,
             state =>
             {
                 state.LegalDeadline.Reopen();

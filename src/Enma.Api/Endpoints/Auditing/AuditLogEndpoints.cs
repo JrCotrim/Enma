@@ -133,6 +133,10 @@ public static class AuditLogEndpoints
                 new LegalProcessResponsibleChangedAuditLogDetailsResponse(
                     value.OldResponsibleMembershipId,
                     value.NewResponsibleMembershipId),
+            LegalDeadlineResponsibleChangedAuditDetails value =>
+                new LegalDeadlineResponsibleChangedAuditLogDetailsResponse(
+                    value.OldResponsibleMembershipId,
+                    value.NewResponsibleMembershipId),
             _ => throw new InvalidOperationException(
                 "The audit log contains unsupported details.")
         };

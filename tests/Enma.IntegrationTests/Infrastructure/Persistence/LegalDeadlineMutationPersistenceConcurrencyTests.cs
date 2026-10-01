@@ -580,6 +580,7 @@ public sealed class LegalDeadlineMutationPersistenceConcurrencyTests(
     {
         return persistence.ReopenAsync(
             CreateRequest(organizationId, deadlineId),
+            _ => null,
             state =>
             {
                 state.LegalDeadline.Reopen();

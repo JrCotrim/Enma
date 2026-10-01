@@ -52,6 +52,9 @@ public sealed record AuditLogResponse(
 [JsonDerivedType(
     typeof(LegalProcessResponsibleChangedAuditLogDetailsResponse),
     "legal_process.responsible_changed")]
+[JsonDerivedType(
+    typeof(LegalDeadlineResponsibleChangedAuditLogDetailsResponse),
+    "legal_deadline.responsible_changed")]
 public abstract record AuditLogDetailsResponse;
 
 public sealed record OrganizationRenamedAuditLogDetailsResponse(
@@ -90,5 +93,9 @@ public sealed record LegalProcessStatusChangedAuditLogDetailsResponse(
     string NewStatus) : AuditLogDetailsResponse;
 
 public sealed record LegalProcessResponsibleChangedAuditLogDetailsResponse(
+    Guid? OldResponsibleMembershipId,
+    Guid? NewResponsibleMembershipId) : AuditLogDetailsResponse;
+
+public sealed record LegalDeadlineResponsibleChangedAuditLogDetailsResponse(
     Guid? OldResponsibleMembershipId,
     Guid? NewResponsibleMembershipId) : AuditLogDetailsResponse;

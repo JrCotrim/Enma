@@ -20,4 +20,6 @@ public static class LegalDeadlineErrors
         "Legal deadline completion date cannot predate its creation date.";
     public const string CompletedDeadlineDetailsCannotChange =
         "Completed legal deadline details cannot be changed before reopening.";
+    public const string ResponsibleMembershipIdInvalid =
+        "Legal deadline responsible membership must be a valid identifier.";
 }

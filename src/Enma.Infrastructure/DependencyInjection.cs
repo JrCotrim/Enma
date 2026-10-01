@@ -26,6 +26,7 @@ using Enma.Application.Deadlines.Create;
 using Enma.Application.Deadlines.GetById;
 using Enma.Application.Deadlines.List;
 using Enma.Application.Deadlines.Reopen;
+using Enma.Application.Deadlines.Responsible;
 using Enma.Application.Deadlines.Update;
 using Enma.Application.Dashboard;
 using Enma.Application.Documents.Inspection;
@@ -521,6 +522,7 @@ public static class DependencyInjection
         services.AddScoped<GetLegalDeadlineUseCase>();
         services.AddScoped<ListLegalDeadlinesUseCase>();
         services.AddScoped<ReopenLegalDeadlineUseCase>();
+        services.AddScoped<ChangeLegalDeadlineResponsibleUseCase>();
         services.AddScoped<UpdateLegalDeadlineUseCase>();
         services.AddScoped<CreateLegalTaskUseCase>();
         services.AddScoped<ChangeLegalTaskAssigneeUseCase>();

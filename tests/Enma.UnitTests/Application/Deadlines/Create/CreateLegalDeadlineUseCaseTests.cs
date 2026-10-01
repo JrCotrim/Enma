@@ -21,6 +21,12 @@ public sealed class CreateLegalDeadlineUseCaseTests
     private static readonly Guid ProcessId = Guid.Parse(
         "1f1dc5ad-229e-41d5-bebf-6e19b6bbeea2");
 
+    private static readonly Guid ResponsibleMembershipId = Guid.Parse(
+        "c4b9e2d7-1a3f-4e8b-9d6c-2f7a0b5e8d13");
+
+    private static readonly Guid ResponsibleUserId = Guid.Parse(
+        "e1f7a3c9-5b2d-4a6e-8c0f-9d3b7e2a1c58");
+
     private static readonly DateOnly DueDate = new(2026, 9, 15);
 
     private static readonly DateTimeOffset UtcNow = new(
@@ -60,6 +66,97 @@ public sealed class CreateLegalDeadlineUseCaseTests
         Assert.Equal(DueDate, persistence.PersistedDeadline?.DueDate);
         Assert.Equal(UtcNow, persistence.PersistedDeadline?.CreatedAt);
         Assert.Null(persistence.PersistedDeadline?.CompletedAt);
+        Assert.Null(persistence.PersistedDeadline?.ResponsibleMembershipId);
+        Assert.Null(persistence.Request?.ResponsibleMembershipId);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithAvailableResponsible_CreatesWithResponsible()
+    {
+        var processLookup = new FakeProcessOwnershipLookup(true);
+        var persistence = new FakeDeadlineCreationPersistence
+        {
+            ResponsibleMember = CreateResponsibleState(true, true)
+        };
+        CreateLegalDeadlineUseCase useCase = CreateUseCase(
+            OrganizationRole.Administrator,
+            processLookup,
+            persistence);
+
+        CreateLegalDeadlineResult result = await useCase.ExecuteAsync(
+            UserId,
+            OrganizationId,
+            ProcessId,
+            "File Appellate Brief",
+            DueDate,
+            ResponsibleMembershipId);
+
+        Assert.Equal(CreateLegalDeadlineResultStatus.Created, result.Status);
+        Assert.Equal(ResponsibleMembershipId, persistence.Request?.ResponsibleMembershipId);
+        Assert.Equal(
+            ResponsibleMembershipId,
+            persistence.PersistedDeadline?.ResponsibleMembershipId);
+    }
+
+    [Theory]
+    [InlineData("inactive-membership")]
+    [InlineData("inactive-user")]
+    [InlineData("foreign-organization")]
+    [InlineData("missing")]
+    public async Task ExecuteAsync_WithUnavailableResponsible_ReturnsNeutralUnavailableResult(
+        string scenario)
+    {
+        var persistence = new FakeDeadlineCreationPersistence
+        {
+            ResponsibleMember = scenario switch
+            {
+                "inactive-membership" => CreateResponsibleState(false, true),
+                "inactive-user" => CreateResponsibleState(true, false),
+                "foreign-organization" => CreateResponsibleState(
+                    true,
+                    true,
+                    Guid.Parse("7b2e9c4f-0d1a-4f3b-a6e8-5c9d2f7b1e30")),
+                _ => null
+            }
+        };
+        CreateLegalDeadlineUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            new FakeProcessOwnershipLookup(true),
+            persistence);
+
+        CreateLegalDeadlineResult result = await useCase.ExecuteAsync(
+            UserId,
+            OrganizationId,
+            ProcessId,
+            "File Appellate Brief",
+            DueDate,
+            ResponsibleMembershipId);
+
+        Assert.Same(CreateLegalDeadlineResult.RelatedResponsibleUnavailable, result);
+        Assert.Null(persistence.PersistedDeadline);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithEmptyResponsible_ThrowsValidationBeforeLookupAndPersistence()
+    {
+        var processLookup = new FakeProcessOwnershipLookup(true);
+        var persistence = new FakeDeadlineCreationPersistence();
+        CreateLegalDeadlineUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            processLookup,
+            persistence);
+
+        await Assert.ThrowsAsync<RequestValidationException>(() =>
+            useCase.ExecuteAsync(
+                UserId,
+                OrganizationId,
+                ProcessId,
+                "File Appellate Brief",
+                DueDate,
+                Guid.Empty));
+
+        Assert.Equal(0, processLookup.CallCount);
+        Assert.Equal(0, persistence.CallCount);
     }
 
     [Theory]
@@ -277,12 +374,26 @@ public sealed class CreateLegalDeadlineUseCaseTests
             ProcessId,
             "Calendar Deadline",
             DueDate,
-            cancellationTokenSource.Token);
+            cancellationToken: cancellationTokenSource.Token);
 
         Assert.Equal(ProcessId, processLookup.ProcessId);
         Assert.Equal(OrganizationId, processLookup.OrganizationId);
         Assert.Equal(cancellationTokenSource.Token, processLookup.CancellationToken);
         Assert.Equal(cancellationTokenSource.Token, persistence.CancellationToken);
+    }
+
+    private static LegalDeadlineLockedActorState CreateResponsibleState(
+        bool isMembershipActive,
+        bool isUserActive,
+        Guid? organizationId = null)
+    {
+        return new LegalDeadlineLockedActorState(
+            ResponsibleMembershipId,
+            organizationId ?? OrganizationId,
+            ResponsibleUserId,
+            OrganizationRole.Member,
+            isMembershipActive,
+            isUserActive);
     }
 
     private static CreateLegalDeadlineUseCase CreateUseCase(
@@ -360,6 +471,10 @@ public sealed class CreateLegalDeadlineUseCaseTests
 
         public LegalDeadline? PersistedDeadline { get; private set; }
 
+        public LegalDeadlineCreationPersistenceRequest? Request { get; private set; }
+
+        public LegalDeadlineLockedActorState? ResponsibleMember { get; init; }
+
         public CancellationToken CancellationToken { get; private set; }
 
         public Task<LegalDeadlineCreationPersistenceResult> ExecuteAsync(
@@ -368,6 +483,7 @@ public sealed class CreateLegalDeadlineUseCaseTests
             CancellationToken cancellationToken = default)
         {
             CallCount++;
+            Request = request;
             CancellationToken = cancellationToken;
             LegalDeadlineCreationDecision decision = decide(
                 new LegalDeadlineCreationLockedState(
@@ -379,7 +495,10 @@ public sealed class CreateLegalDeadlineUseCaseTests
                         OrganizationRole.Owner,
                         true,
                         true),
-                    true));
+                    true,
+                    request.ResponsibleMembershipId is null
+                        ? null
+                        : ResponsibleMember));
 
             if (decision.Status != LegalDeadlineCreationDecisionStatus.Persist)
             {

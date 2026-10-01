@@ -173,6 +173,9 @@ public abstract class AuditEventDetails
             AuditEventType.LegalProcessResponsibleChanged =>
                 Deserialize<LegalProcessResponsibleChangedAuditDetails>(
                     serializedDetails),
+            AuditEventType.LegalDeadlineResponsibleChanged =>
+                Deserialize<LegalDeadlineResponsibleChangedAuditDetails>(
+                    serializedDetails),
             _ => throw new JsonException(
                 AuditLogErrors.DetailsInvalidForEventType)
         };
@@ -447,6 +450,42 @@ public sealed class LegalProcessStatusChangedAuditDetails : AuditEventDetails
 public sealed class LegalProcessResponsibleChangedAuditDetails : AuditEventDetails
 {
     public LegalProcessResponsibleChangedAuditDetails(
+        Guid? oldResponsibleMembershipId,
+        Guid? newResponsibleMembershipId)
+    {
+        if (oldResponsibleMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.ResponsibleMembershipIdInvalid,
+                nameof(oldResponsibleMembershipId));
+        }
+
+        if (newResponsibleMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.ResponsibleMembershipIdInvalid,
+                nameof(newResponsibleMembershipId));
+        }
+
+        if (oldResponsibleMembershipId == newResponsibleMembershipId)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.DetailsMustRepresentChange,
+                nameof(newResponsibleMembershipId));
+        }
+
+        OldResponsibleMembershipId = oldResponsibleMembershipId;
+        NewResponsibleMembershipId = newResponsibleMembershipId;
+    }
+
+    public Guid? OldResponsibleMembershipId { get; }
+
+    public Guid? NewResponsibleMembershipId { get; }
+}
+
+public sealed class LegalDeadlineResponsibleChangedAuditDetails : AuditEventDetails
+{
+    public LegalDeadlineResponsibleChangedAuditDetails(
         Guid? oldResponsibleMembershipId,
         Guid? newResponsibleMembershipId)
     {

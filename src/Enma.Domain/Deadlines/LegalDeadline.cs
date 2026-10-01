@@ -9,7 +9,8 @@ public sealed class LegalDeadline
         Guid processId,
         string title,
         DateOnly dueDate,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        Guid? responsibleMembershipId = null)
     {
         if (organizationId == Guid.Empty)
         {
@@ -39,12 +40,20 @@ public sealed class LegalDeadline
                 LegalDeadlineErrors.CreatedAtInvalid);
         }
 
+        if (responsibleMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                LegalDeadlineErrors.ResponsibleMembershipIdInvalid,
+                nameof(responsibleMembershipId));
+        }
+
         Id = Guid.NewGuid();
         OrganizationId = organizationId;
         ProcessId = processId;
         Title = NormalizeTitle(title);
         DueDate = dueDate;
         CreatedAt = createdAt;
+        ResponsibleMembershipId = responsibleMembershipId;
     }
 
     public Guid Id { get; private set; }
@@ -60,6 +69,8 @@ public sealed class LegalDeadline
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset? CompletedAt { get; private set; }
+
+    public Guid? ResponsibleMembershipId { get; private set; }
 
     public void Complete(DateTimeOffset completedAt)
     {
@@ -104,6 +115,24 @@ public sealed class LegalDeadline
 
         Title = normalizedTitle;
         DueDate = dueDate;
+    }
+
+    public bool ChangeResponsible(Guid? responsibleMembershipId)
+    {
+        if (responsibleMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                LegalDeadlineErrors.ResponsibleMembershipIdInvalid,
+                nameof(responsibleMembershipId));
+        }
+
+        if (responsibleMembershipId == ResponsibleMembershipId)
+        {
+            return false;
+        }
+
+        ResponsibleMembershipId = responsibleMembershipId;
+        return true;
     }
 
     private static string NormalizeTitle(string title)

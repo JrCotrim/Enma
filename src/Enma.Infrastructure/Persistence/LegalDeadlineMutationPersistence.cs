@@ -35,6 +35,7 @@ public sealed class LegalDeadlineMutationPersistence
     {
         LegalDeadlineMutationOutcome outcome = await MutateAsync(
             request,
+            NoRelatedMembership,
             decide,
             LegalDeadlineMutationOperation.UpdateDetails,
             cancellationToken);
@@ -61,34 +62,74 @@ public sealed class LegalDeadlineMutationPersistence
     {
         LegalDeadlineMutationOutcome outcome = await MutateAsync(
             request,
+            NoRelatedMembership,
             decide,
             LegalDeadlineMutationOperation.Complete,
             cancellationToken);
 
-        return MapLifecycleOutcome(outcome);
+        return MapLifecycleOutcome(outcome, allowConflict: false);
     }
 
     public async Task<LegalDeadlineLifecycleMutationPersistenceResult> ReopenAsync(
         LegalDeadlineMutationPersistenceRequest request,
+        Func<LegalDeadline, Guid?> selectRelatedMembershipToLock,
         Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
         CancellationToken cancellationToken = default)
     {
         LegalDeadlineMutationOutcome outcome = await MutateAsync(
             request,
+            selectRelatedMembershipToLock,
             decide,
             LegalDeadlineMutationOperation.Reopen,
             cancellationToken);
 
-        return MapLifecycleOutcome(outcome);
+        return MapLifecycleOutcome(outcome, allowConflict: true);
+    }
+
+    public async Task<LegalDeadlineResponsibleMutationPersistenceResult>
+        ChangeResponsibleAsync(
+            LegalDeadlineMutationPersistenceRequest request,
+            Func<LegalDeadline, Guid?> selectRelatedMembershipToLock,
+            Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
+            CancellationToken cancellationToken = default)
+    {
+        LegalDeadlineMutationOutcome outcome = await MutateAsync(
+            request,
+            selectRelatedMembershipToLock,
+            decide,
+            LegalDeadlineMutationOperation.ChangeResponsible,
+            cancellationToken);
+
+        return outcome switch
+        {
+            LegalDeadlineMutationOutcome.AccessDenied =>
+                LegalDeadlineResponsibleMutationPersistenceResult.AccessDenied,
+            LegalDeadlineMutationOutcome.NotFound =>
+                LegalDeadlineResponsibleMutationPersistenceResult.NotFound,
+            LegalDeadlineMutationOutcome.RelatedResponsibleUnavailable =>
+                LegalDeadlineResponsibleMutationPersistenceResult
+                    .RelatedResponsibleUnavailable,
+            LegalDeadlineMutationOutcome.Succeeded =>
+                LegalDeadlineResponsibleMutationPersistenceResult.Succeeded,
+            _ => throw new InvalidOperationException(
+                "Legal deadline responsible mutation returned an invalid outcome.")
+        };
+    }
+
+    private static Guid? NoRelatedMembership(LegalDeadline legalDeadline)
+    {
+        return null;
     }
 
     private async Task<LegalDeadlineMutationOutcome> MutateAsync(
         LegalDeadlineMutationPersistenceRequest request,
+        Func<LegalDeadline, Guid?> selectRelatedMembershipToLock,
         Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
         LegalDeadlineMutationOperation operation,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(selectRelatedMembershipToLock);
         ArgumentNullException.ThrowIfNull(decide);
 
         if (request.UserId == Guid.Empty ||
@@ -121,17 +162,23 @@ public sealed class LegalDeadlineMutationPersistence
         string oldTitle = legalDeadline.Title;
         DateOnly oldDueDate = legalDeadline.DueDate;
         DateTimeOffset? oldCompletedAt = legalDeadline.CompletedAt;
-        OrganizationMembership? actorMembership = await LockActorMembershipAsync(
+        Guid? oldResponsibleMembershipId = legalDeadline.ResponsibleMembershipId;
+        Guid? relatedMembershipId = selectRelatedMembershipToLock(legalDeadline);
+
+        if (relatedMembershipId == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "A related membership lock selection cannot contain an empty id.");
+        }
+
+        IEnumerable<Guid> membershipIds = relatedMembershipId is Guid relatedId
+            ? [request.ActorMembershipId, relatedId]
+            : [request.ActorMembershipId];
+        LegalTaskLockedIdentities identities = await LegalTaskIdentityLocking.LockAsync(
             dbContext,
             request.OrganizationId,
-            request.ActorMembershipId,
+            membershipIds,
             cancellationToken);
-        User? actorUser = actorMembership is null
-            ? null
-            : await LockActorUserAsync(
-                dbContext,
-                actorMembership.UserId,
-                cancellationToken);
         Organization? organization = await LockOrganizationAsync(
             dbContext,
             request.OrganizationId,
@@ -140,7 +187,10 @@ public sealed class LegalDeadlineMutationPersistence
             new LegalDeadlineMutationLockedState(
                 legalDeadline,
                 organization?.IsActive == true,
-                CreateActorState(actorMembership, actorUser)));
+                CreateMemberState(request.ActorMembershipId, identities),
+                relatedMembershipId is Guid lockedRelatedId
+                    ? CreateMemberState(lockedRelatedId, identities)
+                    : null));
 
         if (decision.Status == LegalDeadlineMutationDecisionStatus.AccessDenied)
         {
@@ -154,6 +204,13 @@ public sealed class LegalDeadlineMutationPersistence
             return LegalDeadlineMutationOutcome.Conflict;
         }
 
+        if (decision.Status ==
+            LegalDeadlineMutationDecisionStatus.RelatedResponsibleUnavailable)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return LegalDeadlineMutationOutcome.RelatedResponsibleUnavailable;
+        }
+
         if (decision.Status != LegalDeadlineMutationDecisionStatus.Persist)
         {
             throw new InvalidOperationException(
@@ -165,6 +222,7 @@ public sealed class LegalDeadlineMutationPersistence
             oldTitle,
             oldDueDate,
             oldCompletedAt,
+            oldResponsibleMembershipId,
             operation);
 
         if (auditIntent is null)
@@ -173,7 +231,9 @@ public sealed class LegalDeadlineMutationPersistence
             return LegalDeadlineMutationOutcome.Succeeded;
         }
 
-        if (actorMembership is null)
+        if (!identities.MembershipsById.TryGetValue(
+                request.ActorMembershipId,
+                out OrganizationMembership? actorMembership))
         {
             throw new InvalidOperationException(
                 "A legal deadline mutation accepted a missing actor.");
@@ -197,8 +257,39 @@ public sealed class LegalDeadlineMutationPersistence
         string oldTitle,
         DateOnly oldDueDate,
         DateTimeOffset? oldCompletedAt,
+        Guid? oldResponsibleMembershipId,
         LegalDeadlineMutationOperation operation)
     {
+        bool responsibleChanged =
+            legalDeadline.ResponsibleMembershipId != oldResponsibleMembershipId;
+
+        if (responsibleChanged &&
+            operation != LegalDeadlineMutationOperation.ChangeResponsible)
+        {
+            throw new InvalidOperationException(
+                "A deadline decision changed the responsible member.");
+        }
+
+        if (operation == LegalDeadlineMutationOperation.ChangeResponsible)
+        {
+            if (!StringComparer.Ordinal.Equals(oldTitle, legalDeadline.Title) ||
+                oldDueDate != legalDeadline.DueDate ||
+                legalDeadline.CompletedAt != oldCompletedAt)
+            {
+                throw new InvalidOperationException(
+                    "A deadline responsible decision changed another field group.");
+            }
+
+            return responsibleChanged
+                ? new AuditIntent(
+                    AuditEventType.LegalDeadlineResponsibleChanged,
+                    legalDeadline.Id,
+                    new LegalDeadlineResponsibleChangedAuditDetails(
+                        oldResponsibleMembershipId,
+                        legalDeadline.ResponsibleMembershipId))
+                : null;
+        }
+
         if (operation == LegalDeadlineMutationOperation.UpdateDetails)
         {
             if (legalDeadline.CompletedAt != oldCompletedAt)
@@ -259,7 +350,9 @@ public sealed class LegalDeadlineMutationPersistence
     }
 
     private static LegalDeadlineLifecycleMutationPersistenceResult
-        MapLifecycleOutcome(LegalDeadlineMutationOutcome outcome)
+        MapLifecycleOutcome(
+            LegalDeadlineMutationOutcome outcome,
+            bool allowConflict)
     {
         return outcome switch
         {
@@ -269,27 +362,35 @@ public sealed class LegalDeadlineMutationPersistence
                 LegalDeadlineLifecycleMutationPersistenceResult.NotFound,
             LegalDeadlineMutationOutcome.Succeeded =>
                 LegalDeadlineLifecycleMutationPersistenceResult.Succeeded,
+            LegalDeadlineMutationOutcome.Conflict when allowConflict =>
+                LegalDeadlineLifecycleMutationPersistenceResult.Conflict,
             LegalDeadlineMutationOutcome.Conflict =>
                 throw new InvalidOperationException(
-                    "A deadline lifecycle mutation cannot return conflict."),
+                    "A deadline completion cannot return conflict."),
             _ => throw new InvalidOperationException(
                 "Legal deadline mutation returned an invalid outcome.")
         };
     }
 
-    private static LegalDeadlineLockedActorState? CreateActorState(
-        OrganizationMembership? membership,
-        User? user)
+    private static LegalDeadlineLockedActorState? CreateMemberState(
+        Guid membershipId,
+        LegalTaskLockedIdentities identities)
     {
-        return membership is null
-            ? null
-            : new LegalDeadlineLockedActorState(
-                membership.Id,
-                membership.OrganizationId,
-                membership.UserId,
-                membership.Role,
-                membership.IsActive,
-                user?.Id == membership.UserId && user.IsActive);
+        if (!identities.MembershipsById.TryGetValue(
+                membershipId,
+                out OrganizationMembership? membership))
+        {
+            return null;
+        }
+
+        identities.UsersById.TryGetValue(membership.UserId, out User? user);
+        return new LegalDeadlineLockedActorState(
+            membership.Id,
+            membership.OrganizationId,
+            membership.UserId,
+            membership.Role,
+            membership.IsActive,
+            user?.Id == membership.UserId && user.IsActive);
     }
 
     private static async Task<LegalDeadline?> LockDeadlineAsync(
@@ -308,38 +409,6 @@ public sealed class LegalDeadlineMutationPersistence
                     """)
                 .ToListAsync(cancellationToken))
             .SingleOrDefault();
-    }
-
-    private static Task<OrganizationMembership?> LockActorMembershipAsync(
-        EnmaDbContext dbContext,
-        Guid organizationId,
-        Guid actorMembershipId,
-        CancellationToken cancellationToken)
-    {
-        return dbContext.OrganizationMemberships
-            .FromSqlInterpolated(
-                $"""
-                SELECT * FROM organization_memberships
-                WHERE organization_id = {organizationId}
-                  AND id = {actorMembershipId}
-                FOR UPDATE
-                """)
-            .SingleOrDefaultAsync(cancellationToken);
-    }
-
-    private static Task<User?> LockActorUserAsync(
-        EnmaDbContext dbContext,
-        Guid userId,
-        CancellationToken cancellationToken)
-    {
-        return dbContext.Users
-            .FromSqlInterpolated(
-                $"""
-                SELECT * FROM users
-                WHERE id = {userId}
-                FOR UPDATE
-                """)
-            .SingleOrDefaultAsync(cancellationToken);
     }
 
     private static Task<Organization?> LockOrganizationAsync(
@@ -361,7 +430,8 @@ public sealed class LegalDeadlineMutationPersistence
     {
         UpdateDetails = 0,
         Complete = 1,
-        Reopen = 2
+        Reopen = 2,
+        ChangeResponsible = 3
     }
 
     private enum LegalDeadlineMutationOutcome
@@ -369,6 +439,7 @@ public sealed class LegalDeadlineMutationPersistence
         AccessDenied = 0,
         NotFound = 1,
         Conflict = 2,
-        Succeeded = 3
+        Succeeded = 3,
+        RelatedResponsibleUnavailable = 4
     }
 }

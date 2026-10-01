@@ -10,6 +10,12 @@ public sealed class LegalDeadlineTests
     private static readonly Guid ProcessId = Guid.Parse(
         "b2683a8f-18f4-4606-927c-200d91c364cd");
 
+    private static readonly Guid ResponsibleMembershipId = Guid.Parse(
+        "4f1c2b7a-9e3d-4c6b-8a20-5d7e1f3b9c42");
+
+    private static readonly Guid OtherResponsibleMembershipId = Guid.Parse(
+        "a8d3e6f1-2b4c-4e9a-b7d0-3c5f8e1a2b64");
+
     private static readonly DateOnly DueDate = new(2026, 11, 2);
 
     private static readonly DateTimeOffset CreatedAt = new(
@@ -33,6 +39,132 @@ public sealed class LegalDeadlineTests
         Assert.Equal(DueDate, legalDeadline.DueDate);
         Assert.Equal(CreatedAt, legalDeadline.CreatedAt);
         Assert.Null(legalDeadline.CompletedAt);
+        Assert.Null(legalDeadline.ResponsibleMembershipId);
+    }
+
+    [Fact]
+    public void Constructor_WithResponsible_AssignsResponsible()
+    {
+        LegalDeadline legalDeadline = CreateLegalDeadline(ResponsibleMembershipId);
+
+        Assert.Equal(ResponsibleMembershipId, legalDeadline.ResponsibleMembershipId);
+        Assert.Null(legalDeadline.CompletedAt);
+    }
+
+    [Fact]
+    public void Constructor_WithEmptyResponsible_ThrowsArgumentException()
+    {
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            new LegalDeadline(
+                OrganizationId,
+                ProcessId,
+                "File Appellate Brief",
+                DueDate,
+                CreatedAt,
+                Guid.Empty));
+
+        Assert.Equal("responsibleMembershipId", exception.ParamName);
+        Assert.Contains(
+            LegalDeadlineErrors.ResponsibleMembershipIdInvalid,
+            exception.Message);
+    }
+
+    [Fact]
+    public void ChangeResponsible_WithNewResponsible_AssignsAndReportsChange()
+    {
+        LegalDeadline legalDeadline = CreateLegalDeadline();
+
+        bool changed = legalDeadline.ChangeResponsible(ResponsibleMembershipId);
+
+        Assert.True(changed);
+        Assert.Equal(ResponsibleMembershipId, legalDeadline.ResponsibleMembershipId);
+        AssertOriginalDetails(legalDeadline);
+        Assert.Null(legalDeadline.CompletedAt);
+    }
+
+    [Fact]
+    public void ChangeResponsible_WithDifferentResponsible_ReplacesResponsible()
+    {
+        LegalDeadline legalDeadline = CreateLegalDeadline(ResponsibleMembershipId);
+
+        bool changed = legalDeadline.ChangeResponsible(OtherResponsibleMembershipId);
+
+        Assert.True(changed);
+        Assert.Equal(
+            OtherResponsibleMembershipId,
+            legalDeadline.ResponsibleMembershipId);
+    }
+
+    [Fact]
+    public void ChangeResponsible_WithNull_ClearsAndReportsChange()
+    {
+        LegalDeadline legalDeadline = CreateLegalDeadline(ResponsibleMembershipId);
+
+        bool changed = legalDeadline.ChangeResponsible(null);
+
+        Assert.True(changed);
+        Assert.Null(legalDeadline.ResponsibleMembershipId);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ChangeResponsible_WithCurrentValue_IsNoOp(bool hasResponsible)
+    {
+        Guid? current = hasResponsible ? ResponsibleMembershipId : null;
+        LegalDeadline legalDeadline = CreateLegalDeadline(current);
+
+        bool changed = legalDeadline.ChangeResponsible(current);
+
+        Assert.False(changed);
+        Assert.Equal(current, legalDeadline.ResponsibleMembershipId);
+    }
+
+    [Fact]
+    public void ChangeResponsible_WithEmptyId_RejectsWithoutMutation()
+    {
+        LegalDeadline legalDeadline = CreateLegalDeadline(ResponsibleMembershipId);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            legalDeadline.ChangeResponsible(Guid.Empty));
+
+        Assert.Equal("responsibleMembershipId", exception.ParamName);
+        Assert.Contains(
+            LegalDeadlineErrors.ResponsibleMembershipIdInvalid,
+            exception.Message);
+        Assert.Equal(ResponsibleMembershipId, legalDeadline.ResponsibleMembershipId);
+    }
+
+    [Fact]
+    public void ChangeResponsible_WhenCompleted_IsAllowedAndPreservesCompletion()
+    {
+        LegalDeadline legalDeadline = CreateLegalDeadline(ResponsibleMembershipId);
+        DateTimeOffset completedAt = CreatedAt.AddHours(1);
+        legalDeadline.Complete(completedAt);
+
+        bool changed = legalDeadline.ChangeResponsible(OtherResponsibleMembershipId);
+        bool cleared = legalDeadline.ChangeResponsible(null);
+
+        Assert.True(changed);
+        Assert.True(cleared);
+        Assert.Null(legalDeadline.ResponsibleMembershipId);
+        Assert.Equal(completedAt, legalDeadline.CompletedAt);
+        AssertOriginalDetails(legalDeadline);
+    }
+
+    [Fact]
+    public void ChangeDetailsCompleteAndReopen_PreserveResponsible()
+    {
+        LegalDeadline legalDeadline = CreateLegalDeadline(ResponsibleMembershipId);
+
+        legalDeadline.ChangeDetails("Updated title", DueDate.AddDays(1));
+        Assert.Equal(ResponsibleMembershipId, legalDeadline.ResponsibleMembershipId);
+
+        legalDeadline.Complete(CreatedAt.AddHours(1));
+        Assert.Equal(ResponsibleMembershipId, legalDeadline.ResponsibleMembershipId);
+
+        legalDeadline.Reopen();
+        Assert.Equal(ResponsibleMembershipId, legalDeadline.ResponsibleMembershipId);
     }
 
     [Fact]
@@ -390,14 +522,16 @@ public sealed class LegalDeadlineTests
             new DateOnly(2030, 12, 31)
         };
 
-    private static LegalDeadline CreateLegalDeadline()
+    private static LegalDeadline CreateLegalDeadline(
+        Guid? responsibleMembershipId = null)
     {
         return new LegalDeadline(
             OrganizationId,
             ProcessId,
             "File Appellate Brief",
             DueDate,
-            CreatedAt);
+            CreatedAt,
+            responsibleMembershipId);
     }
 
     private static void AssertOriginalDetails(LegalDeadline legalDeadline)

@@ -5,6 +5,11 @@ namespace Enma.Application.Deadlines;
 
 public interface ILegalDeadlineCreationPersistence
 {
+    /// <summary>
+    /// Locks the process, then the actor and the requested responsible membership
+    /// (ordered by id), then their users, then the organization, and runs the
+    /// decision against the locked state.
+    /// </summary>
     Task<LegalDeadlineCreationPersistenceResult> ExecuteAsync(
         LegalDeadlineCreationPersistenceRequest request,
         Func<LegalDeadlineCreationLockedState, LegalDeadlineCreationDecision> decide,
@@ -15,12 +20,14 @@ public sealed record LegalDeadlineCreationPersistenceRequest(
     Guid UserId,
     Guid OrganizationId,
     Guid ActorMembershipId,
-    Guid ProcessId);
+    Guid ProcessId,
+    Guid? ResponsibleMembershipId = null);
 
 public sealed record LegalDeadlineCreationLockedState(
     bool IsOrganizationActive,
     LegalDeadlineLockedActorState? Actor,
-    bool IsProcessAvailable);
+    bool IsProcessAvailable,
+    LegalDeadlineLockedActorState? ResponsibleMember = null);
 
 public sealed record LegalDeadlineLockedActorState(
     Guid MembershipId,
@@ -41,6 +48,14 @@ public sealed record LegalDeadlineLockedActorState(
             IsMembershipActive &&
             IsUserActive &&
             Enum.IsDefined(Role);
+    }
+
+    public bool IsAvailableMemberOf(Guid organizationId, Guid membershipId)
+    {
+        return MembershipId == membershipId &&
+            OrganizationId == organizationId &&
+            IsMembershipActive &&
+            IsUserActive;
     }
 }
 
@@ -67,6 +82,11 @@ public sealed class LegalDeadlineCreationDecision
             LegalDeadlineCreationDecisionStatus.RelatedProcessUnavailable,
             null);
 
+    public static LegalDeadlineCreationDecision RelatedResponsibleUnavailable { get; } =
+        new(
+            LegalDeadlineCreationDecisionStatus.RelatedResponsibleUnavailable,
+            null);
+
     public static LegalDeadlineCreationDecision Persist(
         LegalDeadline legalDeadline)
     {
@@ -82,7 +102,8 @@ public enum LegalDeadlineCreationDecisionStatus
 {
     AccessDenied = 0,
     RelatedProcessUnavailable = 1,
-    Persist = 2
+    Persist = 2,
+    RelatedResponsibleUnavailable = 3
 }
 
 public sealed class LegalDeadlineCreationPersistenceResult

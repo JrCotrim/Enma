@@ -1,4 +1,5 @@
 using Enma.Domain.Clients;
+using Enma.Domain.Deadlines;
 using Enma.Domain.Processes;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -75,6 +76,32 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         {
             throw new InvalidOperationException(
                 "The legacy legal process client must belong to the same organization.");
+        }
+    }
+
+    public static async Task InsertLegalDeadlineWithoutResponsibleColumnAsync(
+        EnmaDbContext dbContext,
+        LegalDeadline legalDeadline)
+    {
+        int insertedRows = await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO legal_deadlines
+                (id, organization_id, process_id, title, due_date, created_at,
+                 completed_at)
+            SELECT
+                {legalDeadline.Id}, legal_processes.organization_id,
+                legal_processes.id, {legalDeadline.Title}, {legalDeadline.DueDate},
+                {legalDeadline.CreatedAt},
+                {legalDeadline.CompletedAt}::timestamp with time zone
+            FROM legal_processes
+            WHERE legal_processes.id = {legalDeadline.ProcessId}
+              AND legal_processes.organization_id = {legalDeadline.OrganizationId}
+            """);
+
+        if (insertedRows != 1)
+        {
+            throw new InvalidOperationException(
+                "The legacy legal deadline process must belong to the same organization.");
         }
     }
 

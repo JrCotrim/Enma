@@ -62,6 +62,10 @@ public sealed class LegalDeadlineConfiguration
             .HasColumnName("completed_at")
             .HasColumnType("timestamp with time zone");
 
+        builder.Property(legalDeadline => legalDeadline.ResponsibleMembershipId)
+            .HasColumnName("responsible_membership_id")
+            .HasColumnType("uuid");
+
         builder.HasAlternateKey(legalDeadline => new
             {
                 legalDeadline.OrganizationId,
@@ -98,6 +102,14 @@ public sealed class LegalDeadlineConfiguration
                 "ix_legal_deadlines_pending_due_date_organization_id_id")
             .HasFilter("completed_at IS NULL");
 
+        builder.HasIndex(legalDeadline => new
+            {
+                legalDeadline.OrganizationId,
+                legalDeadline.ResponsibleMembershipId
+            })
+            .HasDatabaseName(
+                "ix_legal_deadlines_organization_id_responsible_membership_id");
+
         builder.HasOne<Organization>()
             .WithMany()
             .HasForeignKey(legalDeadline => legalDeadline.OrganizationId)
@@ -120,5 +132,21 @@ public sealed class LegalDeadlineConfiguration
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName(
                 "fk_legal_deadlines_legal_processes_organization_id_process_id");
+
+        builder.HasOne<OrganizationMembership>()
+            .WithMany()
+            .HasForeignKey(legalDeadline => new
+            {
+                legalDeadline.OrganizationId,
+                legalDeadline.ResponsibleMembershipId
+            })
+            .HasPrincipalKey(membership => new
+            {
+                membership.OrganizationId,
+                membership.Id
+            })
+            .OnDelete(DeleteBehavior.Restrict)
+            .HasConstraintName(
+                "fk_legal_deadlines_memberships_org_responsible_membership_id");
     }
 }

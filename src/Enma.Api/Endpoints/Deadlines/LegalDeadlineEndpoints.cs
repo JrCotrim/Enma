@@ -10,6 +10,7 @@ using Enma.Application.Deadlines.Create;
 using Enma.Application.Deadlines.GetById;
 using Enma.Application.Deadlines.List;
 using Enma.Application.Deadlines.Reopen;
+using Enma.Application.Deadlines.Responsible;
 using Enma.Application.Deadlines.Update;
 
 namespace Enma.Api.Endpoints.Deadlines;
@@ -92,6 +93,19 @@ public static class LegalDeadlineEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireEnmaAntiforgery();
+
+        group.MapPut("{deadlineId:guid}/responsible", ChangeResponsibleAsync)
+            .WithName("ChangeLegalDeadlineResponsible")
+            .WithSummary("Changes the responsible member of a legal deadline.")
+            .Accepts<ChangeLegalDeadlineResponsibleRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status500InternalServerError)
             .RequireEnmaAntiforgery();
 
@@ -116,6 +130,7 @@ public static class LegalDeadlineEndpoints
             request.ProcessId,
             request.Title,
             request.DueDate,
+            request.ResponsibleMembershipId,
             cancellationToken);
 
         if (result.Status == CreateLegalDeadlineResultStatus.AccessDenied)
@@ -127,6 +142,12 @@ public static class LegalDeadlineEndpoints
             CreateLegalDeadlineResultStatus.RelatedProcessUnavailable)
         {
             return TypedResults.NotFound();
+        }
+
+        if (result.Status ==
+            CreateLegalDeadlineResultStatus.RelatedResponsibleUnavailable)
+        {
+            return CreateRelatedResponsibleUnavailableProblem();
         }
 
         Guid deadlineId = result.DeadlineId
@@ -299,9 +320,57 @@ public static class LegalDeadlineEndpoints
             ReopenLegalDeadlineResultStatus.AccessDenied => TypedResults.Forbid(),
             ReopenLegalDeadlineResultStatus.NotFound => TypedResults.NotFound(),
             ReopenLegalDeadlineResultStatus.Succeeded => TypedResults.NoContent(),
+            ReopenLegalDeadlineResultStatus.CurrentResponsibleUnavailable =>
+                TypedResults.Problem(
+                    title: "Resource conflict",
+                    detail: "The current responsible member is unavailable. Change or " +
+                        "remove the responsible member before reopening the deadline.",
+                    statusCode: StatusCodes.Status409Conflict),
             _ => throw new InvalidOperationException(
                 "The legal deadline reopening returned an unknown status.")
         };
+    }
+
+    private static async Task<IResult> ChangeResponsibleAsync(
+        Guid organizationId,
+        Guid deadlineId,
+        ChangeLegalDeadlineResponsibleRequest request,
+        ClaimsPrincipal principal,
+        ChangeLegalDeadlineResponsibleUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        ChangeLegalDeadlineResponsibleResult result = await useCase.ExecuteAsync(
+            new ChangeLegalDeadlineResponsibleCommand(
+                userId,
+                organizationId,
+                deadlineId,
+                request.ResponsibleMembershipId),
+            cancellationToken);
+
+        return result switch
+        {
+            ChangeLegalDeadlineResponsibleResult.AccessDenied => TypedResults.Forbid(),
+            ChangeLegalDeadlineResponsibleResult.NotFound => TypedResults.NotFound(),
+            ChangeLegalDeadlineResponsibleResult.InvalidInput => TypedResults.BadRequest(),
+            ChangeLegalDeadlineResponsibleResult.RelatedResponsibleUnavailable =>
+                CreateRelatedResponsibleUnavailableProblem(),
+            ChangeLegalDeadlineResponsibleResult.Succeeded => TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "The legal deadline responsible change returned an unknown status.")
+        };
+    }
+
+    private static IResult CreateRelatedResponsibleUnavailableProblem()
+    {
+        return TypedResults.Problem(
+            title: "Related responsible member unavailable",
+            detail: "The requested responsible member is unavailable.",
+            statusCode: StatusCodes.Status400BadRequest);
     }
 
     private static LegalDeadlineListItemResponse MapListItem(

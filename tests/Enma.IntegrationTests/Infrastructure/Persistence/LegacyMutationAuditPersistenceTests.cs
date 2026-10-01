@@ -283,8 +283,8 @@ public sealed class LegacyMutationAuditPersistenceTests(
         await mutation.CompleteAsync(
             request,
             state => Complete(state, OccurredAt.AddHours(2)));
-        await mutation.ReopenAsync(request, Reopen);
-        await mutation.ReopenAsync(request, Reopen);
+        await mutation.ReopenAsync(request, _ => null, Reopen);
+        await mutation.ReopenAsync(request, _ => null, Reopen);
 
         AuditLog[] auditLogs = await FindAuditLogsAsync();
         Assert.Equal(4, auditLogs.Length);
@@ -881,6 +881,7 @@ public sealed class LegacyMutationAuditPersistenceTests(
                 await CreateDeadlineMutationPersistence(options)
                     .ReopenAsync(
                         CreateDeadlineMutationRequest(graph),
+                        _ => null,
                         Reopen);
                 break;
             default:

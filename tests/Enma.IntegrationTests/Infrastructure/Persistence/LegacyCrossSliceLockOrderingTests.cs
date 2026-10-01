@@ -1,6 +1,9 @@
 using System.Data.Common;
 using Enma.Application.Authorization;
 using Enma.Application.Clients;
+using Enma.Application.Deadlines.Create;
+using Enma.Application.Deadlines.Reopen;
+using Enma.Application.Deadlines.Responsible;
 using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Application.Organizations.Members.Role;
 using Enma.Application.Organizations.UpdateName;
@@ -10,8 +13,10 @@ using Enma.Application.Processes.Details;
 using Enma.Application.Processes.Responsible;
 using Enma.Application.Processes.Status;
 using Enma.Application.Tasks;
+using Enma.Application.Tasks.Assignment;
 using Enma.Domain.Auditing;
 using Enma.Domain.Clients;
+using Enma.Domain.Deadlines;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 using Enma.Domain.Tasks;
@@ -919,6 +924,520 @@ public sealed class LegacyCrossSliceLockOrderingTests(
         }
     }
 
+    [Fact]
+    public async Task DeadlineResponsibleAssignmentFirst_BlocksMemberDeactivation()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalDeadline legalDeadline = await SeedDeadlineAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<ChangeLegalDeadlineResponsibleResult> assignment =
+            ChangeDeadlineResponsibleAsync(
+                graph,
+                legalDeadline.Id,
+                graph.TargetMembership.Id,
+                new PauseAfterMembershipLockInterceptor(gate),
+                timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> lifecycle =
+            StartTargetDeactivation(
+                graph,
+                new SignalAfterOrganizationLockInterceptor(gate),
+                timeout.Token);
+
+        try
+        {
+            await gate.OrganizationLocked.WaitAsync(timeout.Token);
+            gate.ReleaseCreation();
+
+            Assert.Equal(
+                ChangeLegalDeadlineResponsibleResult.Succeeded,
+                await assignment.WaitAsync(timeout.Token));
+            Assert.Equal(
+                OrganizationMemberLifecycleMutationPersistenceResult
+                    .ActiveAssignmentsConflict,
+                await lifecycle.WaitAsync(timeout.Token));
+
+            await AssertPendingDeadlinesHaveAvailableResponsibleAsync(
+                graph,
+                timeout.Token);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.Equal(
+                graph.TargetMembership.Id,
+                await GetDeadlineResponsibleAsync(
+                    dbContext,
+                    legalDeadline.Id,
+                    timeout.Token));
+            Assert.Equal(
+                new[] { AuditEventType.LegalDeadlineResponsibleChanged },
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(assignment);
+            await DrainAsync(lifecycle);
+        }
+    }
+
+    [Fact]
+    public async Task MemberDeactivationFirst_RejectsDeadlineResponsibleAssignment()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalDeadline legalDeadline = await SeedDeadlineAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> lifecycle =
+            StartTargetDeactivation(
+                graph,
+                new PauseAfterMembershipLockInterceptor(gate),
+                timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<ChangeLegalDeadlineResponsibleResult> assignment =
+            ChangeDeadlineResponsibleAsync(
+                graph,
+                legalDeadline.Id,
+                graph.TargetMembership.Id,
+                interceptor: null,
+                timeout.Token);
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            Assert.False(assignment.IsCompleted);
+            gate.ReleaseCreation();
+
+            Assert.Equal(
+                OrganizationMemberLifecycleMutationPersistenceResult.Succeeded,
+                await lifecycle.WaitAsync(timeout.Token));
+            Assert.Equal(
+                ChangeLegalDeadlineResponsibleResult.RelatedResponsibleUnavailable,
+                await assignment.WaitAsync(timeout.Token));
+
+            await AssertPendingDeadlinesHaveAvailableResponsibleAsync(
+                graph,
+                timeout.Token);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.Null(await GetDeadlineResponsibleAsync(
+                dbContext,
+                legalDeadline.Id,
+                timeout.Token));
+            Assert.Equal(
+                new[] { AuditEventType.OrganizationMembershipDeactivated },
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(lifecycle);
+            await DrainAsync(assignment);
+        }
+    }
+
+    [Fact]
+    public async Task DeadlineCreationWithResponsibleFirst_BlocksMemberDeactivation()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalProcess legalProcess = await SeedProcessAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<CreateLegalDeadlineResult> creation = CreateDeadlineAsync(
+            graph,
+            legalProcess.Id,
+            graph.TargetMembership.Id,
+            new PauseAfterMembershipLockInterceptor(gate),
+            timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> lifecycle =
+            StartTargetDeactivation(
+                graph,
+                new SignalAfterOrganizationLockInterceptor(gate),
+                timeout.Token);
+
+        try
+        {
+            await gate.OrganizationLocked.WaitAsync(timeout.Token);
+            gate.ReleaseCreation();
+
+            CreateLegalDeadlineResult creationResult =
+                await creation.WaitAsync(timeout.Token);
+            Assert.Equal(
+                CreateLegalDeadlineResultStatus.Created,
+                creationResult.Status);
+            Assert.Equal(
+                OrganizationMemberLifecycleMutationPersistenceResult
+                    .ActiveAssignmentsConflict,
+                await lifecycle.WaitAsync(timeout.Token));
+
+            await AssertPendingDeadlinesHaveAvailableResponsibleAsync(
+                graph,
+                timeout.Token);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.Equal(
+                graph.TargetMembership.Id,
+                await GetDeadlineResponsibleAsync(
+                    dbContext,
+                    Assert.IsType<Guid>(creationResult.DeadlineId),
+                    timeout.Token));
+            Assert.Equal(
+                new[] { AuditEventType.LegalDeadlineCreated },
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(creation);
+            await DrainAsync(lifecycle);
+        }
+    }
+
+    [Fact]
+    public async Task MemberDeactivationFirst_RejectsDeadlineCreationWithResponsible()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalProcess legalProcess = await SeedProcessAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> lifecycle =
+            StartTargetDeactivation(
+                graph,
+                new PauseAfterMembershipLockInterceptor(gate),
+                timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<CreateLegalDeadlineResult> creation = CreateDeadlineAsync(
+            graph,
+            legalProcess.Id,
+            graph.TargetMembership.Id,
+            interceptor: null,
+            timeout.Token);
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            Assert.False(creation.IsCompleted);
+            gate.ReleaseCreation();
+
+            Assert.Equal(
+                OrganizationMemberLifecycleMutationPersistenceResult.Succeeded,
+                await lifecycle.WaitAsync(timeout.Token));
+            Assert.Same(
+                CreateLegalDeadlineResult.RelatedResponsibleUnavailable,
+                await creation.WaitAsync(timeout.Token));
+
+            await AssertPendingDeadlinesHaveAvailableResponsibleAsync(
+                graph,
+                timeout.Token);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.False(await dbContext.LegalDeadlines.AnyAsync(timeout.Token));
+            Assert.Equal(
+                new[] { AuditEventType.OrganizationMembershipDeactivated },
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(lifecycle);
+            await DrainAsync(creation);
+        }
+    }
+
+    [Fact]
+    public async Task DeadlineReopenFirst_BlocksDeactivationOfCurrentResponsible()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalDeadline legalDeadline = await SeedDeadlineAsync(
+            graph,
+            graph.TargetMembership.Id,
+            completed: true);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<ReopenLegalDeadlineResult> reopen = ReopenDeadlineAsync(
+            graph,
+            legalDeadline.Id,
+            new PauseAfterMembershipLockInterceptor(gate),
+            timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> lifecycle =
+            StartTargetDeactivation(
+                graph,
+                new SignalAfterOrganizationLockInterceptor(gate),
+                timeout.Token);
+
+        try
+        {
+            await gate.OrganizationLocked.WaitAsync(timeout.Token);
+            gate.ReleaseCreation();
+
+            Assert.Same(
+                ReopenLegalDeadlineResult.Succeeded,
+                await reopen.WaitAsync(timeout.Token));
+            Assert.Equal(
+                OrganizationMemberLifecycleMutationPersistenceResult
+                    .ActiveAssignmentsConflict,
+                await lifecycle.WaitAsync(timeout.Token));
+
+            await AssertPendingDeadlinesHaveAvailableResponsibleAsync(
+                graph,
+                timeout.Token);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.Equal(
+                new[] { AuditEventType.LegalDeadlineReopened },
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(reopen);
+            await DrainAsync(lifecycle);
+        }
+    }
+
+    [Fact]
+    public async Task MemberDeactivationFirst_RejectsReopeningDeadlineOfResponsible()
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalDeadline legalDeadline = await SeedDeadlineAsync(
+            graph,
+            graph.TargetMembership.Id,
+            completed: true);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        Task<OrganizationMemberLifecycleMutationPersistenceResult> lifecycle =
+            StartTargetDeactivation(
+                graph,
+                new PauseAfterMembershipLockInterceptor(gate),
+                timeout.Token);
+
+        await gate.MembershipLocked.WaitAsync(timeout.Token);
+
+        Task<ReopenLegalDeadlineResult> reopen = ReopenDeadlineAsync(
+            graph,
+            legalDeadline.Id,
+            interceptor: null,
+            timeout.Token);
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            Assert.False(reopen.IsCompleted);
+            gate.ReleaseCreation();
+
+            Assert.Equal(
+                OrganizationMemberLifecycleMutationPersistenceResult.Succeeded,
+                await lifecycle.WaitAsync(timeout.Token));
+            Assert.Same(
+                ReopenLegalDeadlineResult.CurrentResponsibleUnavailable,
+                await reopen.WaitAsync(timeout.Token));
+
+            await AssertPendingDeadlinesHaveAvailableResponsibleAsync(
+                graph,
+                timeout.Token);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.NotNull(await dbContext.LegalDeadlines
+                .AsNoTracking()
+                .Where(candidate => candidate.Id == legalDeadline.Id)
+                .Select(candidate => candidate.CompletedAt)
+                .SingleAsync(timeout.Token));
+            Assert.Equal(
+                new[] { AuditEventType.OrganizationMembershipDeactivated },
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(lifecycle);
+            await DrainAsync(reopen);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DeadlineAndProcessResponsibleMutations_SerializeOnSharedMembershipsWithoutDeadlock(
+        bool deadlineFirst)
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalDeadline legalDeadline = await SeedDeadlineAsync(graph);
+        LegalProcess legalProcess = await SeedProcessAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        var pause = new PauseAfterMembershipLockInterceptor(gate);
+        Task<ChangeLegalDeadlineResponsibleResult> deadlineMutation;
+        Task<ChangeLegalProcessResponsibleResult> processMutation;
+
+        if (deadlineFirst)
+        {
+            deadlineMutation = ChangeDeadlineResponsibleAsync(
+                graph,
+                legalDeadline.Id,
+                graph.TargetMembership.Id,
+                pause,
+                timeout.Token);
+            await gate.MembershipLocked.WaitAsync(timeout.Token);
+            processMutation = ChangeResponsibleAsync(
+                graph,
+                legalProcess.Id,
+                graph.TargetMembership.Id,
+                interceptor: null,
+                timeout.Token);
+        }
+        else
+        {
+            processMutation = ChangeResponsibleAsync(
+                graph,
+                legalProcess.Id,
+                graph.TargetMembership.Id,
+                pause,
+                timeout.Token);
+            await gate.MembershipLocked.WaitAsync(timeout.Token);
+            deadlineMutation = ChangeDeadlineResponsibleAsync(
+                graph,
+                legalDeadline.Id,
+                graph.TargetMembership.Id,
+                interceptor: null,
+                timeout.Token);
+        }
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            Assert.False(deadlineFirst ? processMutation.IsCompleted : deadlineMutation.IsCompleted);
+            gate.ReleaseCreation();
+
+            Assert.Equal(
+                ChangeLegalDeadlineResponsibleResult.Succeeded,
+                await deadlineMutation.WaitAsync(timeout.Token));
+            Assert.Equal(
+                ChangeLegalProcessResponsibleResult.Succeeded,
+                await processMutation.WaitAsync(timeout.Token));
+
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.Equal(
+                graph.TargetMembership.Id,
+                await GetDeadlineResponsibleAsync(
+                    dbContext,
+                    legalDeadline.Id,
+                    timeout.Token));
+            Assert.Equal(
+                graph.TargetMembership.Id,
+                await GetResponsibleAsync(dbContext, legalProcess.Id, timeout.Token));
+            Assert.Equal(
+                new[]
+                {
+                    AuditEventType.LegalProcessResponsibleChanged,
+                    AuditEventType.LegalDeadlineResponsibleChanged
+                }.OrderBy(eventType => eventType),
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(deadlineMutation);
+            await DrainAsync(processMutation);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DeadlineResponsibleAndTaskAssigneeMutations_SerializeOnSharedMembershipsWithoutDeadlock(
+        bool deadlineFirst)
+    {
+        TestGraph graph = await SeedGraphAsync();
+        LegalDeadline legalDeadline = await SeedDeadlineAsync(graph);
+        LegalTask legalTask = await SeedLegalTaskAsync(graph);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var gate = new CrossSliceLockGate();
+        var pause = new PauseAfterMembershipLockInterceptor(gate);
+        Task<ChangeLegalDeadlineResponsibleResult> deadlineMutation;
+        Task<ChangeLegalTaskAssigneeResult> taskMutation;
+
+        if (deadlineFirst)
+        {
+            deadlineMutation = ChangeDeadlineResponsibleAsync(
+                graph,
+                legalDeadline.Id,
+                graph.TargetMembership.Id,
+                pause,
+                timeout.Token);
+            await gate.MembershipLocked.WaitAsync(timeout.Token);
+            taskMutation = ChangeTaskAssigneeAsync(
+                graph,
+                legalTask.Id,
+                graph.TargetMembership.Id,
+                interceptor: null,
+                timeout.Token);
+        }
+        else
+        {
+            taskMutation = ChangeTaskAssigneeAsync(
+                graph,
+                legalTask.Id,
+                graph.TargetMembership.Id,
+                pause,
+                timeout.Token);
+            await gate.MembershipLocked.WaitAsync(timeout.Token);
+            deadlineMutation = ChangeDeadlineResponsibleAsync(
+                graph,
+                legalDeadline.Id,
+                graph.TargetMembership.Id,
+                interceptor: null,
+                timeout.Token);
+        }
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            Assert.False(deadlineFirst ? taskMutation.IsCompleted : deadlineMutation.IsCompleted);
+            gate.ReleaseCreation();
+
+            Assert.Equal(
+                ChangeLegalDeadlineResponsibleResult.Succeeded,
+                await deadlineMutation.WaitAsync(timeout.Token));
+            Assert.Equal(
+                ChangeLegalTaskAssigneeResult.Succeeded,
+                await taskMutation.WaitAsync(timeout.Token));
+
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.Equal(
+                graph.TargetMembership.Id,
+                await GetDeadlineResponsibleAsync(
+                    dbContext,
+                    legalDeadline.Id,
+                    timeout.Token));
+            Assert.Equal(
+                graph.TargetMembership.Id,
+                await dbContext.LegalTasks
+                    .AsNoTracking()
+                    .Where(candidate => candidate.Id == legalTask.Id)
+                    .Select(candidate => candidate.AssigneeMembershipId)
+                    .SingleAsync(timeout.Token));
+            Assert.Equal(
+                new[]
+                {
+                    AuditEventType.LegalTaskAssigneeChanged,
+                    AuditEventType.LegalDeadlineResponsibleChanged
+                }.OrderBy(eventType => eventType),
+                await FindAuditTypesAsync(dbContext, timeout.Token));
+        }
+        finally
+        {
+            gate.ReleaseCreation();
+            await DrainAsync(deadlineMutation);
+            await DrainAsync(taskMutation);
+        }
+    }
+
     private async Task<ChangeLegalProcessResponsibleResult> ChangeResponsibleAsync(
         TestGraph graph,
         Guid processId,
@@ -1440,6 +1959,187 @@ public sealed class LegacyCrossSliceLockOrderingTests(
         catch (Exception)
         {
         }
+    }
+
+    private async Task<ChangeLegalDeadlineResponsibleResult>
+        ChangeDeadlineResponsibleAsync(
+            TestGraph graph,
+            Guid deadlineId,
+            Guid? responsibleMembershipId,
+            DbCommandInterceptor? interceptor,
+            CancellationToken cancellationToken)
+    {
+        await using EnmaDbContext authorizationContext = fixture.CreateDbContext();
+        var useCase = new ChangeLegalDeadlineResponsibleUseCase(
+            CreateDeadlineAuthorization(authorizationContext),
+            CreateDeadlineMutationPersistence(interceptor));
+
+        return await useCase.ExecuteAsync(
+            new ChangeLegalDeadlineResponsibleCommand(
+                graph.ActorUser.Id,
+                graph.Organization.Id,
+                deadlineId,
+                responsibleMembershipId),
+            cancellationToken);
+    }
+
+    private async Task<ReopenLegalDeadlineResult> ReopenDeadlineAsync(
+        TestGraph graph,
+        Guid deadlineId,
+        DbCommandInterceptor? interceptor,
+        CancellationToken cancellationToken)
+    {
+        await using EnmaDbContext authorizationContext = fixture.CreateDbContext();
+        var useCase = new ReopenLegalDeadlineUseCase(
+            CreateDeadlineAuthorization(authorizationContext),
+            CreateDeadlineMutationPersistence(interceptor));
+
+        return await useCase.ExecuteAsync(
+            graph.ActorUser.Id,
+            graph.Organization.Id,
+            deadlineId,
+            cancellationToken);
+    }
+
+    private async Task<CreateLegalDeadlineResult> CreateDeadlineAsync(
+        TestGraph graph,
+        Guid processId,
+        Guid? responsibleMembershipId,
+        DbCommandInterceptor? interceptor,
+        CancellationToken cancellationToken)
+    {
+        await using EnmaDbContext authorizationContext = fixture.CreateDbContext();
+        var timeProvider = new FixedTimeProvider(Now.AddMinutes(3));
+        var useCase = new CreateLegalDeadlineUseCase(
+            CreateDeadlineAuthorization(authorizationContext),
+            new ProcessOrganizationOwnershipLookup(authorizationContext),
+            new LegalDeadlineCreationPersistence(
+                CreateOptions(interceptor),
+                timeProvider),
+            timeProvider);
+
+        return await useCase.ExecuteAsync(
+            graph.ActorUser.Id,
+            graph.Organization.Id,
+            processId,
+            "Created With Responsible",
+            new DateOnly(2026, 9, 15),
+            responsibleMembershipId,
+            cancellationToken);
+    }
+
+    private async Task<ChangeLegalTaskAssigneeResult> ChangeTaskAssigneeAsync(
+        TestGraph graph,
+        Guid taskId,
+        Guid? assigneeMembershipId,
+        DbCommandInterceptor? interceptor,
+        CancellationToken cancellationToken)
+    {
+        await using EnmaDbContext authorizationContext = fixture.CreateDbContext();
+        var useCase = new ChangeLegalTaskAssigneeUseCase(
+            new OrganizationAccessAuthorization(
+                new OrganizationAccessLookup(authorizationContext)),
+            new LegalTaskMutationAuthorization(),
+            new LegalTaskMutationPersistence(
+                CreateOptions(interceptor),
+                new FixedTimeProvider(Now.AddMinutes(2))));
+
+        return await useCase.ExecuteAsync(
+            new ChangeLegalTaskAssigneeCommand(
+                graph.ActorUser.Id,
+                graph.Organization.Id,
+                taskId,
+                assigneeMembershipId),
+            cancellationToken);
+    }
+
+    private static DeadlineActionAuthorization CreateDeadlineAuthorization(
+        EnmaDbContext dbContext)
+    {
+        return new DeadlineActionAuthorization(
+            new OrganizationAccessAuthorization(
+                new OrganizationAccessLookup(dbContext)));
+    }
+
+    private LegalDeadlineMutationPersistence CreateDeadlineMutationPersistence(
+        DbCommandInterceptor? interceptor)
+    {
+        return new LegalDeadlineMutationPersistence(
+            CreateOptions(interceptor),
+            new FixedTimeProvider(Now.AddMinutes(2)));
+    }
+
+    private DbContextOptions<EnmaDbContext> CreateOptions(
+        DbCommandInterceptor? interceptor)
+    {
+        DbContextOptionsBuilder<EnmaDbContext> builder =
+            new DbContextOptionsBuilder<EnmaDbContext>()
+                .UseNpgsql(fixture.ConnectionString);
+
+        if (interceptor is not null)
+        {
+            builder.AddInterceptors(interceptor);
+        }
+
+        return builder.Options;
+    }
+
+    private async Task<LegalDeadline> SeedDeadlineAsync(
+        TestGraph graph,
+        Guid? responsibleMembershipId = null,
+        bool completed = false)
+    {
+        LegalProcess legalProcess = await SeedProcessAsync(graph);
+        var legalDeadline = new LegalDeadline(
+            graph.Organization.Id,
+            legalProcess.Id,
+            "Original Deadline",
+            new DateOnly(2026, 9, 10),
+            Now,
+            responsibleMembershipId);
+
+        if (completed)
+        {
+            legalDeadline.Complete(Now.AddMinutes(1));
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        dbContext.Add(legalDeadline);
+        await dbContext.SaveChangesAsync();
+
+        return legalDeadline;
+    }
+
+    private async Task AssertPendingDeadlinesHaveAvailableResponsibleAsync(
+        TestGraph graph,
+        CancellationToken cancellationToken)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        int violations = await (
+                from legalDeadline in dbContext.LegalDeadlines.AsNoTracking()
+                join membership in dbContext.OrganizationMemberships.AsNoTracking()
+                    on legalDeadline.ResponsibleMembershipId equals (Guid?)membership.Id
+                join user in dbContext.Users.AsNoTracking()
+                    on membership.UserId equals user.Id
+                where legalDeadline.OrganizationId == graph.Organization.Id &&
+                    legalDeadline.CompletedAt == null &&
+                    (!membership.IsActive || !user.IsActive)
+                select legalDeadline.Id)
+            .CountAsync(cancellationToken);
+
+        Assert.Equal(0, violations);
+    }
+
+    private static Task<Guid?> GetDeadlineResponsibleAsync(
+        EnmaDbContext dbContext,
+        Guid deadlineId,
+        CancellationToken cancellationToken)
+    {
+        return dbContext.LegalDeadlines
+            .AsNoTracking()
+            .Where(candidate => candidate.Id == deadlineId)
+            .Select(candidate => candidate.ResponsibleMembershipId)
+            .SingleAsync(cancellationToken);
     }
 
     private sealed record TestGraph(

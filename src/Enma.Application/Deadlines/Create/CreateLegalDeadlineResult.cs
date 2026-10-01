@@ -22,6 +22,10 @@ public sealed class CreateLegalDeadlineResult
         CreateLegalDeadlineResultStatus.RelatedProcessUnavailable,
         null);
 
+    public static CreateLegalDeadlineResult RelatedResponsibleUnavailable { get; } = new(
+        CreateLegalDeadlineResultStatus.RelatedResponsibleUnavailable,
+        null);
+
     public static CreateLegalDeadlineResult Created(Guid deadlineId)
     {
         if (deadlineId == Guid.Empty)
@@ -41,5 +45,6 @@ public enum CreateLegalDeadlineResultStatus
 {
     AccessDenied = 0,
     RelatedProcessUnavailable = 1,
-    Created = 2
+    Created = 2,
+    RelatedResponsibleUnavailable = 3
 }

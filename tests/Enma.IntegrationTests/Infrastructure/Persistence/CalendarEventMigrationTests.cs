@@ -109,9 +109,10 @@ public sealed class CalendarEventMigrationTests(
             await PostgreSqlFixture.InsertLegalProcessWithoutOperationalColumnsAsync(
                 seedContext,
                 graph.LegalProcess);
-            seedContext.AddRange(
-                graph.LegalDeadline,
-                graph.LegalTask);
+            await PostgreSqlFixture.InsertLegalDeadlineWithoutResponsibleColumnAsync(
+                seedContext,
+                graph.LegalDeadline);
+            seedContext.Add(graph.LegalTask);
             await seedContext.SaveChangesAsync();
             LegalDocument document = graph.LegalDocument;
             await seedContext.Database.ExecuteSqlInterpolatedAsync(

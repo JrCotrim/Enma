@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Domain.Deadlines;
 
 namespace Enma.Application.Deadlines.Reopen;
 
@@ -49,6 +50,7 @@ public sealed class ReopenLegalDeadlineUseCase
         LegalDeadlineLifecycleMutationPersistenceResult persistenceResult =
             await _mutationPersistence.ReopenAsync(
                 request,
+                SelectCurrentResponsibleToLock,
                 state => DecideReopening(request, state),
                 cancellationToken);
 
@@ -60,6 +62,8 @@ public sealed class ReopenLegalDeadlineUseCase
                 ReopenLegalDeadlineResult.NotFound,
             LegalDeadlineLifecycleMutationPersistenceResult.Succeeded =>
                 ReopenLegalDeadlineResult.Succeeded,
+            LegalDeadlineLifecycleMutationPersistenceResult.Conflict =>
+                ReopenLegalDeadlineResult.CurrentResponsibleUnavailable,
             _ => throw new InvalidOperationException(
                 "Legal deadline mutation persistence returned an invalid result.")
         };
@@ -82,7 +86,25 @@ public sealed class ReopenLegalDeadlineUseCase
             return LegalDeadlineMutationDecision.AccessDenied;
         }
 
-        state.LegalDeadline.Reopen();
+        LegalDeadline legalDeadline = state.LegalDeadline;
+
+        if (legalDeadline.CompletedAt is not null &&
+            legalDeadline.ResponsibleMembershipId is Guid responsibleMembershipId &&
+            state.RelatedMember?.IsAvailableMemberOf(
+                request.OrganizationId,
+                responsibleMembershipId) != true)
+        {
+            return LegalDeadlineMutationDecision.Conflict;
+        }
+
+        legalDeadline.Reopen();
         return LegalDeadlineMutationDecision.Persist;
+    }
+
+    private static Guid? SelectCurrentResponsibleToLock(LegalDeadline legalDeadline)
+    {
+        return legalDeadline.CompletedAt is not null
+            ? legalDeadline.ResponsibleMembershipId
+            : null;
     }
 }

@@ -258,7 +258,8 @@ public sealed class LegalDeadlinePersistenceTests(
                 nameof(LegalDeadline.Title),
                 nameof(LegalDeadline.DueDate),
                 nameof(LegalDeadline.CreatedAt),
-                nameof(LegalDeadline.CompletedAt)
+                nameof(LegalDeadline.CompletedAt),
+                nameof(LegalDeadline.ResponsibleMembershipId)
             ],
             entityType.GetProperties()
                 .Select(property => property.Name)
@@ -270,7 +271,8 @@ public sealed class LegalDeadlinePersistenceTests(
                         nameof(LegalDeadline.Title),
                         nameof(LegalDeadline.DueDate),
                         nameof(LegalDeadline.CreatedAt),
-                        nameof(LegalDeadline.CompletedAt)
+                        nameof(LegalDeadline.CompletedAt),
+                        nameof(LegalDeadline.ResponsibleMembershipId)
                     ],
                     name))
                 .ToArray());
@@ -290,6 +292,13 @@ public sealed class LegalDeadlinePersistenceTests(
         Assert.True(
             entityType.FindProperty(nameof(LegalDeadline.CompletedAt))!.IsNullable);
         Assert.Equal(
+            "uuid",
+            entityType.FindProperty(nameof(LegalDeadline.ResponsibleMembershipId))!
+                .GetColumnType());
+        Assert.True(
+            entityType.FindProperty(nameof(LegalDeadline.ResponsibleMembershipId))!
+                .IsNullable);
+        Assert.Equal(
             150,
             entityType.FindProperty(nameof(LegalDeadline.Title))!.GetMaxLength());
         Assert.Empty(entityType.GetNavigations());
@@ -305,7 +314,18 @@ public sealed class LegalDeadlinePersistenceTests(
                 .ToArray());
 
         IIndex[] indexes = entityType.GetIndexes().ToArray();
-        Assert.Equal(3, indexes.Length);
+        Assert.Equal(4, indexes.Length);
+        Assert.Contains(
+            indexes,
+            index => index.GetDatabaseName() ==
+                    "ix_legal_deadlines_organization_id_responsible_membership_id" &&
+                index.GetFilter() is null &&
+                index.Properties.Select(property => property.Name)
+                    .SequenceEqual(
+                        [
+                            nameof(LegalDeadline.OrganizationId),
+                            nameof(LegalDeadline.ResponsibleMembershipId)
+                        ]));
         Assert.Contains(
             indexes,
             index => index.Properties.Select(property => property.Name)
@@ -360,6 +380,25 @@ public sealed class LegalDeadlinePersistenceTests(
             processForeignKey.PrincipalKey.Properties
                 .Select(property => property.Name)
                 .ToArray());
+
+        IForeignKey responsibleForeignKey = Assert.Single(
+            entityType.GetForeignKeys(),
+            foreignKey => foreignKey.PrincipalEntityType.ClrType ==
+                typeof(OrganizationMembership));
+        Assert.Equal(DeleteBehavior.Restrict, responsibleForeignKey.DeleteBehavior);
+        Assert.False(responsibleForeignKey.IsRequired);
+        Assert.Equal(
+            [
+                nameof(LegalDeadline.OrganizationId),
+                nameof(LegalDeadline.ResponsibleMembershipId)
+            ],
+            responsibleForeignKey.Properties.Select(property => property.Name).ToArray());
+        Assert.Equal(
+            [nameof(OrganizationMembership.OrganizationId), nameof(OrganizationMembership.Id)],
+            responsibleForeignKey.PrincipalKey.Properties
+                .Select(property => property.Name)
+                .ToArray());
+        Assert.Equal(3, entityType.GetForeignKeys().Count());
     }
 
     [Fact]
@@ -383,6 +422,15 @@ public sealed class LegalDeadlinePersistenceTests(
             "RESTRICT",
             await GetDeleteRuleAsync(
                 "fk_legal_deadlines_organizations_organization_id"));
+        Assert.Equal(
+            "organization_id,responsible_membership_id",
+            await GetConstraintColumnsAsync(
+                "fk_legal_deadlines_memberships_org_responsible_membership_id",
+                "FOREIGN KEY"));
+        Assert.Equal(
+            "RESTRICT",
+            await GetDeleteRuleAsync(
+                "fk_legal_deadlines_memberships_org_responsible_membership_id"));
         Assert.Equal(
             "organization_id,id",
             await GetConstraintColumnsAsync(
@@ -409,6 +457,13 @@ public sealed class LegalDeadlinePersistenceTests(
         Assert.NotNull(workerIndex);
         Assert.Contains("(due_date, organization_id, id)", workerIndex);
         Assert.Contains("WHERE (completed_at IS NULL)", workerIndex);
+        string? responsibleIndex = await GetIndexDefinitionAsync(
+            "ix_legal_deadlines_organization_id_responsible_membership_id");
+        Assert.NotNull(responsibleIndex);
+        Assert.Contains(
+            "(organization_id, responsible_membership_id)",
+            responsibleIndex);
+        Assert.DoesNotContain("WHERE", responsibleIndex, StringComparison.Ordinal);
         Assert.Null(await GetIndexDefinitionAsync(
             "ix_legal_deadlines_organization_id"));
         Assert.Null(await GetIndexDefinitionAsync(
@@ -421,8 +476,10 @@ public sealed class LegalDeadlinePersistenceTests(
         Assert.Equal(
             "timestamp with time zone",
             await GetColumnTypeAsync("completed_at"));
+        Assert.Equal("uuid", await GetColumnTypeAsync("responsible_membership_id"));
         Assert.Equal(
-            "id,organization_id,process_id,title,due_date,created_at,completed_at",
+            "id,organization_id,process_id,title,due_date,created_at,completed_at," +
+            "responsible_membership_id",
             await GetTableColumnsAsync());
     }
 

@@ -7,4 +7,6 @@ public sealed class CreateLegalDeadlineRequest
     public required string Title { get; init; }
 
     public required DateOnly DueDate { get; init; }
+
+    public Guid? ResponsibleMembershipId { get; init; }
 }

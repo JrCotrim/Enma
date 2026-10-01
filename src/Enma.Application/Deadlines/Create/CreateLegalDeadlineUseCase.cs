@@ -34,6 +34,7 @@ public sealed class CreateLegalDeadlineUseCase
         Guid processId,
         string title,
         DateOnly dueDate,
+        Guid? responsibleMembershipId = null,
         CancellationToken cancellationToken = default)
     {
         OrganizationAccessAuthorizationResult authorization =
@@ -46,6 +47,12 @@ public sealed class CreateLegalDeadlineUseCase
         if (authorization.MembershipId is not Guid actorMembershipId)
         {
             return CreateLegalDeadlineResult.AccessDenied;
+        }
+
+        if (responsibleMembershipId == Guid.Empty)
+        {
+            throw new RequestValidationException(
+                LegalDeadlineErrors.ResponsibleMembershipIdInvalid);
         }
 
         bool processExists = processId != Guid.Empty &&
@@ -63,7 +70,8 @@ public sealed class CreateLegalDeadlineUseCase
             userId,
             organizationId,
             actorMembershipId,
-            processId);
+            processId,
+            responsibleMembershipId);
         LegalDeadlineCreationPersistenceResult persistenceResult =
             await _creationPersistence.ExecuteAsync(
                 request,
@@ -80,6 +88,8 @@ public sealed class CreateLegalDeadlineUseCase
                 CreateLegalDeadlineResult.AccessDenied,
             LegalDeadlineCreationDecisionStatus.RelatedProcessUnavailable =>
                 CreateLegalDeadlineResult.RelatedProcessUnavailable,
+            LegalDeadlineCreationDecisionStatus.RelatedResponsibleUnavailable =>
+                CreateLegalDeadlineResult.RelatedResponsibleUnavailable,
             LegalDeadlineCreationDecisionStatus.Persist
                 when persistenceResult.DeadlineId is Guid deadlineId =>
                 CreateLegalDeadlineResult.Created(deadlineId),
@@ -110,13 +120,22 @@ public sealed class CreateLegalDeadlineUseCase
             return LegalDeadlineCreationDecision.RelatedProcessUnavailable;
         }
 
+        if (request.ResponsibleMembershipId is Guid responsibleMembershipId &&
+            state.ResponsibleMember?.IsAvailableMemberOf(
+                request.OrganizationId,
+                responsibleMembershipId) != true)
+        {
+            return LegalDeadlineCreationDecision.RelatedResponsibleUnavailable;
+        }
+
         return LegalDeadlineCreationDecision.Persist(
             CreateLegalDeadline(
                 request.OrganizationId,
                 request.ProcessId,
                 title,
                 dueDate,
-                _timeProvider.GetUtcNow()));
+                _timeProvider.GetUtcNow(),
+                request.ResponsibleMembershipId));
     }
 
     private static LegalDeadline CreateLegalDeadline(
@@ -124,7 +143,8 @@ public sealed class CreateLegalDeadlineUseCase
         Guid processId,
         string title,
         DateOnly dueDate,
-        DateTimeOffset createdAt)
+        DateTimeOffset createdAt,
+        Guid? responsibleMembershipId)
     {
         try
         {
@@ -133,7 +153,8 @@ public sealed class CreateLegalDeadlineUseCase
                 processId,
                 title,
                 dueDate,
-                createdAt);
+                createdAt,
+                responsibleMembershipId);
         }
         catch (ArgumentException exception) when (
             exception.ParamName is "title" or "dueDate")

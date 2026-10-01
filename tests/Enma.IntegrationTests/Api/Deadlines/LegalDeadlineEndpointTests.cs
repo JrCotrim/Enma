@@ -80,9 +80,13 @@ public sealed class LegalDeadlineEndpointTests : IAsyncLifetime
             [
                 nameof(CreateLegalDeadlineRequest.ProcessId),
                 nameof(CreateLegalDeadlineRequest.Title),
-                nameof(CreateLegalDeadlineRequest.DueDate)
+                nameof(CreateLegalDeadlineRequest.DueDate),
+                nameof(CreateLegalDeadlineRequest.ResponsibleMembershipId)
             ],
             GetPropertyNames<CreateLegalDeadlineRequest>());
+        Assert.Equal(
+            [nameof(ChangeLegalDeadlineResponsibleRequest.ResponsibleMembershipId)],
+            GetPropertyNames<ChangeLegalDeadlineResponsibleRequest>());
         Assert.Equal(
             [
                 nameof(UpdateLegalDeadlineRequest.Title),
@@ -148,6 +152,7 @@ public sealed class LegalDeadlineEndpointTests : IAsyncLifetime
         [
             typeof(CreateLegalDeadlineRequest),
             typeof(UpdateLegalDeadlineRequest),
+            typeof(ChangeLegalDeadlineResponsibleRequest),
             typeof(CreateLegalDeadlineResponse),
             typeof(LegalDeadlineListItemResponse),
             typeof(LegalDeadlineResponse),

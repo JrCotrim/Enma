@@ -56,7 +56,8 @@ public enum AuditEventType
     LegalDocumentDeleted = 32,
     LegalProcessDetailsChanged = 33,
     LegalProcessStatusChanged = 34,
-    LegalProcessResponsibleChanged = 35
+    LegalProcessResponsibleChanged = 35,
+    LegalDeadlineResponsibleChanged = 36
 }
 
 public static class AuditEventTypeExtensions
@@ -115,6 +116,8 @@ public static class AuditEventTypeExtensions
                 "legal_process.status_changed",
             AuditEventType.LegalProcessResponsibleChanged =>
                 "legal_process.responsible_changed",
+            AuditEventType.LegalDeadlineResponsibleChanged =>
+                "legal_deadline.responsible_changed",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -144,7 +147,9 @@ public static class AuditEventTypeExtensions
             AuditEventType.LegalDeadlineCreated or
                 AuditEventType.LegalDeadlineDetailsChanged or
                 AuditEventType.LegalDeadlineCompleted or
-                AuditEventType.LegalDeadlineReopened => AuditEntityType.LegalDeadline,
+                AuditEventType.LegalDeadlineReopened or
+                AuditEventType.LegalDeadlineResponsibleChanged =>
+                AuditEntityType.LegalDeadline,
             AuditEventType.LegalTaskCreated or
                 AuditEventType.LegalTaskDetailsChanged or
                 AuditEventType.LegalTaskAssigneeChanged or
@@ -200,6 +205,8 @@ public static class AuditEventTypeExtensions
                 typeof(LegalProcessStatusChangedAuditDetails),
             AuditEventType.LegalProcessResponsibleChanged =>
                 typeof(LegalProcessResponsibleChangedAuditDetails),
+            AuditEventType.LegalDeadlineResponsibleChanged =>
+                typeof(LegalDeadlineResponsibleChangedAuditDetails),
             AuditEventType.OrganizationMembershipDeactivated or
                 AuditEventType.OrganizationMembershipReactivated or
                 AuditEventType.ClientCreated or

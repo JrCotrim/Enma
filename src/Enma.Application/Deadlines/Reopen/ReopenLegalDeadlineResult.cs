@@ -17,11 +17,15 @@ public sealed class ReopenLegalDeadlineResult
 
     public static ReopenLegalDeadlineResult Succeeded { get; } = new(
         ReopenLegalDeadlineResultStatus.Succeeded);
+
+    public static ReopenLegalDeadlineResult CurrentResponsibleUnavailable { get; } =
+        new(ReopenLegalDeadlineResultStatus.CurrentResponsibleUnavailable);
 }
 
 public enum ReopenLegalDeadlineResultStatus
 {
     AccessDenied = 0,
     NotFound = 1,
-    Succeeded = 2
+    Succeeded = 2,
+    CurrentResponsibleUnavailable = 3
 }

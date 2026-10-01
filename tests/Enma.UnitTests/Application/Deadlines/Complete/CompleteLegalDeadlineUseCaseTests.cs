@@ -271,8 +271,19 @@ public sealed class CompleteLegalDeadlineUseCaseTests
 
         public Task<LegalDeadlineLifecycleMutationPersistenceResult> ReopenAsync(
             LegalDeadlineMutationPersistenceRequest request,
+            Func<LegalDeadline, Guid?> selectRelatedMembershipToLock,
             Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
             CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<LegalDeadlineResponsibleMutationPersistenceResult>
+            ChangeResponsibleAsync(
+                LegalDeadlineMutationPersistenceRequest request,
+                Func<LegalDeadline, Guid?> selectRelatedMembershipToLock,
+                Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
+                CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException();
         }

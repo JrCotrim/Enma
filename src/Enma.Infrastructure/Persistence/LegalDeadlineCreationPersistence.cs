@@ -45,6 +45,12 @@ public sealed class LegalDeadlineCreationPersistence
                 LegalDeadlineCreationDecisionStatus.AccessDenied);
         }
 
+        if (request.ResponsibleMembershipId == Guid.Empty)
+        {
+            return LegalDeadlineCreationPersistenceResult.Rejected(
+                LegalDeadlineCreationDecisionStatus.RelatedResponsibleUnavailable);
+        }
+
         await using var dbContext = new EnmaDbContext(_dbContextOptions);
         await using IDbContextTransaction transaction =
             await dbContext.Database.BeginTransactionAsync(
@@ -56,17 +62,15 @@ public sealed class LegalDeadlineCreationPersistence
             request.OrganizationId,
             request.ProcessId,
             cancellationToken);
-        OrganizationMembership? actorMembership = await LockActorMembershipAsync(
+        IEnumerable<Guid> membershipIds =
+            request.ResponsibleMembershipId is Guid responsibleId
+                ? [request.ActorMembershipId, responsibleId]
+                : [request.ActorMembershipId];
+        LegalTaskLockedIdentities identities = await LegalTaskIdentityLocking.LockAsync(
             dbContext,
             request.OrganizationId,
-            request.ActorMembershipId,
+            membershipIds,
             cancellationToken);
-        User? actorUser = actorMembership is null
-            ? null
-            : await LockActorUserAsync(
-                dbContext,
-                actorMembership.UserId,
-                cancellationToken);
         Organization? organization = await LockOrganizationAsync(
             dbContext,
             request.OrganizationId,
@@ -74,8 +78,11 @@ public sealed class LegalDeadlineCreationPersistence
         LegalDeadlineCreationDecision decision = decide(
             new LegalDeadlineCreationLockedState(
                 organization?.IsActive == true,
-                CreateActorState(actorMembership, actorUser),
-                legalProcess is not null));
+                CreateMemberState(request.ActorMembershipId, identities),
+                legalProcess is not null,
+                request.ResponsibleMembershipId is Guid lockedResponsibleId
+                    ? CreateMemberState(lockedResponsibleId, identities)
+                    : null));
 
         if (decision.Status != LegalDeadlineCreationDecisionStatus.Persist)
         {
@@ -86,7 +93,10 @@ public sealed class LegalDeadlineCreationPersistence
         if (decision.LegalDeadline is not { } legalDeadline ||
             legalDeadline.OrganizationId != request.OrganizationId ||
             legalDeadline.ProcessId != request.ProcessId ||
-            actorMembership is null)
+            legalDeadline.ResponsibleMembershipId != request.ResponsibleMembershipId ||
+            !identities.MembershipsById.TryGetValue(
+                request.ActorMembershipId,
+                out OrganizationMembership? actorMembership))
         {
             throw new InvalidOperationException(
                 "A legal deadline persistence decision returned invalid state.");
@@ -108,19 +118,25 @@ public sealed class LegalDeadlineCreationPersistence
         return LegalDeadlineCreationPersistenceResult.Created(legalDeadline.Id);
     }
 
-    private static LegalDeadlineLockedActorState? CreateActorState(
-        OrganizationMembership? membership,
-        User? user)
+    private static LegalDeadlineLockedActorState? CreateMemberState(
+        Guid membershipId,
+        LegalTaskLockedIdentities identities)
     {
-        return membership is null
-            ? null
-            : new LegalDeadlineLockedActorState(
-                membership.Id,
-                membership.OrganizationId,
-                membership.UserId,
-                membership.Role,
-                membership.IsActive,
-                user?.Id == membership.UserId && user.IsActive);
+        if (!identities.MembershipsById.TryGetValue(
+                membershipId,
+                out OrganizationMembership? membership))
+        {
+            return null;
+        }
+
+        identities.UsersById.TryGetValue(membership.UserId, out User? user);
+        return new LegalDeadlineLockedActorState(
+            membership.Id,
+            membership.OrganizationId,
+            membership.UserId,
+            membership.Role,
+            membership.IsActive,
+            user?.Id == membership.UserId && user.IsActive);
     }
 
     private static Task<LegalProcess?> LockProcessAsync(
@@ -135,38 +151,6 @@ public sealed class LegalDeadlineCreationPersistence
                 SELECT * FROM legal_processes
                 WHERE id = {processId}
                   AND organization_id = {organizationId}
-                FOR UPDATE
-                """)
-            .SingleOrDefaultAsync(cancellationToken);
-    }
-
-    private static Task<OrganizationMembership?> LockActorMembershipAsync(
-        EnmaDbContext dbContext,
-        Guid organizationId,
-        Guid actorMembershipId,
-        CancellationToken cancellationToken)
-    {
-        return dbContext.OrganizationMemberships
-            .FromSqlInterpolated(
-                $"""
-                SELECT * FROM organization_memberships
-                WHERE organization_id = {organizationId}
-                  AND id = {actorMembershipId}
-                FOR UPDATE
-                """)
-            .SingleOrDefaultAsync(cancellationToken);
-    }
-
-    private static Task<User?> LockActorUserAsync(
-        EnmaDbContext dbContext,
-        Guid userId,
-        CancellationToken cancellationToken)
-    {
-        return dbContext.Users
-            .FromSqlInterpolated(
-                $"""
-                SELECT * FROM users
-                WHERE id = {userId}
                 FOR UPDATE
                 """)
             .SingleOrDefaultAsync(cancellationToken);

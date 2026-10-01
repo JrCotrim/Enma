@@ -318,14 +318,24 @@ public sealed class OrganizationMemberLifecycleMutationPersistence
                     calendarEvent.EndsAt > nowUtc,
                 cancellationToken);
 
-        return hasActiveTaskOrEvent || await dbContext.LegalProcesses
+        bool hasActiveTaskEventOrProcess = hasActiveTaskOrEvent ||
+            await dbContext.LegalProcesses
+                .AsNoTracking()
+                .AnyAsync(
+                    legalProcess =>
+                        legalProcess.OrganizationId == organizationId &&
+                        legalProcess.ResponsibleMembershipId == targetMembershipId &&
+                        (legalProcess.Status == LegalProcessStatus.InProgress ||
+                            legalProcess.Status == LegalProcessStatus.Suspended),
+                    cancellationToken);
+
+        return hasActiveTaskEventOrProcess || await dbContext.LegalDeadlines
             .AsNoTracking()
             .AnyAsync(
-                legalProcess =>
-                    legalProcess.OrganizationId == organizationId &&
-                    legalProcess.ResponsibleMembershipId == targetMembershipId &&
-                    (legalProcess.Status == LegalProcessStatus.InProgress ||
-                        legalProcess.Status == LegalProcessStatus.Suspended),
+                legalDeadline =>
+                    legalDeadline.OrganizationId == organizationId &&
+                    legalDeadline.ResponsibleMembershipId == targetMembershipId &&
+                    legalDeadline.CompletedAt == null,
                 cancellationToken);
     }
 

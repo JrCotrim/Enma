@@ -281,6 +281,12 @@ public sealed class AuditTaxonomyTests
                 "legal_process.responsible_changed",
                 AuditEntityType.LegalProcess
             },
+            {
+                AuditEventType.LegalDeadlineResponsibleChanged,
+                36,
+                "legal_deadline.responsible_changed",
+                AuditEntityType.LegalDeadline
+            },
         };
 
     public static TheoryData<AuditEntityType, int, string> ExpectedEntities =>

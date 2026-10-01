@@ -18,6 +18,10 @@ public sealed class ReopenLegalDeadlineUseCaseTests
         "34bc4148-42e2-4b83-8c4d-e34a76067483");
     private static readonly Guid DeadlineId = Guid.Parse(
         "80cfec9e-cc2f-42d6-a654-f0b43ee03271");
+    private static readonly Guid ResponsibleMembershipId = Guid.Parse(
+        "5a0d6e43-7a24-4f1e-9a51-4e0f2c7d8b19");
+    private static readonly Guid ResponsibleUserId = Guid.Parse(
+        "0e7b6a91-3c55-4d2f-8f0a-91c2b7d4e6a3");
     private static readonly DateTimeOffset CreatedAt = new(
         2026, 8, 13, 18, 0, 0, TimeSpan.Zero);
 
@@ -82,6 +86,106 @@ public sealed class ReopenLegalDeadlineUseCaseTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_WithCompletedDeadlineWithoutResponsible_LocksNoRelatedMember()
+    {
+        var persistence = new FakeMutationPersistence(initiallyCompleted: true);
+        ReopenLegalDeadlineUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        ReopenLegalDeadlineResult result = await useCase.ExecuteAsync(
+            UserId,
+            OrganizationId,
+            DeadlineId);
+
+        Assert.Same(ReopenLegalDeadlineResult.Succeeded, result);
+        Assert.Null(persistence.SelectedRelatedMembershipId);
+        Assert.Null(persistence.Deadline.CompletedAt);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithAvailableCurrentResponsible_ReopensAndPreservesResponsible()
+    {
+        var persistence = new FakeMutationPersistence(
+            initiallyCompleted: true,
+            responsibleMembershipId: ResponsibleMembershipId)
+        {
+            RelatedMember = CreateResponsibleState(true, true)
+        };
+        ReopenLegalDeadlineUseCase useCase = CreateUseCase(
+            OrganizationRole.Administrator,
+            persistence);
+
+        ReopenLegalDeadlineResult result = await useCase.ExecuteAsync(
+            UserId,
+            OrganizationId,
+            DeadlineId);
+
+        Assert.Same(ReopenLegalDeadlineResult.Succeeded, result);
+        Assert.Equal(ResponsibleMembershipId, persistence.SelectedRelatedMembershipId);
+        Assert.Null(persistence.Deadline.CompletedAt);
+        Assert.Equal(ResponsibleMembershipId, persistence.Deadline.ResponsibleMembershipId);
+    }
+
+    [Theory]
+    [InlineData("inactive-membership")]
+    [InlineData("inactive-user")]
+    [InlineData("foreign-organization")]
+    [InlineData("missing")]
+    public async Task ExecuteAsync_WithUnavailableCurrentResponsible_ReturnsConflictWithoutReopening(
+        string scenario)
+    {
+        var persistence = new FakeMutationPersistence(
+            initiallyCompleted: true,
+            responsibleMembershipId: ResponsibleMembershipId)
+        {
+            RelatedMember = scenario switch
+            {
+                "inactive-membership" => CreateResponsibleState(false, true),
+                "inactive-user" => CreateResponsibleState(true, false),
+                "foreign-organization" => CreateResponsibleState(
+                    true,
+                    true,
+                    Guid.Parse("9d7c1b2e-4f6a-4a8b-b3c5-6e1f0d2a7c94")),
+                _ => null
+            }
+        };
+        ReopenLegalDeadlineUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        ReopenLegalDeadlineResult result = await useCase.ExecuteAsync(
+            UserId,
+            OrganizationId,
+            DeadlineId);
+
+        Assert.Same(ReopenLegalDeadlineResult.CurrentResponsibleUnavailable, result);
+        Assert.Equal(ResponsibleMembershipId, persistence.SelectedRelatedMembershipId);
+        Assert.NotNull(persistence.Deadline.CompletedAt);
+        Assert.Equal(ResponsibleMembershipId, persistence.Deadline.ResponsibleMembershipId);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenAlreadyPendingWithResponsible_LocksNoRelatedMember()
+    {
+        var persistence = new FakeMutationPersistence(
+            initiallyCompleted: false,
+            responsibleMembershipId: ResponsibleMembershipId);
+        ReopenLegalDeadlineUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        ReopenLegalDeadlineResult result = await useCase.ExecuteAsync(
+            UserId,
+            OrganizationId,
+            DeadlineId);
+
+        Assert.Same(ReopenLegalDeadlineResult.Succeeded, result);
+        Assert.Null(persistence.SelectedRelatedMembershipId);
+        Assert.Null(persistence.Deadline.CompletedAt);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenAlreadyPending_RemainsSucceededAndPending()
     {
         var persistence = new FakeMutationPersistence(initiallyCompleted: false);
@@ -140,6 +244,20 @@ public sealed class ReopenLegalDeadlineUseCaseTests
         Assert.Equal(cancellation.Token, persistence.CancellationToken);
         Assert.Equal(OrganizationId, persistence.OrganizationId);
         Assert.Equal(DeadlineId, persistence.DeadlineId);
+    }
+
+    private static LegalDeadlineLockedActorState CreateResponsibleState(
+        bool isMembershipActive,
+        bool isUserActive,
+        Guid? organizationId = null)
+    {
+        return new LegalDeadlineLockedActorState(
+            ResponsibleMembershipId,
+            organizationId ?? OrganizationId,
+            ResponsibleUserId,
+            OrganizationRole.Member,
+            isMembershipActive,
+            isUserActive);
     }
 
     private static ReopenLegalDeadlineUseCase CreateUseCase(
@@ -212,7 +330,8 @@ public sealed class ReopenLegalDeadlineUseCaseTests
         public FakeMutationPersistence(
             LegalDeadlineLifecycleMutationPersistenceResult reopenResult =
                 LegalDeadlineLifecycleMutationPersistenceResult.Succeeded,
-            bool initiallyCompleted = false)
+            bool initiallyCompleted = false,
+            Guid? responsibleMembershipId = null)
         {
             _reopenResult = reopenResult;
             Deadline = new LegalDeadline(
@@ -220,7 +339,8 @@ public sealed class ReopenLegalDeadlineUseCaseTests
                 ReopenLegalDeadlineUseCaseTests.ProcessId,
                 "Initial title",
                 new DateOnly(2026, 9, 1),
-                CreatedAt);
+                CreatedAt,
+                responsibleMembershipId);
 
             if (initiallyCompleted)
             {
@@ -229,6 +349,8 @@ public sealed class ReopenLegalDeadlineUseCaseTests
         }
 
         public LegalDeadline Deadline { get; }
+        public LegalDeadlineLockedActorState? RelatedMember { get; init; }
+        public Guid? SelectedRelatedMembershipId { get; private set; }
         public int ReopenCallCount { get; private set; }
         public Guid DeadlineId { get; private set; }
         public Guid OrganizationId { get; private set; }
@@ -252,6 +374,7 @@ public sealed class ReopenLegalDeadlineUseCaseTests
 
         public Task<LegalDeadlineLifecycleMutationPersistenceResult> ReopenAsync(
             LegalDeadlineMutationPersistenceRequest request,
+            Func<LegalDeadline, Guid?> selectRelatedMembershipToLock,
             Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
             CancellationToken cancellationToken = default)
         {
@@ -266,6 +389,7 @@ public sealed class ReopenLegalDeadlineUseCaseTests
                 return Task.FromResult(_reopenResult);
             }
 
+            SelectedRelatedMembershipId = selectRelatedMembershipToLock(Deadline);
             LegalDeadlineMutationDecision decision = decide(
                 new LegalDeadlineMutationLockedState(
                     Deadline,
@@ -276,12 +400,27 @@ public sealed class ReopenLegalDeadlineUseCaseTests
                         request.UserId,
                         OrganizationRole.Owner,
                         true,
-                        true)));
+                        true),
+                    SelectedRelatedMembershipId is null ? null : RelatedMember));
 
-            return Task.FromResult(decision.Status ==
-                LegalDeadlineMutationDecisionStatus.AccessDenied
-                    ? LegalDeadlineLifecycleMutationPersistenceResult.AccessDenied
-                    : LegalDeadlineLifecycleMutationPersistenceResult.Succeeded);
+            return Task.FromResult(decision.Status switch
+            {
+                LegalDeadlineMutationDecisionStatus.AccessDenied =>
+                    LegalDeadlineLifecycleMutationPersistenceResult.AccessDenied,
+                LegalDeadlineMutationDecisionStatus.Conflict =>
+                    LegalDeadlineLifecycleMutationPersistenceResult.Conflict,
+                _ => LegalDeadlineLifecycleMutationPersistenceResult.Succeeded
+            });
+        }
+
+        public Task<LegalDeadlineResponsibleMutationPersistenceResult>
+            ChangeResponsibleAsync(
+                LegalDeadlineMutationPersistenceRequest request,
+                Func<LegalDeadline, Guid?> selectRelatedMembershipToLock,
+                Func<LegalDeadlineMutationLockedState, LegalDeadlineMutationDecision> decide,
+                CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException();
         }
     }
 }

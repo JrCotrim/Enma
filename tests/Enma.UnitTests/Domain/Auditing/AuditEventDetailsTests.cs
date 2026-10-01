@@ -295,6 +295,12 @@ public sealed class AuditEventDetailsTests
                 new LegalProcessResponsibleChangedAuditDetails(
                     null,
                     MembershipAId)
+            },
+            {
+                AuditEventType.LegalDeadlineResponsibleChanged,
+                new LegalDeadlineResponsibleChangedAuditDetails(
+                    MembershipAId,
+                    null)
             }
         };
 
@@ -342,6 +348,63 @@ public sealed class AuditEventDetailsTests
             new LegalProcessResponsibleChangedAuditDetails(
                 MembershipAId,
                 MembershipAId));
+    }
+
+    [Theory]
+    [InlineData(true, false, "oldResponsibleMembershipId")]
+    [InlineData(false, true, "newResponsibleMembershipId")]
+    public void LegalDeadlineResponsibleChanged_WithEmptyIdentifier_Throws(
+        bool oldIsEmpty,
+        bool newIsEmpty,
+        string expectedParameterName)
+    {
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            new LegalDeadlineResponsibleChangedAuditDetails(
+                oldIsEmpty ? Guid.Empty : MembershipAId,
+                newIsEmpty ? Guid.Empty : MembershipBId));
+
+        Assert.Equal(expectedParameterName, exception.ParamName);
+    }
+
+    [Fact]
+    public void LegalDeadlineResponsibleChanged_WithoutChange_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new LegalDeadlineResponsibleChangedAuditDetails(null, null));
+        Assert.Throws<ArgumentException>(() =>
+            new LegalDeadlineResponsibleChangedAuditDetails(
+                MembershipAId,
+                MembershipAId));
+    }
+
+    [Fact]
+    public void LegalDeadlineResponsibleChanged_SerializesOnlyMembershipIdentifiers()
+    {
+        string serialized = Assert.IsType<string>(AuditEventDetails.Serialize(
+            new LegalDeadlineResponsibleChangedAuditDetails(
+                null,
+                MembershipBId)));
+
+        Assert.Equal(
+            $$"""{"oldResponsibleMembershipId":null,"newResponsibleMembershipId":"{{MembershipBId:D}}"}""",
+            serialized);
+    }
+
+    [Fact]
+    public void LegalDeadlineResponsibleChanged_RequiresDetailsAndRejectsOtherTypes()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            AuditEventType.LegalDeadlineResponsibleChanged.ValidateDetails(null));
+        Assert.Throws<ArgumentException>(() =>
+            AuditEventType.LegalDeadlineResponsibleChanged.ValidateDetails(
+                new LegalProcessResponsibleChangedAuditDetails(
+                    null,
+                    MembershipAId)));
+        Assert.Throws<ArgumentException>(() =>
+            AuditEventType.LegalProcessResponsibleChanged.ValidateDetails(
+                new LegalDeadlineResponsibleChangedAuditDetails(
+                    null,
+                    MembershipAId)));
     }
 
     [Fact]
