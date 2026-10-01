@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Enma.Application.Notifications;
+using Enma.Application.Time;
 using Enma.Domain.CalendarEvents;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
@@ -808,6 +809,106 @@ public sealed class NotificationGenerationPersistenceTests(
         Assert.IsNotType<NotificationGenerationTransientException>(exception);
     }
 
+    [Fact]
+    public async Task GenerateNotificationsUseCase_NearOperationalMidnight_UsesSaoPauloDate()
+    {
+        // 2026-08-25T02:30Z is 23:30 on 2026-08-24 in America/Sao_Paulo.
+        DateOnly operationalToday = new(2026, 8, 24);
+        TenantGraph tenant = CreateTenant("operational-midnight");
+        Person owner = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        _ = CreateDeadline(tenant, "Yesterday", operationalToday.AddDays(-1));
+        LegalDeadline today = CreateDeadline(tenant, "Today", operationalToday);
+        LegalDeadline tomorrow = CreateDeadline(
+            tenant,
+            "Tomorrow",
+            operationalToday.AddDays(1));
+        LegalDeadline afterTomorrow = CreateDeadline(
+            tenant,
+            "After tomorrow",
+            operationalToday.AddDays(2));
+        LegalTask todayTask = CreateTask(
+            tenant,
+            "Today task",
+            operationalToday,
+            owner.Membership);
+        PaymentInstallment dueToday = CreatePaymentPlan(
+            tenant,
+            operationalToday).Installments.Single();
+        PaymentInstallment dueTomorrow = CreatePaymentPlan(
+            tenant,
+            operationalToday.AddDays(1)).Installments.Single();
+        await SeedAsync(tenant.Entities);
+
+        NotificationGenerationCycleResult beforeMidnight =
+            await RunGenerationCycleAsync(
+                DateTimeOffset.Parse("2026-08-25T02:30:00Z"));
+        Notification[] afterFirstCycle = await ReadNotificationsAsync();
+
+        Assert.Equal(new NotificationGenerationSourceResult(2, 1), beforeMidnight.LegalDeadlines);
+        Assert.Equal(new NotificationGenerationSourceResult(1, 1), beforeMidnight.LegalTasks);
+        Assert.Equal(
+            new NotificationGenerationSourceResult(1, 1),
+            beforeMidnight.PaymentInstallments);
+        Assert.Equal(
+            new[] { (today.Id, operationalToday), (tomorrow.Id, operationalToday.AddDays(1)) }
+                .OrderBy(value => value.Item1),
+            afterFirstCycle
+                .Where(notification => notification.Kind == NotificationKind.LegalDeadlineDueSoon)
+                .Select(notification => (
+                    notification.LegalDeadlineId!.Value,
+                    notification.OccurrenceDate!.Value))
+                .OrderBy(value => value.Item1));
+        Notification taskNotification = Assert.Single(
+            afterFirstCycle,
+            notification => notification.Kind == NotificationKind.LegalTaskDueSoon);
+        Assert.Equal(todayTask.Id, taskNotification.LegalTaskId);
+        Assert.Equal(operationalToday, taskNotification.OccurrenceDate);
+        Notification installmentNotification = Assert.Single(
+            afterFirstCycle,
+            notification => notification.Kind == NotificationKind.PaymentInstallmentDueToday);
+        Assert.Equal(dueToday.Id, installmentNotification.PaymentInstallmentId);
+        Assert.Equal(operationalToday, installmentNotification.OccurrenceDate);
+
+        // 00:30 on 2026-08-25 in America/Sao_Paulo: the window moves by one
+        // operational day and existing reminders stay deduplicated.
+        NotificationGenerationCycleResult afterMidnight =
+            await RunGenerationCycleAsync(
+                DateTimeOffset.Parse("2026-08-25T03:30:00Z"));
+        Notification[] afterSecondCycle = await ReadNotificationsAsync();
+        Notification[] newNotifications = afterSecondCycle
+            .ExceptBy(
+                afterFirstCycle.Select(notification => notification.Id),
+                notification => notification.Id)
+            .ToArray();
+
+        Assert.Equal(new NotificationGenerationSourceResult(1, 1), afterMidnight.LegalDeadlines);
+        Assert.Equal(new NotificationGenerationSourceResult(0, 1), afterMidnight.LegalTasks);
+        Assert.Equal(
+            new NotificationGenerationSourceResult(1, 1),
+            afterMidnight.PaymentInstallments);
+        Assert.Equal(2, newNotifications.Length);
+        Assert.Contains(
+            newNotifications,
+            notification => notification.LegalDeadlineId == afterTomorrow.Id &&
+                notification.OccurrenceDate == operationalToday.AddDays(2));
+        Assert.Contains(
+            newNotifications,
+            notification => notification.PaymentInstallmentId == dueTomorrow.Id &&
+                notification.OccurrenceDate == operationalToday.AddDays(1));
+    }
+
+    private async Task<NotificationGenerationCycleResult> RunGenerationCycleAsync(
+        DateTimeOffset utcNow)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var useCase = new GenerateNotificationsUseCase(
+            new NotificationGenerationPersistence(dbContext),
+            new OperationalCalendar(
+                new FixedTimeProvider(utcNow),
+                TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo")));
+        return await useCase.ExecuteAsync();
+    }
+
     private async Task<NotificationGenerationSourceResult> GenerateDeadlinesAsync()
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
@@ -1059,6 +1160,11 @@ public sealed class NotificationGenerationPersistenceTests(
         command.CommandText =
             "DROP TRIGGER test_force_notification_id ON notifications;";
         await command.ExecuteNonQueryAsync();
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
     private sealed class TenantGraph

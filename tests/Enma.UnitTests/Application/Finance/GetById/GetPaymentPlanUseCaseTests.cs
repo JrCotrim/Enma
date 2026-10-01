@@ -1,6 +1,7 @@
 using Enma.Application.Authorization;
 using Enma.Application.Finance;
 using Enma.Application.Finance.GetById;
+using Enma.Application.Time;
 using Enma.Domain.Organizations;
 
 namespace Enma.UnitTests.Application.Finance.GetById;
@@ -32,6 +33,28 @@ public sealed class GetPaymentPlanUseCaseTests
         Assert.Equal(PaymentPlanId, queries.PaymentPlanId);
         Assert.Equal(new DateOnly(2026, 9, 7), queries.ReferenceDate);
         Assert.Equal(1, clock.CallCount);
+    }
+
+    [Theory]
+    [InlineData("2026-09-07T23:59:00Z", "2026-09-07")] // 20:59 BRT
+    [InlineData("2026-09-08T00:00:00Z", "2026-09-07")] // 21:00 BRT
+    [InlineData("2026-09-08T01:00:00Z", "2026-09-07")] // 22:00 BRT
+    [InlineData("2026-09-08T02:59:59.9999999Z", "2026-09-07")] // 23:59 BRT
+    [InlineData("2026-09-08T03:00:00Z", "2026-09-08")] // 00:00 BRT
+    public async Task ExecuteAsync_ReferenceDateUsesOperationalToday(
+        string utcNow,
+        string expectedReferenceDate)
+    {
+        var queries = new StubFinanceReadQueries(CreatePlan());
+        GetPaymentPlanUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            queries,
+            new RecordingTimeProvider(DateTimeOffset.Parse(utcNow)));
+
+        await useCase.ExecuteAsync(
+            new GetPaymentPlanQuery(UserId, OrganizationId, PaymentPlanId));
+
+        Assert.Equal(DateOnly.Parse(expectedReferenceDate), queries.ReferenceDate);
     }
 
     [Fact]
@@ -89,7 +112,9 @@ public sealed class GetPaymentPlanUseCaseTests
             new FinanceActionAuthorization(
                 new OrganizationAccessAuthorization(new StubOrganizationAccessLookup(role))),
             queries,
-            clock);
+            new OperationalCalendar(
+                clock,
+                TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo")));
 
     private sealed class StubOrganizationAccessLookup(OrganizationRole role)
         : IOrganizationAccessLookup

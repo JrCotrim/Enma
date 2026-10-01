@@ -78,6 +78,7 @@ using Enma.Application.Tasks.GetById;
 using Enma.Application.Tasks.List;
 using Enma.Application.Tasks.Reopen;
 using Enma.Application.Tasks.Update;
+using Enma.Application.Time;
 using Enma.Application.Users;
 using Enma.Infrastructure.Documents.Inspection;
 using Enma.Infrastructure.Documents.Staging;
@@ -88,6 +89,7 @@ using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Enma.Infrastructure.Persistence.Repositories;
 using Enma.Infrastructure.Security;
+using Enma.Infrastructure.Time;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
@@ -176,6 +178,24 @@ public static class DependencyInjection
         services.AddSingleton<
             IValidateOptions<DocumentStorageOptions>,
             DocumentStorageOptionsValidator>();
+        services
+            .AddOptions<OperationalTimeZoneOptions>()
+            .Bind(configuration.GetSection(
+                OperationalTimeZoneOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<OperationalTimeZoneOptions>,
+            OperationalTimeZoneOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+        {
+            OperationalTimeZoneOptions options = serviceProvider
+                .GetRequiredService<IOptions<OperationalTimeZoneOptions>>()
+                .Value;
+
+            return new OperationalCalendar(
+                serviceProvider.GetRequiredService<TimeProvider>(),
+                TimeZoneInfo.FindSystemTimeZoneById(options.TimeZoneId));
+        });
         services.AddSingleton<IAmazonS3>(serviceProvider =>
         {
             DocumentStorageOptions options = serviceProvider

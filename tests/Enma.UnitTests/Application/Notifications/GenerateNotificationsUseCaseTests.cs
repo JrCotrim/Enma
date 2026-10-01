@@ -1,4 +1,5 @@
 using Enma.Application.Notifications;
+using Enma.Application.Time;
 
 namespace Enma.UnitTests.Application.Notifications;
 
@@ -13,8 +14,33 @@ public sealed class GenerateNotificationsUseCaseTests
         0,
         TimeSpan.Zero);
 
+    [Theory]
+    [InlineData("2026-08-24T23:59:00Z", "2026-08-24")] // 20:59 BRT
+    [InlineData("2026-08-25T00:00:00Z", "2026-08-24")] // 21:00 BRT
+    [InlineData("2026-08-25T02:30:00Z", "2026-08-24")] // 23:30 BRT
+    [InlineData("2026-08-25T02:59:59.9999999Z", "2026-08-24")] // 23:59 BRT
+    [InlineData("2026-08-25T03:00:00Z", "2026-08-25")] // 00:00 BRT
+    public async Task ExecuteAsync_UsesOperationalDateTodayAndTomorrowInclusiveWindow(
+        string utcNow,
+        string expectedSchedulerDate)
+    {
+        var persistence = new RecordingPersistence();
+        var useCase = new GenerateNotificationsUseCase(
+            persistence,
+            CreateCalendar(new FixedTimeProvider(DateTimeOffset.Parse(utcNow))));
+
+        await useCase.ExecuteAsync();
+
+        DateOnly schedulerDate = DateOnly.Parse(expectedSchedulerDate);
+        Assert.Equal(schedulerDate, persistence.DeadlineCall?.WindowStart);
+        Assert.Equal(schedulerDate.AddDays(1), persistence.DeadlineCall?.WindowEnd);
+        Assert.Equal(schedulerDate, persistence.TaskCall?.WindowStart);
+        Assert.Equal(schedulerDate.AddDays(1), persistence.TaskCall?.WindowEnd);
+        Assert.Equal(schedulerDate, persistence.FinanceCall?.SchedulerDate);
+    }
+
     [Fact]
-    public async Task ExecuteAsync_UsesUtcDateOnlyTodayAndTomorrowInclusiveWindow()
+    public async Task ExecuteAsync_LocalOffsetClock_UsesOperationalDateNotUtcDate()
     {
         var persistence = new RecordingPersistence();
         var localOffsetNow = new DateTimeOffset(
@@ -27,16 +53,35 @@ public sealed class GenerateNotificationsUseCaseTests
             TimeSpan.FromHours(-3));
         var useCase = new GenerateNotificationsUseCase(
             persistence,
-            new FixedTimeProvider(localOffsetNow));
+            CreateCalendar(new FixedTimeProvider(localOffsetNow)));
 
-        await useCase.ExecuteAsync();
+        NotificationGenerationCycleResult result = await useCase.ExecuteAsync();
 
-        DateOnly schedulerDate = new(2026, 8, 25);
+        DateOnly schedulerDate = new(2026, 8, 24);
         Assert.Equal(schedulerDate, persistence.DeadlineCall?.WindowStart);
         Assert.Equal(schedulerDate.AddDays(1), persistence.DeadlineCall?.WindowEnd);
         Assert.Equal(schedulerDate, persistence.TaskCall?.WindowStart);
         Assert.Equal(schedulerDate.AddDays(1), persistence.TaskCall?.WindowEnd);
         Assert.Equal(schedulerDate, persistence.FinanceCall?.SchedulerDate);
+        Assert.Equal(TimeSpan.Zero, result.GeneratedAt.Offset);
+        Assert.Equal(Now, result.GeneratedAt);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ConfiguredTimeZone_DrivesSchedulerDate()
+    {
+        var persistence = new RecordingPersistence();
+        var useCase = new GenerateNotificationsUseCase(
+            persistence,
+            new OperationalCalendar(
+                new FixedTimeProvider(Now),
+                TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo")));
+
+        await useCase.ExecuteAsync();
+
+        Assert.Equal(new DateOnly(2026, 8, 25), persistence.DeadlineCall?.WindowStart);
+        Assert.Equal(new DateOnly(2026, 8, 26), persistence.DeadlineCall?.WindowEnd);
+        Assert.Equal(new DateOnly(2026, 8, 25), persistence.FinanceCall?.SchedulerDate);
     }
 
     [Fact]
@@ -45,7 +90,7 @@ public sealed class GenerateNotificationsUseCaseTests
         var persistence = new RecordingPersistence();
         var useCase = new GenerateNotificationsUseCase(
             persistence,
-            new FixedTimeProvider(Now));
+            CreateCalendar(new FixedTimeProvider(Now)));
 
         await useCase.ExecuteAsync();
 
@@ -58,7 +103,9 @@ public sealed class GenerateNotificationsUseCaseTests
     {
         var persistence = new RecordingPersistence();
         var timeProvider = new AdvancingTimeProvider(Now);
-        var useCase = new GenerateNotificationsUseCase(persistence, timeProvider);
+        var useCase = new GenerateNotificationsUseCase(
+            persistence,
+            CreateCalendar(timeProvider));
 
         NotificationGenerationCycleResult result = await useCase.ExecuteAsync();
 
@@ -82,7 +129,7 @@ public sealed class GenerateNotificationsUseCaseTests
         };
         var useCase = new GenerateNotificationsUseCase(
             persistence,
-            new FixedTimeProvider(Now));
+            CreateCalendar(new FixedTimeProvider(Now)));
 
         NotificationGenerationCycleResult result = await useCase.ExecuteAsync();
 
@@ -109,7 +156,7 @@ public sealed class GenerateNotificationsUseCaseTests
         };
         var useCase = new GenerateNotificationsUseCase(
             persistence,
-            new FixedTimeProvider(Now));
+            CreateCalendar(new FixedTimeProvider(Now)));
 
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -120,6 +167,13 @@ public sealed class GenerateNotificationsUseCaseTests
         Assert.Equal(0, persistence.TaskCallCount);
         Assert.Equal(0, persistence.CalendarCallCount);
         Assert.Equal(0, persistence.PaymentInstallmentCallCount);
+    }
+
+    private static OperationalCalendar CreateCalendar(TimeProvider timeProvider)
+    {
+        return new OperationalCalendar(
+            timeProvider,
+            TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo"));
     }
 
     private sealed class RecordingPersistence : INotificationGenerationPersistence

@@ -1,6 +1,7 @@
 using Enma.Application.Authorization;
 using Enma.Application.Finance;
 using Enma.Application.Finance.Overview;
+using Enma.Application.Time;
 using Enma.Domain.Organizations;
 
 namespace Enma.UnitTests.Application.Finance.Overview;
@@ -36,6 +37,28 @@ public sealed class GetFinanceOverviewUseCaseTests
         Assert.Equal(cancellationSource.Token, queries.CancellationToken);
         Assert.Equal(1, queries.GetOverviewCallCount);
         Assert.Equal(1, clock.CallCount);
+    }
+
+    [Theory]
+    [InlineData("2026-09-07T23:59:00Z", "2026-09-07")] // 20:59 BRT
+    [InlineData("2026-09-08T00:00:00Z", "2026-09-07")] // 21:00 BRT
+    [InlineData("2026-09-08T01:00:00Z", "2026-09-07")] // 22:00 BRT
+    [InlineData("2026-09-08T02:59:59.9999999Z", "2026-09-07")] // 23:59 BRT
+    [InlineData("2026-09-08T03:00:00Z", "2026-09-08")] // 00:00 BRT
+    public async Task ExecuteAsync_ReferenceDateUsesOperationalToday(
+        string utcNow,
+        string expectedReferenceDate)
+    {
+        var queries = new StubFinanceReadQueries(CreateOverview());
+        GetFinanceOverviewUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            queries,
+            new RecordingTimeProvider(DateTimeOffset.Parse(utcNow)));
+
+        await useCase.ExecuteAsync(
+            new GetFinanceOverviewQuery(UserId, OrganizationId));
+
+        Assert.Equal(DateOnly.Parse(expectedReferenceDate), queries.ReferenceDate);
     }
 
     [Fact]
@@ -79,7 +102,9 @@ public sealed class GetFinanceOverviewUseCaseTests
                 new OrganizationAccessAuthorization(
                     new StubOrganizationAccessLookup(role))),
             queries,
-            clock);
+            new OperationalCalendar(
+                clock,
+                TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo")));
 
     private sealed class StubOrganizationAccessLookup(OrganizationRole role)
         : IOrganizationAccessLookup

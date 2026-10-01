@@ -1,6 +1,7 @@
 using Enma.Application.Agenda;
 using Enma.Application.Authorization;
 using Enma.Application.Dashboard;
+using Enma.Application.Time;
 using Enma.Domain.Organizations;
 
 namespace Enma.UnitTests.Application.Dashboard;
@@ -15,6 +16,8 @@ public sealed class GetDashboardUseCaseTests
         "3b46202c-4b42-4cde-b31f-f7e1c006c44c");
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse(
         "2026-08-24T23:30:00-03:00");
+    private static readonly TimeZoneInfo SaoPaulo =
+        TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
 
     [Theory]
     [InlineData(OrganizationRole.Owner)]
@@ -118,7 +121,7 @@ public sealed class GetDashboardUseCaseTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_CapturesUtcNowOnceAndBuildsExactWindows()
+    public async Task ExecuteAsync_CapturesUtcNowOnceAndBuildsOperationalWindows()
     {
         var metricsQueries = new RecordingDashboardReadQueries(CreateMetrics());
         var agendaQueries = new RecordingAgendaReadQueries(CreateUpcoming());
@@ -133,8 +136,8 @@ public sealed class GetDashboardUseCaseTests
 
         DashboardReadModel dashboard = Assert.IsType<DashboardReadModel>(
             result.Dashboard);
-        var referenceDate = new DateOnly(2026, 8, 25);
-        var throughDate = new DateOnly(2026, 9, 1);
+        var referenceDate = new DateOnly(2026, 8, 24);
+        var throughDate = new DateOnly(2026, 8, 31);
         Assert.Equal(1, timeProvider.GetUtcNowCallCount);
         Assert.Equal(referenceDate, dashboard.ReferenceDate);
         Assert.Equal(throughDate, dashboard.ThroughDate);
@@ -150,8 +153,106 @@ public sealed class GetDashboardUseCaseTests
                 referenceDate,
                 throughDate,
                 DateTimeOffset.Parse("2026-08-25T02:30:00Z"),
-                DateTimeOffset.Parse("2026-09-02T00:00:00Z")),
+                DateTimeOffset.Parse("2026-09-01T03:00:00Z")),
             agendaQueries.UpcomingRequest);
+    }
+
+    [Theory]
+    [InlineData("2026-08-24T23:59:00Z", "2026-08-24")] // 20:59 BRT
+    [InlineData("2026-08-25T00:00:00Z", "2026-08-24")] // 21:00 BRT
+    [InlineData("2026-08-25T02:59:59.9999999Z", "2026-08-24")] // 23:59 BRT
+    [InlineData("2026-08-25T03:00:00Z", "2026-08-25")] // 00:00 BRT
+    public async Task ExecuteAsync_ReferenceDateFollowsOperationalMidnight(
+        string utcNow,
+        string expectedReferenceDate)
+    {
+        var metricsQueries = new RecordingDashboardReadQueries(CreateMetrics());
+        var agendaQueries = new RecordingAgendaReadQueries(CreateUpcoming());
+        GetDashboardUseCase useCase = CreateUseCase(
+            CreateAccess(OrganizationRole.Owner),
+            metricsQueries,
+            agendaQueries,
+            new RecordingTimeProvider(DateTimeOffset.Parse(utcNow)));
+
+        GetDashboardResult result = await useCase.ExecuteAsync(CreateQuery());
+
+        DashboardReadModel dashboard = Assert.IsType<DashboardReadModel>(
+            result.Dashboard);
+        DateOnly referenceDate = DateOnly.Parse(expectedReferenceDate);
+        Assert.Equal(referenceDate, dashboard.ReferenceDate);
+        Assert.Equal(referenceDate.AddDays(7), dashboard.ThroughDate);
+        Assert.Equal(referenceDate, metricsQueries.Request?.ReferenceDate);
+        Assert.Equal(
+            new DateTimeOffset(
+                referenceDate.AddDays(8),
+                new TimeOnly(3, 0),
+                TimeSpan.Zero),
+            agendaQueries.UpcomingRequest?.EventWindowEndUtc);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_EventWindowEndOnSkippedMidnight_UsesFirstExistingInstant()
+    {
+        // 2018-11-04 00:00 did not exist in America/Sao_Paulo (DST start),
+        // so the window ends at the first existing instant of that date:
+        // 01:00 local (-02:00), i.e. 03:00 UTC. Windows time zone data places
+        // that transition at 23:59:59.999 of the previous day, so allow it.
+        var agendaQueries = new RecordingAgendaReadQueries(CreateUpcoming());
+        GetDashboardUseCase useCase = CreateUseCase(
+            CreateAccess(OrganizationRole.Owner),
+            new RecordingDashboardReadQueries(CreateMetrics()),
+            agendaQueries,
+            new RecordingTimeProvider(DateTimeOffset.Parse(
+                "2018-10-27T15:00:00Z")));
+
+        GetDashboardResult result = await useCase.ExecuteAsync(CreateQuery());
+
+        DashboardReadModel dashboard = Assert.IsType<DashboardReadModel>(
+            result.Dashboard);
+        Assert.Equal(new DateOnly(2018, 10, 27), dashboard.ReferenceDate);
+        Assert.Equal(new DateOnly(2018, 11, 3), dashboard.ThroughDate);
+        DateTimeOffset eventWindowEndUtc = Assert.IsType<UpcomingAgendaReadRequest>(
+            agendaQueries.UpcomingRequest).EventWindowEndUtc;
+        Assert.InRange(
+            eventWindowEndUtc,
+            DateTimeOffset.Parse("2018-11-04T02:59:59Z"),
+            DateTimeOffset.Parse("2018-11-04T03:00:00Z"));
+        Assert.Equal(
+            new DateOnly(2018, 11, 4),
+            DateOnly.FromDateTime(
+                TimeZoneInfo.ConvertTime(eventWindowEndUtc, SaoPaulo).DateTime));
+        Assert.Equal(
+            new DateOnly(2018, 11, 3),
+            DateOnly.FromDateTime(
+                TimeZoneInfo.ConvertTime(
+                    eventWindowEndUtc.AddTicks(-1),
+                    SaoPaulo).DateTime));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ConfiguredTimeZone_DrivesReferenceDateAndWindow()
+    {
+        var metricsQueries = new RecordingDashboardReadQueries(CreateMetrics());
+        var agendaQueries = new RecordingAgendaReadQueries(CreateUpcoming());
+        var useCase = new GetDashboardUseCase(
+            new OrganizationAccessAuthorization(
+                new RecordingAccessLookup(CreateAccess(OrganizationRole.Owner))),
+            metricsQueries,
+            agendaQueries,
+            new OperationalCalendar(
+                new RecordingTimeProvider(DateTimeOffset.Parse(
+                    "2026-08-24T15:00:00Z")),
+                TimeZoneInfo.FindSystemTimeZoneById("Asia/Tokyo")));
+
+        GetDashboardResult result = await useCase.ExecuteAsync(CreateQuery());
+
+        DashboardReadModel dashboard = Assert.IsType<DashboardReadModel>(
+            result.Dashboard);
+        Assert.Equal(new DateOnly(2026, 8, 25), dashboard.ReferenceDate);
+        Assert.Equal(new DateOnly(2026, 9, 1), dashboard.ThroughDate);
+        Assert.Equal(
+            DateTimeOffset.Parse("2026-09-01T15:00:00Z"),
+            agendaQueries.UpcomingRequest?.EventWindowEndUtc);
     }
 
     [Fact]
@@ -166,7 +267,7 @@ public sealed class GetDashboardUseCaseTests
             new OrganizationAccessAuthorization(accessLookup),
             metricsQueries,
             agendaQueries,
-            new RecordingTimeProvider(Now));
+            new OperationalCalendar(new RecordingTimeProvider(Now), SaoPaulo));
 
         await useCase.ExecuteAsync(
             CreateQuery(),
@@ -287,7 +388,7 @@ public sealed class GetDashboardUseCaseTests
                 new RecordingAccessLookup(access)),
             metricsQueries,
             agendaQueries,
-            timeProvider);
+            new OperationalCalendar(timeProvider, SaoPaulo));
     }
 
     private sealed class RecordingAccessLookup(

@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Application.Time;
 using Enma.Application.Validation;
 
 namespace Enma.Application.Finance.List;
@@ -10,20 +11,20 @@ public sealed class ListPaymentPlansUseCase
 
     private readonly FinanceActionAuthorization _actionAuthorization;
     private readonly IFinanceReadQueries _readQueries;
-    private readonly TimeProvider _timeProvider;
+    private readonly OperationalCalendar _operationalCalendar;
 
     public ListPaymentPlansUseCase(
         FinanceActionAuthorization actionAuthorization,
         IFinanceReadQueries readQueries,
-        TimeProvider timeProvider)
+        OperationalCalendar operationalCalendar)
     {
         ArgumentNullException.ThrowIfNull(actionAuthorization);
         ArgumentNullException.ThrowIfNull(readQueries);
-        ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(operationalCalendar);
 
         _actionAuthorization = actionAuthorization;
         _readQueries = readQueries;
-        _timeProvider = timeProvider;
+        _operationalCalendar = operationalCalendar;
     }
 
     public async Task<ListPaymentPlansResult> ExecuteAsync(
@@ -45,8 +46,7 @@ public sealed class ListPaymentPlansUseCase
             return ListPaymentPlansResult.AccessDenied;
         }
 
-        DateOnly referenceDate = DateOnly.FromDateTime(
-            _timeProvider.GetUtcNow().UtcDateTime);
+        DateOnly referenceDate = _operationalCalendar.GetToday();
         IReadOnlyList<PaymentPlanListItemReadModel> items =
             await _readQueries.ListAsync(
                 query.OrganizationId,

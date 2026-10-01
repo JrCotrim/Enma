@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Enma.Api.Notifications;
 using Enma.Application.Notifications;
+using Enma.Application.Time;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -146,6 +147,9 @@ public sealed class NotificationGenerationWorkerTests
         var services = new ServiceCollection();
         services.AddSingleton(control);
         services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddSingleton(serviceProvider => new OperationalCalendar(
+            serviceProvider.GetRequiredService<TimeProvider>(),
+            TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo")));
         services.AddScoped<
             INotificationGenerationPersistence,
             ControlledGenerationPersistence>();

@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Application.Time;
 
 namespace Enma.Application.Finance.ClientSummary;
 
@@ -6,20 +7,20 @@ public sealed class GetClientFinanceSummaryUseCase
 {
     private readonly FinanceActionAuthorization _actionAuthorization;
     private readonly IFinanceReadQueries _readQueries;
-    private readonly TimeProvider _timeProvider;
+    private readonly OperationalCalendar _operationalCalendar;
 
     public GetClientFinanceSummaryUseCase(
         FinanceActionAuthorization actionAuthorization,
         IFinanceReadQueries readQueries,
-        TimeProvider timeProvider)
+        OperationalCalendar operationalCalendar)
     {
         ArgumentNullException.ThrowIfNull(actionAuthorization);
         ArgumentNullException.ThrowIfNull(readQueries);
-        ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(operationalCalendar);
 
         _actionAuthorization = actionAuthorization;
         _readQueries = readQueries;
-        _timeProvider = timeProvider;
+        _operationalCalendar = operationalCalendar;
     }
 
     public async Task<GetClientFinanceSummaryResult> ExecuteAsync(
@@ -40,8 +41,7 @@ public sealed class GetClientFinanceSummaryUseCase
             return GetClientFinanceSummaryResult.AccessDenied;
         }
 
-        DateOnly referenceDate = DateOnly.FromDateTime(
-            _timeProvider.GetUtcNow().UtcDateTime);
+        DateOnly referenceDate = _operationalCalendar.GetToday();
         ClientFinanceSummaryReadModel? summary =
             await _readQueries.GetClientSummaryAsync(
                 query.OrganizationId,

@@ -1,8 +1,10 @@
+using Enma.Application.Time;
+
 namespace Enma.Application.Notifications;
 
 public sealed class GenerateNotificationsUseCase(
     INotificationGenerationPersistence persistence,
-    TimeProvider timeProvider)
+    OperationalCalendar operationalCalendar)
 {
     private static readonly TimeSpan CalendarEventReminderWindow =
         TimeSpan.FromMinutes(60);
@@ -10,8 +12,8 @@ public sealed class GenerateNotificationsUseCase(
     public async Task<NotificationGenerationCycleResult> ExecuteAsync(
         CancellationToken cancellationToken = default)
     {
-        DateTimeOffset now = timeProvider.GetUtcNow().ToUniversalTime();
-        DateOnly schedulerDate = DateOnly.FromDateTime(now.UtcDateTime);
+        DateTimeOffset now = operationalCalendar.GetUtcNow();
+        DateOnly schedulerDate = operationalCalendar.GetDate(now);
         DateOnly reminderWindowEnd = schedulerDate.AddDays(1);
 
         NotificationGenerationSourceResult legalDeadlines =

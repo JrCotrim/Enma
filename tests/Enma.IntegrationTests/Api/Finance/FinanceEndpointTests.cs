@@ -474,6 +474,83 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Read_At22hSaoPaulo_TreatsInstallmentDueTodayAsDueTodayNotOverdue()
+    {
+        // 2026-09-08T01:00Z is 22:00 on 2026-09-07 in America/Sao_Paulo.
+        DateTimeOffset lateNow = new(2026, 9, 8, 1, 0, 0, TimeSpan.Zero);
+        DateOnly operationalToday = new(2026, 9, 7);
+        await using var lateFactory = new EnmaApiFactory(fixture, services =>
+        {
+            services.RemoveAll<TimeProvider>();
+            services.AddSingleton<TimeProvider>(new FixedTimeProvider(lateNow));
+        });
+        using HttpClient lateClient = lateFactory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost"),
+                HandleCookies = false
+            });
+        User user = CreateUser("late-read");
+        Organization organization = CreateOrganization("Late Read");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        var relatedClient = new Client(
+            organization.Id, "Late Read Client", Now.AddDays(-100));
+        var plan = new ClientPaymentPlan(
+            organization.Id,
+            relatedClient.Id,
+            30m,
+            3,
+            operationalToday.AddMonths(-1),
+            Now.AddDays(-100));
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user, [organization], [membership], [relatedClient], lateNow);
+        await SeedFinanceAsync(plan);
+
+        async Task<T> ReadAsync<T>(string path)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Add(
+                HeaderNames.Cookie,
+                $"{SessionCookieName}={rawHandle}");
+            using HttpResponseMessage response = await lateClient.SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            T? body = await response.Content.ReadFromJsonAsync<T>();
+            Assert.NotNull(body);
+            return body;
+        }
+
+        PaymentPlanResponse detail = await ReadAsync<PaymentPlanResponse>(
+            $"{GetPaymentPlansPath(organization.Id)}/{plan.Id:D}");
+        FinanceOverviewResponse overview = await ReadAsync<FinanceOverviewResponse>(
+            GetFinanceOverviewPath(organization.Id));
+        ListPaymentPlansResponse list = await ReadAsync<ListPaymentPlansResponse>(
+            GetPaymentPlansPath(organization.Id));
+        ClientFinanceSummaryResponse clientSummary =
+            await ReadAsync<ClientFinanceSummaryResponse>(
+                GetClientFinanceSummaryPath(organization.Id, relatedClient.Id));
+
+        Assert.Equal(operationalToday, detail.ReferenceDate);
+        Assert.Equal(
+            [
+                PaymentInstallmentStatusResponse.Overdue,
+                PaymentInstallmentStatusResponse.DueToday,
+                PaymentInstallmentStatusResponse.Upcoming
+            ],
+            detail.Installments.Select(item => item.Status));
+        Assert.Equal(operationalToday, overview.ReferenceDate);
+        Assert.Equal(10m, overview.OverdueAmount);
+        Assert.Equal(10m, overview.DueTodayAmount);
+        Assert.Equal(1L, overview.OverdueInstallmentCount);
+        Assert.Equal(1L, overview.DueTodayInstallmentCount);
+        Assert.Equal(1, Assert.Single(list.Items).OverdueInstallmentCount);
+        Assert.Equal(operationalToday, clientSummary.ReferenceDate);
+        Assert.Equal(10m, clientSummary.OverdueAmount);
+    }
+
+    [Fact]
     public async Task Overview_EmptyTenantIgnoresForeignFinanceAndReturnsExactZeros()
     {
         User user = CreateUser("overview-empty");
@@ -1571,22 +1648,24 @@ public sealed class FinanceEndpointTests : IAsyncLifetime
         User user,
         IReadOnlyCollection<Organization> organizations,
         IReadOnlyCollection<OrganizationMembership> memberships,
-        IReadOnlyCollection<Client> clients)
+        IReadOnlyCollection<Client> clients,
+        DateTimeOffset? sessionNow = null)
     {
+        DateTimeOffset now = sessionNow ?? Now;
         IAuthenticationSessionHandleService handleService = factory.Services
             .GetRequiredService<IAuthenticationSessionHandleService>();
         string rawHandle = handleService.GenerateHandle(out var secretHash);
         var credential = new UserCredential(
             user.Id,
             PasswordHash,
-            Now.AddHours(-1));
+            now.AddHours(-1));
         var session = new AuthenticationSession(
             user.Id,
             secretHash,
             credential.CredentialVersion,
-            Now.AddMinutes(-30),
-            Now.AddMinutes(10),
-            Now.AddHours(2));
+            now.AddMinutes(-30),
+            now.AddMinutes(10),
+            now.AddHours(2));
 
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
         dbContext.Organizations.AddRange(organizations);

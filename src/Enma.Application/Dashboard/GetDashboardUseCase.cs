@@ -1,5 +1,6 @@
 using Enma.Application.Agenda;
 using Enma.Application.Authorization;
+using Enma.Application.Time;
 using Enma.Domain.Organizations;
 
 namespace Enma.Application.Dashboard;
@@ -9,23 +10,23 @@ public sealed class GetDashboardUseCase
     private readonly OrganizationAccessAuthorization _accessAuthorization;
     private readonly IDashboardReadQueries _dashboardReadQueries;
     private readonly IAgendaReadQueries _agendaReadQueries;
-    private readonly TimeProvider _timeProvider;
+    private readonly OperationalCalendar _operationalCalendar;
 
     public GetDashboardUseCase(
         OrganizationAccessAuthorization accessAuthorization,
         IDashboardReadQueries dashboardReadQueries,
         IAgendaReadQueries agendaReadQueries,
-        TimeProvider timeProvider)
+        OperationalCalendar operationalCalendar)
     {
         ArgumentNullException.ThrowIfNull(accessAuthorization);
         ArgumentNullException.ThrowIfNull(dashboardReadQueries);
         ArgumentNullException.ThrowIfNull(agendaReadQueries);
-        ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(operationalCalendar);
 
         _accessAuthorization = accessAuthorization;
         _dashboardReadQueries = dashboardReadQueries;
         _agendaReadQueries = agendaReadQueries;
-        _timeProvider = timeProvider;
+        _operationalCalendar = operationalCalendar;
     }
 
     public async Task<GetDashboardResult> ExecuteAsync(
@@ -39,15 +40,11 @@ public sealed class GetDashboardUseCase
             return GetDashboardResult.AccessDenied;
         }
 
-        DateTimeOffset nowUtc = _timeProvider
-            .GetUtcNow()
-            .ToUniversalTime();
-        DateOnly referenceDate = DateOnly.FromDateTime(nowUtc.UtcDateTime);
+        DateTimeOffset nowUtc = _operationalCalendar.GetUtcNow();
+        DateOnly referenceDate = _operationalCalendar.GetDate(nowUtc);
         DateOnly throughDate = referenceDate.AddDays(7);
-        var eventWindowEndUtc = new DateTimeOffset(
-            throughDate.AddDays(1),
-            TimeOnly.MinValue,
-            TimeSpan.Zero);
+        DateTimeOffset eventWindowEndUtc =
+            _operationalCalendar.GetStartOfDayUtc(throughDate.AddDays(1));
 
         DashboardMetricsReadModel metrics =
             await _dashboardReadQueries.ReadMetricsAsync(
