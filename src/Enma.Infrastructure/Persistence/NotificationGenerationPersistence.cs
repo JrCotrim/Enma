@@ -15,6 +15,9 @@ public sealed class NotificationGenerationPersistence(EnmaDbContext dbContext)
     // successful batch advances without OFFSET. The targeted ON CONFLICT is
     // still required for candidates inserted concurrently after that check.
 
+    // An available responsible (same tenant, active membership, active user)
+    // is the only deadline recipient; otherwise every available Owner or
+    // Administrator receives the reminder.
     private const string DeadlineInsertSql =
         """
         WITH candidates AS MATERIALIZED (
@@ -27,10 +30,21 @@ public sealed class NotificationGenerationPersistence(EnmaDbContext dbContext)
             INNER JOIN organizations AS organization
                 ON organization.id = deadline.organization_id
                 AND organization.is_active
+            LEFT JOIN organization_memberships AS responsible
+                ON responsible.organization_id = deadline.organization_id
+                AND responsible.id = deadline.responsible_membership_id
+                AND responsible.is_active
+            LEFT JOIN users AS responsible_user
+                ON responsible_user.id = responsible.user_id
+                AND responsible_user.is_active
             INNER JOIN organization_memberships AS membership
                 ON membership.organization_id = deadline.organization_id
                 AND membership.is_active
-                AND membership.role IN (1, 2)
+                AND CASE
+                    WHEN responsible_user.id IS NOT NULL
+                        THEN membership.id = responsible.id
+                    ELSE membership.role IN (1, 2)
+                END
             INNER JOIN users AS recipient
                 ON recipient.id = membership.user_id
                 AND recipient.is_active

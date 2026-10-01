@@ -177,6 +177,330 @@ public sealed class NotificationGenerationPersistenceTests(
     }
 
     [Fact]
+    public async Task DeadlineGeneration_AvailableMemberResponsible_IsOnlyRecipient()
+    {
+        TenantGraph tenant = CreateTenant("deadline-member-responsible");
+        _ = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        _ = AddPerson(tenant, "administrator", OrganizationRole.Administrator);
+        Person responsible = AddPerson(
+            tenant,
+            "responsible",
+            OrganizationRole.Member);
+        _ = AddPerson(tenant, "other-member", OrganizationRole.Member);
+        LegalDeadline deadline = CreateDeadline(
+            tenant,
+            "Member responsible",
+            SchedulerDate,
+            responsible.Membership);
+        await SeedAsync(tenant.Entities);
+
+        NotificationGenerationSourceResult first = await GenerateDeadlinesAsync();
+        NotificationGenerationSourceResult repeated = await GenerateDeadlinesAsync();
+        Notification notification = Assert.Single(await ReadNotificationsAsync());
+
+        Assert.Equal(new NotificationGenerationSourceResult(1, 1), first);
+        Assert.Equal(new NotificationGenerationSourceResult(0, 1), repeated);
+        AssertDeadlineNotification(
+            notification,
+            tenant,
+            deadline,
+            responsible.User.Id);
+    }
+
+    [Fact]
+    public async Task DeadlineGeneration_AvailableOwnerResponsible_ReceivesSingleNotification()
+    {
+        TenantGraph tenant = CreateTenant("deadline-owner-responsible");
+        Person owner = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        _ = AddPerson(tenant, "second-owner", OrganizationRole.Owner);
+        _ = AddPerson(tenant, "administrator", OrganizationRole.Administrator);
+        LegalDeadline deadline = CreateDeadline(
+            tenant,
+            "Owner responsible",
+            SchedulerDate,
+            owner.Membership);
+        await SeedAsync(tenant.Entities);
+
+        NotificationGenerationSourceResult result = await GenerateDeadlinesAsync();
+        Notification notification = Assert.Single(await ReadNotificationsAsync());
+
+        Assert.Equal(new NotificationGenerationSourceResult(1, 1), result);
+        AssertDeadlineNotification(
+            notification,
+            tenant,
+            deadline,
+            owner.User.Id);
+    }
+
+    [Fact]
+    public async Task DeadlineGeneration_UnavailableOrMissingResponsible_FallsBackToPrivilegedRecipients()
+    {
+        TenantGraph tenant = CreateTenant("deadline-responsible-fallback");
+        Person owner = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        Person administrator = AddPerson(
+            tenant,
+            "administrator",
+            OrganizationRole.Administrator);
+        _ = AddPerson(tenant, "member", OrganizationRole.Member);
+        Person inactiveMembership = AddPerson(
+            tenant,
+            "inactive-membership",
+            OrganizationRole.Member);
+        inactiveMembership.Membership.Deactivate();
+        Person inactiveUser = AddPerson(
+            tenant,
+            "inactive-user",
+            OrganizationRole.Member);
+        inactiveUser.User.Deactivate();
+        LegalDeadline withoutResponsible = CreateDeadline(
+            tenant,
+            "Without responsible",
+            SchedulerDate);
+        LegalDeadline inactiveMembershipResponsible = CreateDeadline(
+            tenant,
+            "Inactive membership responsible",
+            SchedulerDate,
+            inactiveMembership.Membership);
+        LegalDeadline inactiveUserResponsible = CreateDeadline(
+            tenant,
+            "Inactive user responsible",
+            SchedulerDate.AddDays(1),
+            inactiveUser.Membership);
+        await SeedAsync(tenant.Entities);
+
+        NotificationGenerationSourceResult first = await GenerateDeadlinesAsync();
+        NotificationGenerationSourceResult repeated = await GenerateDeadlinesAsync();
+        Notification[] notifications = await ReadNotificationsAsync();
+
+        Assert.Equal(new NotificationGenerationSourceResult(6, 1), first);
+        Assert.Equal(new NotificationGenerationSourceResult(0, 1), repeated);
+        Assert.Equal(
+            new[]
+            {
+                withoutResponsible.Id,
+                inactiveMembershipResponsible.Id,
+                inactiveUserResponsible.Id
+            }
+                .SelectMany(deadlineId => new[]
+                {
+                    (DeadlineId: deadlineId, RecipientUserId: owner.User.Id),
+                    (DeadlineId: deadlineId, RecipientUserId: administrator.User.Id)
+                })
+                .OrderBy(value => value.DeadlineId)
+                .ThenBy(value => value.RecipientUserId),
+            notifications
+                .Select(notification => (
+                    DeadlineId: notification.LegalDeadlineId!.Value,
+                    notification.RecipientUserId))
+                .OrderBy(value => value.DeadlineId)
+                .ThenBy(value => value.RecipientUserId));
+    }
+
+    [Fact]
+    public async Task DeadlineGeneration_WithResponsible_SkipsInactiveOrganizationCompletedAndOutOfWindow()
+    {
+        TenantGraph tenant = CreateTenant("deadline-responsible-window");
+        _ = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        Person responsible = AddPerson(
+            tenant,
+            "responsible",
+            OrganizationRole.Member);
+        _ = CreateDeadline(
+            tenant,
+            "Yesterday",
+            SchedulerDate.AddDays(-1),
+            responsible.Membership);
+        LegalDeadline today = CreateDeadline(
+            tenant,
+            "Today",
+            SchedulerDate,
+            responsible.Membership);
+        LegalDeadline tomorrow = CreateDeadline(
+            tenant,
+            "Tomorrow",
+            SchedulerDate.AddDays(1),
+            responsible.Membership);
+        _ = CreateDeadline(
+            tenant,
+            "After tomorrow",
+            SchedulerDate.AddDays(2),
+            responsible.Membership);
+        LegalDeadline completed = CreateDeadline(
+            tenant,
+            "Completed",
+            SchedulerDate,
+            responsible.Membership);
+        completed.Complete(GeneratedAt);
+
+        TenantGraph inactiveTenant = CreateTenant("deadline-responsible-inactive-org");
+        _ = AddPerson(inactiveTenant, "owner", OrganizationRole.Owner);
+        Person inactiveTenantResponsible = AddPerson(
+            inactiveTenant,
+            "responsible",
+            OrganizationRole.Member);
+        _ = CreateDeadline(
+            inactiveTenant,
+            "Inactive organization",
+            SchedulerDate,
+            inactiveTenantResponsible.Membership);
+        inactiveTenant.Organization.Deactivate();
+
+        await SeedAsync(tenant.Entities.Concat(inactiveTenant.Entities));
+
+        NotificationGenerationSourceResult result = await GenerateDeadlinesAsync();
+        Notification[] notifications = await ReadNotificationsAsync();
+
+        Assert.Equal(new NotificationGenerationSourceResult(2, 1), result);
+        Assert.Equal(
+            new[]
+            {
+                (DeadlineId: today.Id, OccurrenceDate: SchedulerDate),
+                (DeadlineId: tomorrow.Id, OccurrenceDate: SchedulerDate.AddDays(1))
+            }.OrderBy(value => value.DeadlineId),
+            notifications
+                .Select(notification => (
+                    DeadlineId: notification.LegalDeadlineId!.Value,
+                    OccurrenceDate: notification.OccurrenceDate!.Value))
+                .OrderBy(value => value.DeadlineId));
+        Assert.All(
+            notifications,
+            notification => Assert.Equal(
+                responsible.User.Id,
+                notification.RecipientUserId));
+    }
+
+    [Fact]
+    public async Task DeadlineGeneration_ResponsibleRecipients_DoNotCrossTenants()
+    {
+        TenantGraph firstTenant = CreateTenant("deadline-responsible-first");
+        Person firstOwner = AddPerson(
+            firstTenant,
+            "owner",
+            OrganizationRole.Owner);
+        Person sharedInFirst = AddPerson(
+            firstTenant,
+            "shared",
+            OrganizationRole.Member);
+        LegalDeadline firstWithResponsible = CreateDeadline(
+            firstTenant,
+            "First with responsible",
+            SchedulerDate,
+            sharedInFirst.Membership);
+        LegalDeadline firstWithoutResponsible = CreateDeadline(
+            firstTenant,
+            "First without responsible",
+            SchedulerDate);
+
+        TenantGraph secondTenant = CreateTenant("deadline-responsible-second");
+        Person secondOwner = AddPerson(
+            secondTenant,
+            "owner",
+            OrganizationRole.Owner);
+        var sharedMembershipInSecond = new OrganizationMembership(
+            secondTenant.Organization.Id,
+            sharedInFirst.User.Id,
+            OrganizationRole.Member,
+            GeneratedAt.AddDays(-1));
+        secondTenant.Entities.Add(sharedMembershipInSecond);
+        LegalDeadline secondWithoutResponsible = CreateDeadline(
+            secondTenant,
+            "Second without responsible",
+            SchedulerDate);
+        LegalDeadline secondWithResponsible = CreateDeadline(
+            secondTenant,
+            "Second with responsible",
+            SchedulerDate,
+            sharedMembershipInSecond);
+        sharedMembershipInSecond.Deactivate();
+
+        await SeedAsync(firstTenant.Entities.Concat(secondTenant.Entities));
+
+        await GenerateDeadlinesAsync();
+        Notification[] notifications = await ReadNotificationsAsync();
+
+        Assert.Equal(
+            new[]
+            {
+                (firstTenant.Organization.Id,
+                    firstWithResponsible.Id,
+                    sharedInFirst.User.Id),
+                (firstTenant.Organization.Id,
+                    firstWithoutResponsible.Id,
+                    firstOwner.User.Id),
+                (secondTenant.Organization.Id,
+                    secondWithoutResponsible.Id,
+                    secondOwner.User.Id),
+                (secondTenant.Organization.Id,
+                    secondWithResponsible.Id,
+                    secondOwner.User.Id)
+            }.Order(),
+            notifications
+                .Select(notification => (
+                    notification.OrganizationId,
+                    notification.LegalDeadlineId!.Value,
+                    notification.RecipientUserId))
+                .Order());
+    }
+
+    [Fact]
+    public async Task DeadlineGeneration_ResponsibleChange_NotifiesNewResponsibleAndKeepsHistory()
+    {
+        TenantGraph tenant = CreateTenant("deadline-responsible-change");
+        _ = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        Person originalResponsible = AddPerson(
+            tenant,
+            "original-responsible",
+            OrganizationRole.Member);
+        Person newResponsible = AddPerson(
+            tenant,
+            "new-responsible",
+            OrganizationRole.Member);
+        LegalDeadline deadline = CreateDeadline(
+            tenant,
+            "Responsible change",
+            SchedulerDate,
+            originalResponsible.Membership);
+        await SeedAsync(tenant.Entities);
+
+        NotificationGenerationSourceResult first = await GenerateDeadlinesAsync();
+        Notification original = Assert.Single(await ReadNotificationsAsync());
+
+        await using (EnmaDbContext updateContext = fixture.CreateDbContext())
+        {
+            LegalDeadline persistedDeadline =
+                await updateContext.LegalDeadlines.SingleAsync(
+                    candidate => candidate.Id == deadline.Id);
+            Assert.True(persistedDeadline.ChangeResponsible(
+                newResponsible.Membership.Id));
+            await updateContext.SaveChangesAsync();
+        }
+
+        NotificationGenerationSourceResult afterChange =
+            await GenerateDeadlinesAsync();
+        NotificationGenerationSourceResult finalRepeat =
+            await GenerateDeadlinesAsync();
+        Notification[] notifications = await ReadNotificationsAsync();
+
+        Assert.Equal(new NotificationGenerationSourceResult(1, 1), first);
+        Assert.Equal(new NotificationGenerationSourceResult(1, 1), afterChange);
+        Assert.Equal(new NotificationGenerationSourceResult(0, 1), finalRepeat);
+        Assert.Equal(originalResponsible.User.Id, original.RecipientUserId);
+        Assert.Equal(2, notifications.Length);
+        Assert.Contains(
+            notifications,
+            notification => notification.Id == original.Id &&
+                notification.RecipientUserId == originalResponsible.User.Id);
+        Notification added = Assert.Single(
+            notifications,
+            notification => notification.Id != original.Id);
+        AssertDeadlineNotification(
+            added,
+            tenant,
+            deadline,
+            newResponsible.User.Id);
+    }
+
+    [Fact]
     public async Task TaskGeneration_UsesAssigneeOrCreatorWithoutInactiveAssigneeFallback()
     {
         TenantGraph tenant = CreateTenant("tasks");
@@ -1044,14 +1368,16 @@ public sealed class NotificationGenerationPersistenceTests(
     private static LegalDeadline CreateDeadline(
         TenantGraph tenant,
         string title,
-        DateOnly dueDate)
+        DateOnly dueDate,
+        OrganizationMembership? responsible = null)
     {
         var deadline = new LegalDeadline(
             tenant.Organization.Id,
             tenant.LegalProcess.Id,
             title,
             dueDate,
-            GeneratedAt.AddDays(-1));
+            GeneratedAt.AddDays(-1),
+            responsible?.Id);
         tenant.Entities.Add(deadline);
         return deadline;
     }
@@ -1112,6 +1438,25 @@ public sealed class NotificationGenerationPersistenceTests(
             GeneratedAt.AddDays(-1));
         tenant.Entities.Add(paymentPlan);
         return paymentPlan;
+    }
+
+    private static void AssertDeadlineNotification(
+        Notification notification,
+        TenantGraph tenant,
+        LegalDeadline deadline,
+        Guid recipientUserId)
+    {
+        Assert.Equal(tenant.Organization.Id, notification.OrganizationId);
+        Assert.Equal(NotificationKind.LegalDeadlineDueSoon, notification.Kind);
+        Assert.Equal(deadline.Id, notification.LegalDeadlineId);
+        Assert.Equal(recipientUserId, notification.RecipientUserId);
+        Assert.Equal(deadline.DueDate, notification.OccurrenceDate);
+        Assert.Null(notification.OccurrenceAt);
+        Assert.Null(notification.LegalTaskId);
+        Assert.Null(notification.CalendarEventId);
+        Assert.Null(notification.PaymentInstallmentId);
+        Assert.Equal(GeneratedAt, notification.GeneratedAt);
+        Assert.Null(notification.ReadAt);
     }
 
     private static void AssertTaskNotification(
