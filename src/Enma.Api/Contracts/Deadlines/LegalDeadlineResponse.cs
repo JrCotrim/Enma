@@ -9,4 +9,6 @@ public sealed record LegalDeadlineResponse(
     string ClientName,
     LegalDeadlineStateResponse State,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? CompletedAt);
+    DateTimeOffset? CompletedAt,
+    Guid? ResponsibleMembershipId,
+    string? ResponsibleDisplayName);

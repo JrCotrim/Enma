@@ -167,6 +167,7 @@ public static class LegalDeadlineEndpoints
         ClaimsPrincipal principal,
         ListLegalDeadlinesUseCase useCase,
         CancellationToken cancellationToken,
+        string? responsible = null,
         int pageNumber = 1,
         int pageSize = ListLegalDeadlinesUseCase.DefaultPageSize)
     {
@@ -180,6 +181,7 @@ public static class LegalDeadlineEndpoints
             organizationId,
             pageNumber,
             pageSize,
+            responsible,
             cancellationToken);
 
         if (result.Status == ListLegalDeadlinesResultStatus.AccessDenied)
@@ -383,7 +385,9 @@ public static class LegalDeadlineEndpoints
             legalDeadline.ProcessId,
             legalDeadline.ProcessTitle,
             legalDeadline.ClientName,
-            MapState(legalDeadline.State));
+            MapState(legalDeadline.State),
+            legalDeadline.ResponsibleMembershipId,
+            legalDeadline.ResponsibleDisplayName);
     }
 
     private static LegalDeadlineResponse MapDetail(
@@ -398,7 +402,9 @@ public static class LegalDeadlineEndpoints
             legalDeadline.ClientName,
             MapState(legalDeadline.State),
             legalDeadline.CreatedAt,
-            legalDeadline.CompletedAt);
+            legalDeadline.CompletedAt,
+            legalDeadline.ResponsibleMembershipId,
+            legalDeadline.ResponsibleDisplayName);
     }
 
     private static LegalDeadlineStateResponse MapState(

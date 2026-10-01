@@ -1,4 +1,5 @@
 using Enma.Application.Deadlines;
+using Enma.Domain.Deadlines;
 using Microsoft.EntityFrameworkCore;
 
 namespace Enma.Infrastructure.Persistence.Queries;
@@ -42,6 +43,24 @@ public sealed class LegalDeadlineReadQueries : ILegalDeadlineReadQueries
                     client.OrganizationId,
                     ClientId = client.Id
                 }
+            join responsibleMembership in
+                _dbContext.OrganizationMemberships.AsNoTracking()
+                on new
+                {
+                    legalDeadline.OrganizationId,
+                    MembershipId = legalDeadline.ResponsibleMembershipId
+                }
+                equals new
+                {
+                    responsibleMembership.OrganizationId,
+                    MembershipId = (Guid?)responsibleMembership.Id
+                }
+                into responsibleMemberships
+            from responsibleMembership in responsibleMemberships.DefaultIfEmpty()
+            join responsibleUser in _dbContext.Users.AsNoTracking()
+                on responsibleMembership.UserId equals responsibleUser.Id
+                into responsibleUsers
+            from responsibleUser in responsibleUsers.DefaultIfEmpty()
             where legalDeadline.Id == deadlineId &&
                 legalDeadline.OrganizationId == organizationId
             select new LegalDeadlineDetailReadModel(
@@ -55,21 +74,43 @@ public sealed class LegalDeadlineReadQueries : ILegalDeadlineReadQueries
                     ? LegalDeadlineReadState.Pending
                     : LegalDeadlineReadState.Completed,
                 legalDeadline.CreatedAt,
-                legalDeadline.CompletedAt);
+                legalDeadline.CompletedAt,
+                legalDeadline.ResponsibleMembershipId,
+                responsibleUser == null ? null : responsibleUser.Name);
 
         return query.SingleOrDefaultAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<LegalDeadlineListItem>> ListAsync(
-        Guid organizationId,
-        int pageNumber,
-        int pageSize,
+        LegalDeadlineListReadRequest request,
         CancellationToken cancellationToken = default)
     {
-        int skippedItems = checked((pageNumber - 1) * pageSize);
+        ArgumentNullException.ThrowIfNull(request);
+
+        int skippedItems = checked((request.PageNumber - 1) * request.PageSize);
+
+        IQueryable<LegalDeadline> legalDeadlines = _dbContext.LegalDeadlines
+            .AsNoTracking()
+            .Where(legalDeadline =>
+                legalDeadline.OrganizationId == request.OrganizationId);
+
+        legalDeadlines = request.ResponsibleFilterKind switch
+        {
+            LegalDeadlineReadResponsibleFilterKind.Any => legalDeadlines,
+            LegalDeadlineReadResponsibleFilterKind.Unassigned =>
+                legalDeadlines.Where(legalDeadline =>
+                    legalDeadline.ResponsibleMembershipId == null),
+            LegalDeadlineReadResponsibleFilterKind.Membership
+                when request.ResponsibleMembershipId is Guid membershipId =>
+                legalDeadlines.Where(legalDeadline =>
+                    legalDeadline.ResponsibleMembershipId == membershipId),
+            _ => throw new ArgumentException(
+                "The legal deadline responsible filter is invalid.",
+                nameof(request))
+        };
 
         IQueryable<LegalDeadlineListItem> query =
-            from legalDeadline in _dbContext.LegalDeadlines.AsNoTracking()
+            from legalDeadline in legalDeadlines
             join legalProcess in _dbContext.LegalProcesses.AsNoTracking()
                 on new
                 {
@@ -92,7 +133,24 @@ public sealed class LegalDeadlineReadQueries : ILegalDeadlineReadQueries
                     client.OrganizationId,
                     ClientId = client.Id
                 }
-            where legalDeadline.OrganizationId == organizationId
+            join responsibleMembership in
+                _dbContext.OrganizationMemberships.AsNoTracking()
+                on new
+                {
+                    legalDeadline.OrganizationId,
+                    MembershipId = legalDeadline.ResponsibleMembershipId
+                }
+                equals new
+                {
+                    responsibleMembership.OrganizationId,
+                    MembershipId = (Guid?)responsibleMembership.Id
+                }
+                into responsibleMemberships
+            from responsibleMembership in responsibleMemberships.DefaultIfEmpty()
+            join responsibleUser in _dbContext.Users.AsNoTracking()
+                on responsibleMembership.UserId equals responsibleUser.Id
+                into responsibleUsers
+            from responsibleUser in responsibleUsers.DefaultIfEmpty()
             orderby legalDeadline.DueDate, legalDeadline.Id
             select new LegalDeadlineListItem(
                 legalDeadline.Id,
@@ -103,11 +161,13 @@ public sealed class LegalDeadlineReadQueries : ILegalDeadlineReadQueries
                 client.Name,
                 legalDeadline.CompletedAt == null
                     ? LegalDeadlineReadState.Pending
-                    : LegalDeadlineReadState.Completed);
+                    : LegalDeadlineReadState.Completed,
+                legalDeadline.ResponsibleMembershipId,
+                responsibleUser == null ? null : responsibleUser.Name);
 
         return await query
             .Skip(skippedItems)
-            .Take(pageSize)
+            .Take(request.PageSize)
             .ToArrayAsync(cancellationToken);
     }
 }

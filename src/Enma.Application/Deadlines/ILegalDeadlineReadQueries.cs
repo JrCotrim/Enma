@@ -8,8 +8,20 @@ public interface ILegalDeadlineReadQueries
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<LegalDeadlineListItem>> ListAsync(
-        Guid organizationId,
-        int pageNumber,
-        int pageSize,
+        LegalDeadlineListReadRequest request,
         CancellationToken cancellationToken = default);
+}
+
+public sealed record LegalDeadlineListReadRequest(
+    Guid OrganizationId,
+    LegalDeadlineReadResponsibleFilterKind ResponsibleFilterKind,
+    Guid? ResponsibleMembershipId,
+    int PageNumber,
+    int PageSize);
+
+public enum LegalDeadlineReadResponsibleFilterKind
+{
+    Any = 0,
+    Unassigned = 1,
+    Membership = 2
 }

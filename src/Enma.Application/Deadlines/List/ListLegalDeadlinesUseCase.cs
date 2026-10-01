@@ -27,27 +27,49 @@ public sealed class ListLegalDeadlinesUseCase
         Guid organizationId,
         int pageNumber = 1,
         int pageSize = DefaultPageSize,
+        string? responsible = null,
         CancellationToken cancellationToken = default)
     {
         ValidatePagination(pageNumber, pageSize);
+        LegalDeadlineResponsibleFilter responsibleFilter =
+            LegalDeadlineResponsibleFilter.Parse(responsible);
 
-        DeadlineActionAuthorizationResult authorization =
-            await _actionAuthorization.AuthorizeAsync(
+        OrganizationAccessAuthorizationResult authorization =
+            await _actionAuthorization.AuthorizeActorAsync(
                 userId,
                 organizationId,
                 DeadlineAction.View,
                 cancellationToken);
 
-        if (authorization == DeadlineActionAuthorizationResult.Denied)
+        if (authorization.MembershipId is not Guid actorMembershipId)
         {
             return ListLegalDeadlinesResult.AccessDenied;
         }
 
+        (LegalDeadlineReadResponsibleFilterKind responsibleKind,
+            Guid? responsibleMembershipId) = responsibleFilter.Kind switch
+        {
+            LegalDeadlineResponsibleFilterKind.Any =>
+                (LegalDeadlineReadResponsibleFilterKind.Any, (Guid?)null),
+            LegalDeadlineResponsibleFilterKind.Self =>
+                (LegalDeadlineReadResponsibleFilterKind.Membership, actorMembershipId),
+            LegalDeadlineResponsibleFilterKind.Unassigned =>
+                (LegalDeadlineReadResponsibleFilterKind.Unassigned, null),
+            LegalDeadlineResponsibleFilterKind.Membership =>
+                (LegalDeadlineReadResponsibleFilterKind.Membership,
+                    responsibleFilter.MembershipId),
+            _ => throw new InvalidOperationException(
+                "The legal deadline responsible filter is unsupported.")
+        };
+
         IReadOnlyList<LegalDeadlineListItem> legalDeadlines =
             await _readQueries.ListAsync(
-                organizationId,
-                pageNumber,
-                pageSize,
+                new LegalDeadlineListReadRequest(
+                    organizationId,
+                    responsibleKind,
+                    responsibleMembershipId,
+                    pageNumber,
+                    pageSize),
                 cancellationToken);
 
         return ListLegalDeadlinesResult.Success(

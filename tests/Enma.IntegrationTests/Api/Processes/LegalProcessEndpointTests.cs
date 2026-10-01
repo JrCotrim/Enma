@@ -142,7 +142,8 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
                 nameof(LegalProcessLookupItemResponse.Title),
                 nameof(LegalProcessLookupItemResponse.ClientName),
                 nameof(LegalProcessLookupItemResponse.ProcessNumber),
-                nameof(LegalProcessLookupItemResponse.Status)
+                nameof(LegalProcessLookupItemResponse.Status),
+                nameof(LegalProcessLookupItemResponse.ResponsibleMembershipId)
             ],
             GetPropertyNames<LegalProcessLookupItemResponse>());
         Assert.Equal(
@@ -824,7 +825,7 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
                 .Select(property => property.Name)
                 .ToArray());
         Assert.Equal(
-            ["id", "title", "clientName", "processNumber", "status"],
+            ["id", "title", "clientName", "processNumber", "status", "responsibleMembershipId"],
             document.RootElement
                 .GetProperty("items")[0]
                 .EnumerateObject()
@@ -2282,7 +2283,7 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             "Open Unnumbered",
             2,
             LegalProcessStatus.InProgress,
-            null);
+            membershipA.Id);
         LegalProcess crossTenant = CreateOperationalProcess(
             organizationB,
             clientB,
@@ -2318,13 +2319,16 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         JsonElement item = Assert.Single(
             searchDocument.RootElement.GetProperty("items").EnumerateArray());
         Assert.Equal(
-            ["id", "title", "clientName", "processNumber", "status"],
+            ["id", "title", "clientName", "processNumber", "status", "responsibleMembershipId"],
             item.EnumerateObject().Select(property => property.Name).ToArray());
         Assert.Equal(closedNumbered.Id, item.GetProperty("id").GetGuid());
         Assert.Equal(
             "0001234-56.2026.8.19.0001",
             item.GetProperty("processNumber").GetString());
         Assert.Equal("closed", item.GetProperty("status").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            item.GetProperty("responsibleMembershipId").ValueKind);
 
         LegalProcessLookupResponse? all = await allResponse.Content
             .ReadFromJsonAsync<LegalProcessLookupResponse>();
@@ -2337,13 +2341,15 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
                     "Closed Numbered",
                     clientA.Name,
                     "0001234-56.2026.8.19.0001",
-                    LegalProcessStatusResponse.Closed),
+                    LegalProcessStatusResponse.Closed,
+                    null),
                 new LegalProcessLookupItemResponse(
                     openUnnumbered.Id,
                     "Open Unnumbered",
                     clientA.Name,
                     null,
-                    LegalProcessStatusResponse.InProgress)
+                    LegalProcessStatusResponse.InProgress,
+                    membershipA.Id)
             ],
             all.Items);
     }

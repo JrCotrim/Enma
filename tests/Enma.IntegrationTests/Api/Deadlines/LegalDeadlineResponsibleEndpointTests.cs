@@ -556,6 +556,229 @@ public sealed class LegalDeadlineResponsibleEndpointTests : IAsyncLifetime
         Assert.DoesNotContain("Responsible Member", auditJson, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ReadLegalDeadlines_ResponsiblePair_IsFilledNullOrInactiveWithoutCrossTenantLeak()
+    {
+        TestGraph graph = await SeedGraphAsync(
+            OrganizationRole.Member,
+            seedDeadline: true,
+            deadlineResponsible: true,
+            marker: "read");
+        TestGraph foreign = await SeedGraphAsync(
+            OrganizationRole.Owner,
+            seedDeadline: true,
+            deadlineResponsible: true,
+            marker: "read");
+        LegalDeadline assigned = Assert.IsType<LegalDeadline>(graph.Deadline);
+        LegalDeadline unassigned = await SeedDeadlineAsync(
+            graph,
+            "Read Unassigned",
+            1,
+            null);
+        (User inactiveMembershipUser, OrganizationMembership inactiveMembership) =
+            await SeedMemberAsync(
+                graph.Organization,
+                "read-inactive-membership",
+                isMembershipActive: false);
+        (User inactiveUser, OrganizationMembership inactiveUserMembership) =
+            await SeedMemberAsync(
+                graph.Organization,
+                "read-inactive-user",
+                isUserActive: false);
+        LegalDeadline inactiveMembershipDeadline = await SeedDeadlineAsync(
+            graph,
+            "Read Inactive Membership",
+            2,
+            inactiveMembership.Id);
+        LegalDeadline inactiveUserDeadline = await SeedDeadlineAsync(
+            graph,
+            "Read Inactive User",
+            3,
+            inactiveUserMembership.Id);
+        Assert.Equal(graph.ResponsibleUser.Name, foreign.ResponsibleUser.Name);
+
+        (Guid Id, Guid? MembershipId, string? DisplayName)[] expected =
+        [
+            (assigned.Id, graph.ResponsibleMembership.Id, graph.ResponsibleUser.Name),
+            (unassigned.Id, null, null),
+            (
+                inactiveMembershipDeadline.Id,
+                inactiveMembership.Id,
+                inactiveMembershipUser.Name
+            ),
+            (inactiveUserDeadline.Id, inactiveUserMembership.Id, inactiveUser.Name)
+        ];
+
+        using HttpResponseMessage listResponse = await SendGetAsync(
+            GetDeadlinesPath(graph.Organization.Id),
+            graph.RawHandle);
+
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        Assert.True(listResponse.Headers.CacheControl?.NoStore);
+        string listJson = await listResponse.Content.ReadAsStringAsync();
+        AssertNoForeignIdentifiers(listJson, foreign);
+        using JsonDocument listDocument = JsonDocument.Parse(listJson);
+        Assert.Equal(
+            expected,
+            listDocument.RootElement
+                .GetProperty("items")
+                .EnumerateArray()
+                .Select(ReadResponsiblePair)
+                .ToArray());
+
+        foreach ((Guid Id, Guid? MembershipId, string? DisplayName) item in expected)
+        {
+            using HttpResponseMessage getResponse = await SendGetAsync(
+                GetDeadlinePath(graph.Organization.Id, item.Id),
+                graph.RawHandle);
+
+            Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+            Assert.True(getResponse.Headers.CacheControl?.NoStore);
+            string getJson = await getResponse.Content.ReadAsStringAsync();
+            AssertNoForeignIdentifiers(getJson, foreign);
+            using JsonDocument getDocument = JsonDocument.Parse(getJson);
+            Assert.Equal(item, ReadResponsiblePair(getDocument.RootElement));
+        }
+
+        using HttpResponseMessage crossTenantGet = await SendGetAsync(
+            GetDeadlinePath(
+                graph.Organization.Id,
+                Assert.IsType<LegalDeadline>(foreign.Deadline).Id),
+            graph.RawHandle);
+        await AssertEmptyResponseAsync(crossTenantGet, HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task ListLegalDeadlines_ResponsibleFilter_AppliesWithinTenantAndResolvesSelfOnServer()
+    {
+        TestGraph graph = await SeedGraphAsync(
+            OrganizationRole.Owner,
+            seedDeadline: true,
+            deadlineResponsible: true,
+            marker: "filter");
+        TestGraph foreign = await SeedGraphAsync(
+            OrganizationRole.Owner,
+            seedDeadline: true,
+            deadlineResponsible: true,
+            marker: "filter");
+        LegalDeadline memberDeadline = Assert.IsType<LegalDeadline>(graph.Deadline);
+        LegalDeadline ownerDeadline = await SeedDeadlineAsync(
+            graph,
+            "Filter Owner",
+            1,
+            graph.Membership.Id);
+        LegalDeadline unassigned = await SeedDeadlineAsync(
+            graph,
+            "Filter Unassigned",
+            2,
+            null);
+        LegalDeadline completedMemberDeadline = await SeedDeadlineAsync(
+            graph,
+            "Filter Completed",
+            3,
+            graph.ResponsibleMembership.Id,
+            completed: true);
+        LegalDeadline foreignOwnerDeadline = await SeedDeadlineAsync(
+            foreign,
+            "Filter Owner",
+            1,
+            foreign.Membership.Id);
+        string memberHandle = await CreateSessionAsync(graph.ResponsibleUser);
+
+        async Task<Guid[]> ListIdsAsync(
+            TestGraph tenant,
+            string rawHandle,
+            string query,
+            TestGraph otherTenant)
+        {
+            using HttpResponseMessage response = await SendGetAsync(
+                $"{GetDeadlinesPath(tenant.Organization.Id)}?{query}",
+                rawHandle);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.True(response.Headers.CacheControl?.NoStore);
+            string json = await response.Content.ReadAsStringAsync();
+            AssertNoForeignIdentifiers(json, otherTenant);
+            using JsonDocument document = JsonDocument.Parse(json);
+            Assert.Equal(
+                ["items", "pageNumber", "pageSize"],
+                document.RootElement
+                    .EnumerateObject()
+                    .Select(property => property.Name)
+                    .ToArray());
+            return document.RootElement
+                .GetProperty("items")
+                .EnumerateArray()
+                .Select(item => ReadResponsiblePair(item).Id)
+                .ToArray();
+        }
+
+        Task<Guid[]> OwnerListIdsAsync(string query) =>
+            ListIdsAsync(graph, graph.RawHandle, query, foreign);
+
+        Task<Guid[]> MemberListIdsAsync(string query) =>
+            ListIdsAsync(graph, memberHandle, query, foreign);
+
+        Guid[] all =
+        [
+            memberDeadline.Id,
+            ownerDeadline.Id,
+            unassigned.Id,
+            completedMemberDeadline.Id
+        ];
+
+        Assert.Equal(all, await OwnerListIdsAsync(string.Empty));
+        Assert.Equal(all, await OwnerListIdsAsync("responsible=any"));
+        Assert.Equal([ownerDeadline.Id], await OwnerListIdsAsync("responsible=self"));
+        Assert.Equal([unassigned.Id], await OwnerListIdsAsync("responsible=unassigned"));
+        Assert.Equal(
+            [memberDeadline.Id, completedMemberDeadline.Id],
+            await OwnerListIdsAsync($"responsible={graph.ResponsibleMembership.Id:D}"));
+        Assert.Equal(
+            [ownerDeadline.Id],
+            await OwnerListIdsAsync($"responsible={graph.Membership.Id:D}"));
+        Assert.Empty(await OwnerListIdsAsync(
+            $"responsible={foreign.ResponsibleMembership.Id:D}"));
+        Assert.Empty(await OwnerListIdsAsync($"responsible={foreign.Membership.Id:D}"));
+        Assert.Empty(await OwnerListIdsAsync($"responsible={Guid.NewGuid():D}"));
+        Assert.Equal(
+            [completedMemberDeadline.Id],
+            await OwnerListIdsAsync(
+                $"responsible={graph.ResponsibleMembership.Id:D}&pageNumber=2&pageSize=1"));
+
+        Assert.Equal(
+            [memberDeadline.Id, completedMemberDeadline.Id],
+            await MemberListIdsAsync("responsible=self"));
+        Assert.Equal(all, await MemberListIdsAsync("responsible=any"));
+        Assert.Equal([unassigned.Id], await MemberListIdsAsync("responsible=unassigned"));
+        Assert.Equal(
+            [ownerDeadline.Id],
+            await MemberListIdsAsync($"responsible={graph.Membership.Id:D}"));
+
+        Assert.Equal(
+            [foreignOwnerDeadline.Id],
+            await ListIdsAsync(foreign, foreign.RawHandle, "responsible=self", graph));
+
+        string[] invalidQueries =
+        [
+            $"responsible={Guid.Empty:D}",
+            "responsible=not-a-guid",
+            $"responsible={graph.ResponsibleMembership.Id:N}",
+            "responsible=assigned"
+        ];
+
+        foreach (string rawHandle in new[] { graph.RawHandle, memberHandle })
+        {
+            foreach (string query in invalidQueries)
+            {
+                using HttpResponseMessage response = await SendGetAsync(
+                    $"{GetDeadlinesPath(graph.Organization.Id)}?{query}",
+                    rawHandle);
+                ProblemDetails problem = await AssertSafeBadRequestAsync(response);
+                Assert.Equal("Invalid request data", problem.Title);
+            }
+        }
+    }
+
     private async Task<TestGraph> SeedGraphAsync(
         OrganizationRole actorRole,
         bool seedDeadline = false,
@@ -717,6 +940,121 @@ public sealed class LegalDeadlineResponsibleEndpointTests : IAsyncLifetime
         }
 
         await dbContext.SaveChangesAsync();
+    }
+
+    private async Task<LegalDeadline> SeedDeadlineAsync(
+        TestGraph graph,
+        string title,
+        int dueDateOffsetDays,
+        Guid? responsibleMembershipId,
+        bool completed = false)
+    {
+        var deadline = new LegalDeadline(
+            graph.Organization.Id,
+            graph.Process.Id,
+            title,
+            DueDate.AddDays(dueDateOffsetDays),
+            Now.AddMinutes(-10),
+            responsibleMembershipId);
+
+        if (completed)
+        {
+            deadline.Complete(Now.AddMinutes(-5));
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        dbContext.LegalDeadlines.Add(deadline);
+        await dbContext.SaveChangesAsync();
+        return deadline;
+    }
+
+    private async Task<(User User, OrganizationMembership Membership)> SeedMemberAsync(
+        Organization organization,
+        string marker,
+        bool isMembershipActive = true,
+        bool isUserActive = true)
+    {
+        User user = CreateUser(marker);
+        var membership = new OrganizationMembership(
+            organization.Id,
+            user.Id,
+            OrganizationRole.Member,
+            Now.AddHours(-1));
+
+        if (!isMembershipActive)
+        {
+            membership.Deactivate();
+        }
+
+        if (!isUserActive)
+        {
+            user.Deactivate();
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        dbContext.AddRange(user, membership);
+        await dbContext.SaveChangesAsync();
+        return (user, membership);
+    }
+
+    private async Task<string> CreateSessionAsync(User user)
+    {
+        IAuthenticationSessionHandleService handleService = factory.Services
+            .GetRequiredService<IAuthenticationSessionHandleService>();
+        string rawHandle = handleService.GenerateHandle(out var secretHash);
+        var credential = new UserCredential(
+            user.Id,
+            PasswordHash,
+            Now.AddHours(-1));
+        var session = new AuthenticationSession(
+            user.Id,
+            secretHash,
+            credential.CredentialVersion,
+            Now.AddMinutes(-30),
+            Now.AddMinutes(10),
+            Now.AddHours(2));
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        dbContext.AddRange(credential, session);
+        await dbContext.SaveChangesAsync();
+        return rawHandle;
+    }
+
+    private static (Guid Id, Guid? MembershipId, string? DisplayName) ReadResponsiblePair(
+        JsonElement item)
+    {
+        JsonElement membershipId = item.GetProperty("responsibleMembershipId");
+        JsonElement displayName = item.GetProperty("responsibleDisplayName");
+        bool membershipIsNull = membershipId.ValueKind == JsonValueKind.Null;
+
+        Assert.Equal(
+            membershipIsNull,
+            displayName.ValueKind == JsonValueKind.Null);
+
+        return (
+            item.GetProperty("id").GetGuid(),
+            membershipIsNull ? null : membershipId.GetGuid(),
+            membershipIsNull ? null : displayName.GetString());
+    }
+
+    private static void AssertNoForeignIdentifiers(string json, TestGraph foreign)
+    {
+        Guid[] foreignIds =
+        [
+            foreign.Organization.Id,
+            foreign.Membership.Id,
+            foreign.ResponsibleMembership.Id,
+            foreign.Process.Id,
+            Assert.IsType<LegalDeadline>(foreign.Deadline).Id
+        ];
+
+        foreach (Guid foreignId in foreignIds)
+        {
+            Assert.DoesNotContain(
+                foreignId.ToString(),
+                json,
+                StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     private async Task AssertNoDeadlineWritesAsync()

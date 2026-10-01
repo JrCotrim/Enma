@@ -294,7 +294,8 @@ public static class LegalProcessEndpoints
                 legalProcess.Title,
                 legalProcess.ClientName,
                 legalProcess.ProcessNumber,
-                MapStatus(legalProcess.Status)))
+                MapStatus(legalProcess.Status),
+                legalProcess.ResponsibleMembershipId))
             .ToArray();
 
         return TypedResults.Ok(new LegalProcessLookupResponse(

@@ -5,7 +5,8 @@ public sealed record LegalProcessLookupItemResponse(
     string Title,
     string ClientName,
     string? ProcessNumber,
-    LegalProcessStatusResponse Status);
+    LegalProcessStatusResponse Status,
+    Guid? ResponsibleMembershipId);
 
 public sealed record LegalProcessLookupResponse(
     IReadOnlyList<LegalProcessLookupItemResponse> Items,

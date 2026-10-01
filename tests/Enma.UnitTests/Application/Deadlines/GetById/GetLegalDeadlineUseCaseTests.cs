@@ -55,7 +55,9 @@ public sealed class GetLegalDeadlineUseCaseTests
             "Acme Legal",
             LegalDeadlineReadState.Pending,
             CreatedAt,
-            null);
+            null,
+            Guid.Parse("8b0b3c55-3e3a-4a8e-9a43-6d7d3f0c1e21"),
+            "Responsible Member");
         var queries = new FakeDeadlineReadQueries(expectedDeadline);
         GetLegalDeadlineUseCase useCase = CreateUseCase(
             OrganizationRole.Member,
@@ -125,7 +127,9 @@ public sealed class GetLegalDeadlineUseCaseTests
                 nameof(LegalDeadlineDetailReadModel.ClientName),
                 nameof(LegalDeadlineDetailReadModel.State),
                 nameof(LegalDeadlineDetailReadModel.CreatedAt),
-                nameof(LegalDeadlineDetailReadModel.CompletedAt)
+                nameof(LegalDeadlineDetailReadModel.CompletedAt),
+                nameof(LegalDeadlineDetailReadModel.ResponsibleMembershipId),
+                nameof(LegalDeadlineDetailReadModel.ResponsibleDisplayName)
             ],
             typeof(LegalDeadlineDetailReadModel)
                 .GetProperties()
@@ -205,9 +209,7 @@ public sealed class GetLegalDeadlineUseCaseTests
         }
 
         public Task<IReadOnlyList<LegalDeadlineListItem>> ListAsync(
-            Guid organizationId,
-            int pageNumber,
-            int pageSize,
+            LegalDeadlineListReadRequest request,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException(

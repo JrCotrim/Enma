@@ -45,7 +45,8 @@ public sealed class LegalProcessLookupQueries : ILegalProcessLookupQueries
                 ClientName = client.Name,
                 legalProcess.ProcessNumber,
                 legalProcess.NormalizedProcessNumber,
-                legalProcess.Status
+                legalProcess.Status,
+                legalProcess.ResponsibleMembershipId
             };
 
         if (LegalProcessSearchPattern.Create(search) is { } searchPattern)
@@ -84,7 +85,8 @@ public sealed class LegalProcessLookupQueries : ILegalProcessLookupQueries
                 item.Title,
                 item.ClientName,
                 item.ProcessNumber,
-                item.Status))
+                item.Status,
+                item.ResponsibleMembershipId))
             .ToArrayAsync(cancellationToken);
     }
 }

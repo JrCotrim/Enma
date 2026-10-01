@@ -15,7 +15,9 @@ public sealed record LegalDeadlineDetailReadModel(
     string ClientName,
     LegalDeadlineReadState State,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? CompletedAt);
+    DateTimeOffset? CompletedAt,
+    Guid? ResponsibleMembershipId,
+    string? ResponsibleDisplayName);
 
 public sealed record LegalDeadlineListItem(
     Guid Id,
@@ -24,4 +26,6 @@ public sealed record LegalDeadlineListItem(
     Guid ProcessId,
     string ProcessTitle,
     string ClientName,
-    LegalDeadlineReadState State);
+    LegalDeadlineReadState State,
+    Guid? ResponsibleMembershipId,
+    string? ResponsibleDisplayName);

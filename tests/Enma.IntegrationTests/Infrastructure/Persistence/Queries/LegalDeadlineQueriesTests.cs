@@ -4,6 +4,7 @@ using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
+using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
 using Microsoft.EntityFrameworkCore;
@@ -117,6 +118,8 @@ public sealed class LegalDeadlineQueriesTests(
         Assert.Equal(LegalDeadlineReadState.Pending, pending.State);
         Assert.Equal(graphA.Deadline.CreatedAt, pending.CreatedAt);
         Assert.Null(pending.CompletedAt);
+        Assert.Null(pending.ResponsibleMembershipId);
+        Assert.Null(pending.ResponsibleDisplayName);
         Assert.Equal(1, interceptor.ReaderCommandCount);
         AssertProjectionSql(interceptor.LastCommandText, includesPagination: false);
 
@@ -168,9 +171,7 @@ public sealed class LegalDeadlineQueriesTests(
         var queries = new LegalDeadlineReadQueries(dbContext);
 
         IReadOnlyList<LegalDeadlineListItem> firstPage = await queries.ListAsync(
-            graphA.Organization.Id,
-            1,
-            3);
+            CreateListRequest(graphA.Organization.Id, 1, 3));
 
         Assert.Equal(3, firstPage.Count);
         Assert.Equal(early.Id, firstPage[0].Id);
@@ -189,12 +190,183 @@ public sealed class LegalDeadlineQueriesTests(
 
         interceptor.Reset();
         IReadOnlyList<LegalDeadlineListItem> secondPage = await queries.ListAsync(
-            graphA.Organization.Id,
-            2,
-            2);
+            CreateListRequest(graphA.Organization.Id, 2, 2));
 
         Assert.Single(secondPage);
         Assert.Equal(1, interceptor.ReaderCommandCount);
+    }
+
+    [Fact]
+    public async Task ResponsibleReads_WithFilterInactiveAndCoincidentTenant_StayTenantScoped()
+    {
+        DeadlineGraph graphA = CreateGraph("Organization A", "organization-a");
+        DeadlineGraph graphB = CreateGraph("Organization B", "organization-b");
+        var activeUserA = new User(
+            "Coincident Responsible",
+            "coincident-responsible-a@example.test",
+            CreatedAt);
+        var inactiveUserA = new User(
+            "Inactive Responsible",
+            "inactive-responsible-a@example.test",
+            CreatedAt);
+        var userB = new User(
+            "Coincident Responsible",
+            "coincident-responsible-b@example.test",
+            CreatedAt);
+        var activeMembershipA = new OrganizationMembership(
+            graphA.Organization.Id,
+            activeUserA.Id,
+            OrganizationRole.Member,
+            CreatedAt);
+        var inactiveMembershipA = new OrganizationMembership(
+            graphA.Organization.Id,
+            inactiveUserA.Id,
+            OrganizationRole.Member,
+            CreatedAt);
+        inactiveMembershipA.Deactivate();
+        var membershipB = new OrganizationMembership(
+            graphB.Organization.Id,
+            userB.Id,
+            OrganizationRole.Member,
+            CreatedAt);
+        var assignedA = new LegalDeadline(
+            graphA.Organization.Id,
+            graphA.Process.Id,
+            "Assigned",
+            new DateOnly(2026, 9, 2),
+            CreatedAt,
+            activeMembershipA.Id);
+        var inactiveAssignedA = new LegalDeadline(
+            graphA.Organization.Id,
+            graphA.Process.Id,
+            "Inactive Assigned",
+            new DateOnly(2026, 9, 3),
+            CreatedAt,
+            inactiveMembershipA.Id);
+        var assignedB = new LegalDeadline(
+            graphB.Organization.Id,
+            graphB.Process.Id,
+            "Assigned",
+            new DateOnly(2026, 9, 2),
+            CreatedAt,
+            membershipB.Id);
+        await SeedAsync(
+            graphA.Entities
+                .Concat(graphB.Entities)
+                .Concat(
+                [
+                    activeUserA,
+                    inactiveUserA,
+                    userB,
+                    activeMembershipA,
+                    inactiveMembershipA,
+                    membershipB,
+                    assignedA,
+                    inactiveAssignedA,
+                    assignedB
+                ])
+                .ToArray());
+        var interceptor = new ReaderCommandInterceptor();
+        await using EnmaDbContext dbContext = CreateInterceptedContext(interceptor);
+        var queries = new LegalDeadlineReadQueries(dbContext);
+
+        IReadOnlyList<LegalDeadlineListItem> all = await queries.ListAsync(
+            CreateListRequest(graphA.Organization.Id, 1, 20));
+
+        (Guid Id, Guid? MembershipId, string? DisplayName)[] expected =
+        [
+            (graphA.Deadline.Id, null, null),
+            (assignedA.Id, activeMembershipA.Id, "Coincident Responsible"),
+            (inactiveAssignedA.Id, inactiveMembershipA.Id, "Inactive Responsible")
+        ];
+        Assert.Equal(
+            expected,
+            all.Select(item => (
+                item.Id,
+                item.ResponsibleMembershipId,
+                item.ResponsibleDisplayName)));
+        Assert.Equal(1, interceptor.ReaderCommandCount);
+        AssertProjectionSql(interceptor.LastCommandText, includesPagination: true);
+        Assert.Contains("organization_memberships", interceptor.LastCommandText);
+        Assert.Contains("LEFT JOIN", interceptor.LastCommandText);
+
+        async Task<Guid[]> ListIdsAsync(
+            LegalDeadlineReadResponsibleFilterKind kind,
+            Guid? membershipId)
+        {
+            interceptor.Reset();
+            IReadOnlyList<LegalDeadlineListItem> items = await queries.ListAsync(
+                new LegalDeadlineListReadRequest(
+                    graphA.Organization.Id,
+                    kind,
+                    membershipId,
+                    1,
+                    20));
+            Assert.Equal(1, interceptor.ReaderCommandCount);
+            return items.Select(item => item.Id).ToArray();
+        }
+
+        Assert.Equal(
+            [graphA.Deadline.Id],
+            await ListIdsAsync(LegalDeadlineReadResponsibleFilterKind.Unassigned, null));
+        Assert.Equal(
+            [assignedA.Id],
+            await ListIdsAsync(
+                LegalDeadlineReadResponsibleFilterKind.Membership,
+                activeMembershipA.Id));
+        Assert.Equal(
+            [inactiveAssignedA.Id],
+            await ListIdsAsync(
+                LegalDeadlineReadResponsibleFilterKind.Membership,
+                inactiveMembershipA.Id));
+        Assert.Empty(await ListIdsAsync(
+            LegalDeadlineReadResponsibleFilterKind.Membership,
+            membershipB.Id));
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => queries.ListAsync(
+                new LegalDeadlineListReadRequest(
+                    graphA.Organization.Id,
+                    LegalDeadlineReadResponsibleFilterKind.Membership,
+                    null,
+                    1,
+                    20)));
+
+        interceptor.Reset();
+        LegalDeadlineDetailReadModel? inactiveDetail = await queries.FindAsync(
+            inactiveAssignedA.Id,
+            graphA.Organization.Id);
+        LegalDeadlineDetailReadModel? unassignedDetail = await queries.FindAsync(
+            graphA.Deadline.Id,
+            graphA.Organization.Id);
+        LegalDeadlineDetailReadModel? crossTenantDetail = await queries.FindAsync(
+            assignedB.Id,
+            graphA.Organization.Id);
+        LegalDeadlineDetailReadModel? tenantBDetail = await queries.FindAsync(
+            assignedB.Id,
+            graphB.Organization.Id);
+
+        Assert.Equal(inactiveMembershipA.Id, inactiveDetail?.ResponsibleMembershipId);
+        Assert.Equal("Inactive Responsible", inactiveDetail?.ResponsibleDisplayName);
+        Assert.NotNull(unassignedDetail);
+        Assert.Null(unassignedDetail.ResponsibleMembershipId);
+        Assert.Null(unassignedDetail.ResponsibleDisplayName);
+        Assert.Null(crossTenantDetail);
+        Assert.Equal(membershipB.Id, tenantBDetail?.ResponsibleMembershipId);
+        Assert.Equal("Coincident Responsible", tenantBDetail?.ResponsibleDisplayName);
+        Assert.Equal(4, interceptor.ReaderCommandCount);
+    }
+
+    private static LegalDeadlineListReadRequest CreateListRequest(
+        Guid organizationId,
+        int pageNumber,
+        int pageSize)
+    {
+        return new LegalDeadlineListReadRequest(
+            organizationId,
+            LegalDeadlineReadResponsibleFilterKind.Any,
+            null,
+            pageNumber,
+            pageSize);
     }
 
     private EnmaDbContext CreateInterceptedContext(

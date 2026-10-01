@@ -7,4 +7,6 @@ public sealed record LegalDeadlineListItemResponse(
     Guid ProcessId,
     string ProcessTitle,
     string ClientName,
-    LegalDeadlineStateResponse State);
+    LegalDeadlineStateResponse State,
+    Guid? ResponsibleMembershipId,
+    string? ResponsibleDisplayName);

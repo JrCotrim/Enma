@@ -104,7 +104,9 @@ public sealed class LegalDeadlineEndpointTests : IAsyncLifetime
                 nameof(LegalDeadlineListItemResponse.ProcessId),
                 nameof(LegalDeadlineListItemResponse.ProcessTitle),
                 nameof(LegalDeadlineListItemResponse.ClientName),
-                nameof(LegalDeadlineListItemResponse.State)
+                nameof(LegalDeadlineListItemResponse.State),
+                nameof(LegalDeadlineListItemResponse.ResponsibleMembershipId),
+                nameof(LegalDeadlineListItemResponse.ResponsibleDisplayName)
             ],
             GetPropertyNames<LegalDeadlineListItemResponse>());
         Assert.Equal(
@@ -117,7 +119,9 @@ public sealed class LegalDeadlineEndpointTests : IAsyncLifetime
                 nameof(LegalDeadlineResponse.ClientName),
                 nameof(LegalDeadlineResponse.State),
                 nameof(LegalDeadlineResponse.CreatedAt),
-                nameof(LegalDeadlineResponse.CompletedAt)
+                nameof(LegalDeadlineResponse.CompletedAt),
+                nameof(LegalDeadlineResponse.ResponsibleMembershipId),
+                nameof(LegalDeadlineResponse.ResponsibleDisplayName)
             ],
             GetPropertyNames<LegalDeadlineResponse>());
         Assert.Equal(
@@ -474,7 +478,9 @@ public sealed class LegalDeadlineEndpointTests : IAsyncLifetime
                 "clientName",
                 "state",
                 "createdAt",
-                "completedAt"
+                "completedAt",
+                "responsibleMembershipId",
+                "responsibleDisplayName"
             ],
             getDocument.RootElement
                 .EnumerateObject()
@@ -483,6 +489,10 @@ public sealed class LegalDeadlineEndpointTests : IAsyncLifetime
         Assert.Equal("Pending", getDocument.RootElement.GetProperty("state").GetString());
         Assert.Equal(JsonValueKind.Null, getDocument.RootElement
             .GetProperty("completedAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, getDocument.RootElement
+            .GetProperty("responsibleMembershipId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, getDocument.RootElement
+            .GetProperty("responsibleDisplayName").ValueKind);
         Assert.False(getDocument.RootElement.TryGetProperty("organizationId", out _));
         Assert.False(getDocument.RootElement.TryGetProperty("clientId", out _));
         Assert.False(getDocument.RootElement.TryGetProperty("clientIsActive", out _));
@@ -502,13 +512,21 @@ public sealed class LegalDeadlineEndpointTests : IAsyncLifetime
                 "processId",
                 "processTitle",
                 "clientName",
-                "state"
+                "state",
+                "responsibleMembershipId",
+                "responsibleDisplayName"
             ],
             item.EnumerateObject().Select(property => property.Name).ToArray());
         Assert.Equal("Calendar Process", item.GetProperty("processTitle").GetString());
         Assert.Equal("Inactive Deadline Client", item.GetProperty("clientName").GetString());
         Assert.Equal("Pending", item.GetProperty("state").GetString());
         Assert.False(item.TryGetProperty("completedAt", out _));
+        Assert.Equal(
+            JsonValueKind.Null,
+            item.GetProperty("responsibleMembershipId").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            item.GetProperty("responsibleDisplayName").ValueKind);
     }
 
     [Fact]

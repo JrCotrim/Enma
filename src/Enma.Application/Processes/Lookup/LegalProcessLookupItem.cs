@@ -7,4 +7,5 @@ public sealed record LegalProcessLookupItem(
     string Title,
     string ClientName,
     string? ProcessNumber,
-    LegalProcessStatus Status);
+    LegalProcessStatus Status,
+    Guid? ResponsibleMembershipId);

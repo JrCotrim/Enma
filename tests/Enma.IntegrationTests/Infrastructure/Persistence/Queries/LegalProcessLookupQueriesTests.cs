@@ -289,19 +289,22 @@ public sealed class LegalProcessLookupQueriesTests(
                     "Closed Numbered",
                     clientA.Name,
                     "0001234-56.2026.8.19.0001",
-                    LegalProcessStatus.Closed),
+                    LegalProcessStatus.Closed,
+                    null),
                 new LegalProcessLookupItem(
                     freeProcess.Id,
                     "Free Numbered",
                     clientA.Name,
                     "Proc. ABC/77",
-                    LegalProcessStatus.Suspended),
+                    LegalProcessStatus.Suspended,
+                    null),
                 new LegalProcessLookupItem(
                     unnumberedProcess.Id,
                     "Unnumbered",
                     clientA.Name,
                     null,
-                    LegalProcessStatus.InProgress)
+                    LegalProcessStatus.InProgress,
+                    null)
             ],
             all);
     }

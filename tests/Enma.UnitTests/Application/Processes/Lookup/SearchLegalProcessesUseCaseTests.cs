@@ -102,7 +102,8 @@ public sealed class SearchLegalProcessesUseCaseTests
                 $"Process {index:D2}",
                 "Client",
                 null,
-                LegalProcessStatus.InProgress))
+                LegalProcessStatus.InProgress,
+                null))
             .ToArray();
         var queries = new FakeLegalProcessLookupQueries(legalProcesses);
         SearchLegalProcessesUseCase useCase = CreateUseCase(
@@ -128,7 +129,8 @@ public sealed class SearchLegalProcessesUseCaseTests
                     "Only Process",
                     "Client",
                     "0001234-56.2026.8.19.0001",
-                    LegalProcessStatus.Closed)
+                    LegalProcessStatus.Closed,
+                    Guid.NewGuid())
             ]);
         SearchLegalProcessesUseCase useCase = CreateUseCase(
             OrganizationRole.Owner,
