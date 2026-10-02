@@ -29,6 +29,7 @@ export const auditEventOptions: readonly {
   { value: 'legal_deadline.details_changed', label: 'Dados de prazo alterados' },
   { value: 'legal_deadline.completed', label: 'Prazo concluído' },
   { value: 'legal_deadline.reopened', label: 'Prazo reaberto' },
+  { value: 'legal_deadline.responsible_changed', label: 'Responsável do prazo alterado' },
   { value: 'legal_task.created', label: 'Tarefa cadastrada' },
   { value: 'legal_task.details_changed', label: 'Dados de tarefa alterados' },
   { value: 'legal_task.assignee_changed', label: 'Responsável da tarefa alterado' },

@@ -10,6 +10,8 @@ export interface LegalDeadlineListItem {
   readonly processTitle: string
   readonly clientName: string
   readonly state: LegalDeadlineState
+  readonly responsibleMembershipId: string | null
+  readonly responsibleDisplayName: string | null
 }
 
 export interface LegalDeadlineListResponse {
@@ -23,7 +25,15 @@ export interface LegalDeadline extends LegalDeadlineListItem {
   readonly completedAt: string | null
 }
 
-export interface CreateLegalDeadlineRequest {
+export interface LegalDeadlineListFilters {
+  readonly responsible?: string
+}
+
+export interface CreateLegalDeadlineOptions {
+  readonly responsibleMembershipId?: string
+}
+
+export interface CreateLegalDeadlineRequest extends CreateLegalDeadlineOptions {
   readonly processId: string
   readonly title: string
   readonly dueDate: string
@@ -38,12 +48,17 @@ export interface UpdateLegalDeadlineRequest {
   readonly dueDate: string
 }
 
+export interface ChangeLegalDeadlineResponsibleRequest {
+  readonly responsibleMembershipId: string | null
+}
+
 export interface LegalProcessLookupItem {
   readonly id: string
   readonly title: string
   readonly clientName: string
   readonly processNumber?: string | null
   readonly status?: LegalProcessStatus
+  readonly responsibleMembershipId?: string | null
 }
 
 export interface LegalProcessLookupResponse {

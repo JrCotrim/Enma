@@ -5,9 +5,12 @@ import {
 } from '../authentication/sessionClient'
 import { isValidDateOnly, isValidGuid } from './legalDeadlineFormatting'
 import type {
+  ChangeLegalDeadlineResponsibleRequest,
+  CreateLegalDeadlineOptions,
   CreateLegalDeadlineRequest,
   CreateLegalDeadlineResponse,
   LegalDeadline,
+  LegalDeadlineListFilters,
   LegalDeadlineListItem,
   LegalDeadlineListResponse,
   UpdateLegalDeadlineRequest,
@@ -19,6 +22,7 @@ export type LegalDeadlineRequestFailure =
   | 'not-found'
   | 'bad-request'
   | 'conflict'
+  | 'related-responsible-unavailable'
   | 'unexpected'
 
 export class LegalDeadlineRequestError extends Error {
@@ -35,8 +39,16 @@ function parseLegalDeadlineListItem(
   }
 
   const candidate = value as Record<string, unknown>
+  const hasConsistentResponsible =
+    (candidate.responsibleMembershipId === null &&
+      candidate.responsibleDisplayName === null) ||
+    (typeof candidate.responsibleMembershipId === 'string' &&
+      isValidGuid(candidate.responsibleMembershipId) &&
+      typeof candidate.responsibleDisplayName === 'string' &&
+      candidate.responsibleDisplayName.length > 0)
 
   if (
+    !hasConsistentResponsible ||
     typeof candidate.id !== 'string' ||
     candidate.id.length === 0 ||
     typeof candidate.title !== 'string' ||
@@ -62,6 +74,8 @@ function parseLegalDeadlineListItem(
     processTitle: candidate.processTitle,
     clientName: candidate.clientName,
     state: candidate.state,
+    responsibleMembershipId: candidate.responsibleMembershipId as string | null,
+    responsibleDisplayName: candidate.responsibleDisplayName as string | null,
   }
 }
 
@@ -174,6 +188,19 @@ function throwForStatus(status: number): never {
   throw new LegalDeadlineRequestError('unexpected')
 }
 
+async function throwForRelatedResponsibleUnavailable(
+  response: Response,
+): Promise<void> {
+  try {
+    const problem = (await response.json()) as Record<string, unknown>
+    if (problem.title === 'Related responsible member unavailable') {
+      throw new LegalDeadlineRequestError('related-responsible-unavailable')
+    }
+  } catch (error) {
+    if (error instanceof LegalDeadlineRequestError) throw error
+  }
+}
+
 function getLegalDeadlinesEndpoint(organizationId: string): string {
   return `/api/organizations/${encodeURIComponent(organizationId)}/deadlines`
 }
@@ -190,7 +217,7 @@ async function sendLegalDeadlineMutation(
   method: 'PUT' | 'POST',
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
-  body?: UpdateLegalDeadlineRequest,
+  body?: UpdateLegalDeadlineRequest | ChangeLegalDeadlineResponsibleRequest,
 ): Promise<void> {
   const requestToken = await getCsrfToken()
   const response = await fetchWithSession(
@@ -211,6 +238,7 @@ async function sendLegalDeadlineMutation(
   if (response.status !== 204) {
     if (response.status === 400) {
       clearCsrfToken()
+      await throwForRelatedResponsibleUnavailable(response)
     }
 
     throwForStatus(response.status)
@@ -223,6 +251,7 @@ export async function listLegalDeadlines(
   pageSize: number,
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
+  filters: LegalDeadlineListFilters = {},
 ): Promise<LegalDeadlineListResponse> {
   if (
     !Number.isInteger(pageNumber) ||
@@ -238,6 +267,10 @@ export async function listLegalDeadlines(
     pageNumber: pageNumber.toString(),
     pageSize: pageSize.toString(),
   })
+  const responsible = filters.responsible?.trim()
+  if (responsible && responsible !== 'any') {
+    query.set('responsible', responsible)
+  }
   const response = await fetchWithSession(
     `${getLegalDeadlinesEndpoint(organizationId)}?${query.toString()}`,
     {
@@ -268,9 +301,17 @@ export async function createLegalDeadline(
   dueDate: string,
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
+  options: CreateLegalDeadlineOptions = {},
 ): Promise<CreateLegalDeadlineResponse> {
   const requestToken = await getCsrfToken()
-  const body: CreateLegalDeadlineRequest = { processId, title, dueDate }
+  const body: CreateLegalDeadlineRequest = {
+    processId,
+    title,
+    dueDate,
+    ...(options.responsibleMembershipId !== undefined
+      ? { responsibleMembershipId: options.responsibleMembershipId }
+      : {}),
+  }
   const response = await fetchWithSession(
     getLegalDeadlinesEndpoint(organizationId),
     {
@@ -289,6 +330,7 @@ export async function createLegalDeadline(
   if (response.status !== 201) {
     if (response.status === 400) {
       clearCsrfToken()
+      await throwForRelatedResponsibleUnavailable(response)
     }
 
     throwForStatus(response.status)
@@ -363,5 +405,23 @@ export function reopenLegalDeadline(
     'POST',
     onUnauthorized,
     signal,
+  )
+}
+
+export function changeLegalDeadlineResponsible(
+  organizationId: string,
+  deadlineId: string,
+  responsibleMembershipId: string | null,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  const body: ChangeLegalDeadlineResponsibleRequest = { responsibleMembershipId }
+
+  return sendLegalDeadlineMutation(
+    `${getLegalDeadlineEndpoint(organizationId, deadlineId)}/responsible`,
+    'PUT',
+    onUnauthorized,
+    signal,
+    body,
   )
 }

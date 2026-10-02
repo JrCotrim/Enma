@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -42,6 +42,8 @@ const pendingDeadline: LegalDeadlineListItem = {
   processTitle: 'Ação de cobrança',
   clientName: 'Cliente Exemplo',
   state: 'Pending',
+  responsibleMembershipId: null,
+  responsibleDisplayName: null,
 }
 
 const completedDeadline: LegalDeadlineListItem = {
@@ -963,4 +965,503 @@ describe('Deadlines D1 flow', () => {
     expect(screen.getByText(deadlineB.title)).toBeInTheDocument()
     expect(screen.queryByText(staleDeadlineA.title)).not.toBeInTheDocument()
   })
+})
+
+const responsibleMember = {
+  id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  displayName: 'Bruna Costa',
+}
+
+const processWithOtherResponsible: LegalProcessLookupItem = {
+  id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+  title: 'Revisional de contrato',
+  clientName: 'Cliente Beta',
+  responsibleMembershipId: responsibleMember.id,
+}
+
+const processWithOwnResponsible: LegalProcessLookupItem = {
+  id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+  title: 'Inventário familiar',
+  clientName: 'Cliente Gama',
+  responsibleMembershipId: organizationA.membershipId,
+}
+
+const processWithoutResponsible: LegalProcessLookupItem = {
+  ...lookupProcess,
+  responsibleMembershipId: null,
+}
+
+const responsibleUnavailableMessage =
+  'O responsável selecionado não está mais disponível. Escolha outra pessoa.'
+
+function memberLookupResponse(
+  items: readonly { readonly id: string; readonly displayName: string }[],
+): Response {
+  return response(200, { items, pageNumber: 1, pageSize: 20, hasNext: false })
+}
+
+function deadlinesUrl(organizationId: string, query: string): string {
+  return `/api/organizations/${organizationId}/deadlines?${query}`
+}
+
+function memberLookupUrl(organizationId: string): string {
+  return `/api/organizations/${organizationId}/members/lookup?search=&pageNumber=1&pageSize=20`
+}
+
+function requestedUrls(fetchMock: ReturnType<typeof vi.fn>): string[] {
+  return fetchMock.mock.calls.map((call) => String(call[0]))
+}
+
+function filters() {
+  return screen.getByRole('group', { name: 'Filtros de prazos' })
+}
+
+function createForm(): HTMLFormElement {
+  const form = screen.getByRole('button', { name: 'Cadastrar' }).closest('form')
+  expect(form).not.toBeNull()
+  return form!
+}
+
+function createResponsibleSelect(): HTMLSelectElement {
+  return within(createForm()).getByLabelText('Responsável') as HTMLSelectElement
+}
+
+function lastPostBody(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
+  const postCall = fetchMock.mock.calls.find(
+    (call) => (call[1] as RequestInit | undefined)?.method === 'POST',
+  )
+  expect(postCall).toBeDefined()
+  return JSON.parse((postCall![1] as RequestInit).body as string) as Record<
+    string,
+    unknown
+  >
+}
+
+describe('Deadlines responsible list and create (Phase 9C.2e)', () => {
+  it('DeadlineList_Metadata_RendersResponsibleBeforeDueDateAndStatusLast', async () => {
+    const assignedDeadline: LegalDeadlineListItem = {
+      ...pendingDeadline,
+      responsibleMembershipId: responsibleMember.id,
+      responsibleDisplayName: responsibleMember.displayName,
+    }
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch(
+        [memberOrganization],
+        deadlineListResponse([assignedDeadline, completedDeadline]),
+      ),
+    )
+
+    renderRoute(`/organizations/${memberOrganization.id}/deadlines`)
+
+    const results = await screen.findByRole('region', { name: 'Prazos cadastrados' })
+    const [assignedItem, unassignedItem] = within(results).getAllByRole('listitem')
+    const assignedMetadata = assignedItem!.querySelector('.deadline-record-metadata')!
+    expect([...assignedMetadata.children].map((child) => child.textContent)).toEqual([
+      assignedDeadline.processTitle,
+      assignedDeadline.clientName,
+      responsibleMember.displayName,
+      'Vence em 01/11/2026',
+      'Pendente',
+    ])
+    expect(assignedMetadata.lastElementChild).toHaveClass('deadline-status', 'is-pending')
+    expect(
+      within(assignedItem!).getByRole('link', { name: assignedDeadline.title }),
+    ).toHaveAccessibleDescription(/Bruna Costa.*Vence em 01\/11\/2026.*Pendente/)
+
+    const unassignedMetadata = unassignedItem!.querySelector('.deadline-record-metadata')!
+    expect(unassignedMetadata.children[2]).toHaveTextContent('Sem responsável')
+    expect(unassignedMetadata.lastElementChild).toHaveTextContent('Concluído')
+  })
+
+  it('DeadlineFilters_Member_SeesResponsibleFilterWithoutCreateAction', async () => {
+    vi.stubGlobal(
+      'fetch',
+      authenticatedFetch([memberOrganization], deadlineListResponse([pendingDeadline])),
+    )
+
+    renderRoute(`/organizations/${memberOrganization.id}/deadlines`)
+    await screen.findByText(pendingDeadline.title)
+
+    const responsibleFilter = within(filters()).getByLabelText('Responsável')
+    expect(responsibleFilter).toHaveValue('any')
+    expect(
+      within(responsibleFilter).getAllByRole('option').map((option) => option.textContent),
+    ).toEqual(['Todos', 'Meus', 'Sem responsável', 'Pessoa específica'])
+    expect(screen.queryByRole('button', { name: 'Cadastrar prazo' })).not.toBeInTheDocument()
+  })
+
+  it('DeadlineFilters_SelfAndUnassigned_SyncUrlQueryAndReturnToFirstPage', async () => {
+    const fetchMock = authenticatedFetch(
+      [memberOrganization],
+      deadlineListResponse([pendingDeadline], 2),
+      deadlineListResponse([pendingDeadline]),
+      deadlineListResponse([pendingDeadline]),
+      deadlineListResponse([pendingDeadline]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute(
+      `/organizations/${memberOrganization.id}/deadlines?page=2`,
+    )
+    await screen.findByText(pendingDeadline.title)
+
+    fireEvent.change(within(filters()).getByLabelText('Responsável'), {
+      target: { value: 'self' },
+    })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(router.state.location.search).toBe('?responsible=self')
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      deadlinesUrl(memberOrganization.id, 'pageNumber=1&pageSize=20&responsible=self'),
+    )
+    expect(await screen.findByText('Página 1')).toBeInTheDocument()
+
+    fireEvent.change(within(filters()).getByLabelText('Responsável'), {
+      target: { value: 'unassigned' },
+    })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5))
+    expect(router.state.location.search).toBe('?responsible=unassigned')
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(
+      deadlinesUrl(
+        memberOrganization.id,
+        'pageNumber=1&pageSize=20&responsible=unassigned',
+      ),
+    )
+
+    await screen.findByText(pendingDeadline.title)
+    fireEvent.change(within(filters()).getByLabelText('Responsável'), {
+      target: { value: 'any' },
+    })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6))
+    expect(router.state.location.search).toBe('')
+    expect(fetchMock.mock.calls[5]?.[0]).toBe(
+      deadlinesUrl(memberOrganization.id, 'pageNumber=1&pageSize=20'),
+    )
+    expect(requestedUrls(fetchMock).some((url) => url.includes('/members/lookup'))).toBe(
+      false,
+    )
+  })
+
+  it('DeadlineFilters_SpecificPerson_LoadsMembersOnlyWhenChosenAndFiltersById', async () => {
+    const fetchMock = authenticatedFetch(
+      [memberOrganization],
+      deadlineListResponse([pendingDeadline]),
+      memberLookupResponse([responsibleMember]),
+      deadlineListResponse([pendingDeadline]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute(`/organizations/${memberOrganization.id}/deadlines`)
+    await screen.findByText(pendingDeadline.title)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    fireEvent.change(within(filters()).getByLabelText('Responsável'), {
+      target: { value: 'specific' },
+    })
+    fireEvent.click(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    )
+
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(memberLookupUrl(memberOrganization.id))
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5))
+    expect(router.state.location.search).toBe(`?responsible=${responsibleMember.id}`)
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(
+      deadlinesUrl(
+        memberOrganization.id,
+        `pageNumber=1&pageSize=20&responsible=${responsibleMember.id}`,
+      ),
+    )
+    expect(within(filters()).getByLabelText('Responsável')).toHaveValue('specific')
+    expect(within(filters()).getByText(responsibleMember.displayName)).toBeInTheDocument()
+  })
+
+  it('DeadlineFilters_UrlState_RestoresControlAndRequestsFilteredList', async () => {
+    const fetchMock = authenticatedFetch(
+      [memberOrganization],
+      deadlineListResponse([pendingDeadline]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${memberOrganization.id}/deadlines?responsible=unassigned`)
+    await screen.findByText(pendingDeadline.title)
+
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      deadlinesUrl(
+        memberOrganization.id,
+        'pageNumber=1&pageSize=20&responsible=unassigned',
+      ),
+    )
+    expect(within(filters()).getByLabelText('Responsável')).toHaveValue('unassigned')
+  })
+
+  it('DeadlineFilters_InvalidResponsibleParameter_NormalizesUrlAndRequestsUnfiltered', async () => {
+    const fetchMock = authenticatedFetch(
+      [memberOrganization],
+      deadlineListResponse([pendingDeadline]),
+      deadlineListResponse([pendingDeadline]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const router = renderRoute(
+      `/organizations/${memberOrganization.id}/deadlines?responsible=not-a-guid`,
+    )
+    await screen.findByText(pendingDeadline.title)
+
+    await vi.waitFor(() => expect(router.state.location.search).toBe(''))
+    expect(
+      requestedUrls(fetchMock).filter((url) => url.includes('responsible=')),
+    ).toEqual([])
+    expect(within(filters()).getByLabelText('Responsável')).toHaveValue('any')
+  })
+
+  it('DeadlineFilters_FilteredEmpty_IsDistinctFromUnfilteredEmptyAndClears', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      deadlineListResponse([]),
+      deadlineListResponse([]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const router = renderRoute(
+      `/organizations/${organizationA.id}/deadlines?responsible=unassigned`,
+    )
+
+    expect(
+      await screen.findByText('Nenhum prazo encontrado com estes filtros.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Nenhum prazo cadastrado nesta organização.'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Cadastrar primeiro prazo' }),
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Limpar filtros' }))
+
+    expect(
+      await screen.findByText('Nenhum prazo cadastrado nesta organização.'),
+    ).toBeInTheDocument()
+    expect(router.state.location.search).toBe('')
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      deadlinesUrl(organizationA.id, 'pageNumber=1&pageSize=20'),
+    )
+  })
+
+  it('DeadlineCreate_ProcessWithOwnResponsible_SuggestsSelfAndSendsMembership', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      deadlineListResponse([]),
+      lookupResponse([processWithOwnResponsible]),
+      response(200, { requestToken: 'test-token' }),
+      response(201, { id: pendingDeadline.id }),
+      deadlineListResponse([]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationA.id}/deadlines`)
+    await screen.findByText('Nenhum prazo cadastrado nesta organização.')
+    await openCreate()
+    await screen.findByText(processWithOwnResponsible.title)
+    expect(createResponsibleSelect()).toHaveValue('unassigned')
+
+    selectProcess(processWithOwnResponsible)
+
+    expect(createResponsibleSelect()).toHaveValue('self')
+    expect(screen.queryByLabelText('Buscar responsável para prazo')).not.toBeInTheDocument()
+    submitCreate('Prazo sugerido', '2026-11-01')
+    expect(await screen.findByText('Prazo cadastrado com sucesso.')).toBeInTheDocument()
+    expect(lastPostBody(fetchMock)).toEqual({
+      processId: processWithOwnResponsible.id,
+      title: 'Prazo sugerido',
+      dueDate: '2026-11-01',
+      responsibleMembershipId: organizationA.membershipId,
+    })
+    expect(requestedUrls(fetchMock).some((url) => url.includes('/members/lookup'))).toBe(
+      false,
+    )
+  })
+
+  it('DeadlineCreate_ProcessWithOtherResponsible_SuggestsOtherPersonInPicker', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      deadlineListResponse([]),
+      lookupResponse([processWithOtherResponsible]),
+      memberLookupResponse([responsibleMember]),
+      response(200, { requestToken: 'test-token' }),
+      response(201, { id: pendingDeadline.id }),
+      deadlineListResponse([]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationA.id}/deadlines`)
+    await screen.findByText('Nenhum prazo cadastrado nesta organização.')
+    await openCreate()
+    await screen.findByText(processWithOtherResponsible.title)
+
+    selectProcess(processWithOtherResponsible)
+
+    expect(createResponsibleSelect()).toHaveValue('other')
+    expect(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(memberLookupUrl(organizationA.id))
+    expect(screen.queryByText(responsibleMember.id)).not.toBeInTheDocument()
+
+    submitCreate('Prazo de outra pessoa', '2026-11-01')
+    expect(await screen.findByText('Prazo cadastrado com sucesso.')).toBeInTheDocument()
+    expect(lastPostBody(fetchMock)).toMatchObject({
+      processId: processWithOtherResponsible.id,
+      responsibleMembershipId: responsibleMember.id,
+    })
+  })
+
+  it.each([
+    ['sem o campo', lookupProcess],
+    ['com responsável nulo', processWithoutResponsible],
+  ])(
+    'DeadlineCreate_ProcessWithoutResponsible_%s_KeepsUnassignedAndOmitsField',
+    async (_, process) => {
+      const fetchMock = authenticatedFetch(
+        [organizationA],
+        deadlineListResponse([]),
+        lookupResponse([process]),
+        response(200, { requestToken: 'test-token' }),
+        response(201, { id: pendingDeadline.id }),
+        deadlineListResponse([]),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderRoute(`/organizations/${organizationA.id}/deadlines`)
+      await screen.findByText('Nenhum prazo cadastrado nesta organização.')
+      await openCreate()
+      await screen.findByText(process.title)
+      selectProcess(process)
+
+      expect(createResponsibleSelect()).toHaveValue('unassigned')
+      submitCreate('Prazo sem responsável', '2026-11-01')
+      expect(await screen.findByText('Prazo cadastrado com sucesso.')).toBeInTheDocument()
+      expect(Object.keys(lastPostBody(fetchMock))).toEqual([
+        'processId',
+        'title',
+        'dueDate',
+      ])
+    },
+  )
+
+  it('DeadlineCreate_ManualResponsibleChoice_IsNeverOverwrittenBySuggestion', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      deadlineListResponse([]),
+      lookupResponse([processWithOtherResponsible, processWithOwnResponsible]),
+      memberLookupResponse([responsibleMember]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationA.id}/deadlines`)
+    await screen.findByText('Nenhum prazo cadastrado nesta organização.')
+    await openCreate()
+    await screen.findByText(processWithOtherResponsible.title)
+
+    selectProcess(processWithOtherResponsible)
+    expect(createResponsibleSelect()).toHaveValue('other')
+
+    fireEvent.change(createResponsibleSelect(), { target: { value: 'unassigned' } })
+    selectProcess(processWithOwnResponsible)
+    expect(createResponsibleSelect()).toHaveValue('unassigned')
+
+    fireEvent.change(createResponsibleSelect(), { target: { value: 'self' } })
+    selectProcess(processWithOtherResponsible)
+    expect(createResponsibleSelect()).toHaveValue('self')
+    expect(screen.queryByLabelText('Buscar responsável para prazo')).not.toBeInTheDocument()
+  })
+
+  it('DeadlineCreate_Picker_RendersOnlyForOtherPersonAndRequiresSelection', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      deadlineListResponse([]),
+      lookupResponse([lookupProcess]),
+      memberLookupResponse([responsibleMember]),
+      response(200, { requestToken: 'test-token' }),
+      response(201, { id: pendingDeadline.id }),
+      deadlineListResponse([]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(`/organizations/${organizationA.id}/deadlines`)
+    await screen.findByText('Nenhum prazo cadastrado nesta organização.')
+    await openCreate()
+    await screen.findByText(lookupProcess.title)
+    selectProcess()
+
+    expect(
+      within(createResponsibleSelect())
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Sem responsável', 'Eu', 'Outra pessoa'])
+    expect(screen.queryByLabelText('Buscar responsável para prazo')).not.toBeInTheDocument()
+    fireEvent.change(createResponsibleSelect(), { target: { value: 'self' } })
+    expect(screen.queryByLabelText('Buscar responsável para prazo')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+
+    fireEvent.change(createResponsibleSelect(), { target: { value: 'other' } })
+    expect(screen.getByLabelText('Buscar responsável para prazo')).toBeInTheDocument()
+    await screen.findByRole('button', { name: responsibleMember.displayName })
+    expect(fetchMock.mock.calls[4]?.[0]).toBe(memberLookupUrl(organizationA.id))
+
+    submitCreate('Prazo sem pessoa', '2026-11-01')
+    expect(
+      await screen.findByText('Selecione uma pessoa responsável.'),
+    ).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+
+    fireEvent.click(screen.getByRole('button', { name: responsibleMember.displayName }))
+    expect(screen.getByText(/Responsável selecionado:/)).toHaveTextContent(
+      `Responsável selecionado: ${responsibleMember.displayName}`,
+    )
+    submitCreate('Prazo com pessoa', '2026-11-01')
+    expect(await screen.findByText('Prazo cadastrado com sucesso.')).toBeInTheDocument()
+    expect(lastPostBody(fetchMock)).toMatchObject({
+      responsibleMembershipId: responsibleMember.id,
+    })
+  })
+
+  it.each([
+    ['outra pessoa', processWithOtherResponsible, 'other'],
+    ['eu', processWithOwnResponsible, 'unassigned'],
+  ] as const)(
+    'DeadlineCreate_RelatedResponsibleUnavailable_%s_ClearsSelectionAndExplains',
+    async (_, process, expectedMode) => {
+      const usesPicker = process === processWithOtherResponsible
+      const fetchMock = authenticatedFetch(
+        [organizationA],
+        deadlineListResponse([]),
+        lookupResponse([process]),
+        ...(usesPicker ? [memberLookupResponse([responsibleMember])] : []),
+        response(200, { requestToken: 'test-token' }),
+        response(400, {
+          title: 'Related responsible member unavailable',
+          detail: 'private server reason',
+        }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderRoute(`/organizations/${organizationA.id}/deadlines`)
+      await screen.findByText('Nenhum prazo cadastrado nesta organização.')
+      await openCreate()
+      await screen.findByText(process.title)
+      selectProcess(process)
+      if (usesPicker) {
+        await screen.findByRole('button', { name: responsibleMember.displayName })
+      }
+      submitCreate('Prazo indisponível', '2026-11-01')
+
+      expect(await screen.findByText(responsibleUnavailableMessage)).toBeInTheDocument()
+      expect(screen.queryByText('private server reason')).not.toBeInTheDocument()
+      expect(createResponsibleSelect()).toHaveValue(expectedMode)
+      expect(screen.queryByText(/Responsável selecionado:/)).not.toBeInTheDocument()
+      expect(screen.getByText(/Processo selecionado:/)).toBeInTheDocument()
+
+      // The unavailable suggestion must not come back when picking the process again.
+      selectProcess(process)
+      expect(createResponsibleSelect()).toHaveValue(expectedMode)
+      expect(screen.queryByText(/Responsável selecionado:/)).not.toBeInTheDocument()
+    },
+  )
 })

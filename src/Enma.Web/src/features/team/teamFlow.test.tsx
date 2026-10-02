@@ -586,7 +586,7 @@ describe('team administration flow', () => {
 
     expect(
       await screen.findByText(
-        /tarefas, compromissos ou processos em aberto\. reatribua antes de desativá-lo/i,
+        /tarefas, compromissos, prazos ou processos em aberto\. reatribua antes de desativá-lo/i,
       ),
     ).toBeInTheDocument()
     expect(

@@ -5,6 +5,9 @@ import {
   useCurrentOrganization,
   useOrganizationDiscovery,
 } from '../organizations/OrganizationContext'
+import type { OrganizationMemberLookupItem } from '../tasks/legalTaskTypes'
+import { lookupOrganizationMembers } from '../tasks/organizationMemberLookupService'
+import { TaskLookupPicker } from '../tasks/TaskLookupPicker'
 import {
   formatLegalDeadlineDueDate,
   formatLegalDeadlineTimestamp,
@@ -12,6 +15,7 @@ import {
   isValidGuid,
 } from './legalDeadlineFormatting'
 import {
+  changeLegalDeadlineResponsible,
   completeLegalDeadline,
   getLegalDeadline,
   LegalDeadlineRequestError,
@@ -32,6 +36,10 @@ const mutationPermissionMessage =
   'Você não tem permissão para alterar este prazo.'
 const editConflictMessage =
   'Este prazo foi concluído e precisa ser reaberto antes de ser editado.'
+const reopenConflictMessage =
+  'Não foi possível reabrir: o responsável atual está indisponível. Altere o responsável e tente novamente.'
+const responsibleUnavailableError =
+  'O responsável selecionado não está mais disponível. Escolha outra pessoa.'
 
 type DetailState =
   | { readonly status: 'loading' }
@@ -40,10 +48,15 @@ type DetailState =
   | { readonly status: 'not-found' }
   | { readonly status: 'error' }
 
-type MutationKind = 'update' | 'complete' | 'reopen'
+type MutationKind = 'update' | 'complete' | 'reopen' | 'responsible'
+type ResponsibleMode = 'unassigned' | 'self' | 'other'
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function sameMembership(left: string | null, right: string | null): boolean {
+  return left?.toLowerCase() === right?.toLowerCase()
 }
 
 function getStateLabel(state: LegalDeadline['state']): string {
@@ -89,6 +102,13 @@ function DeadlineDetailsContent({
   const [editDueDate, setEditDueDate] = useState('')
   const [editTitleError, setEditTitleError] = useState<string>()
   const [editDueDateError, setEditDueDateError] = useState<string>()
+  const [isResponsibleOpen, setIsResponsibleOpen] = useState(false)
+  const [responsibleMode, setResponsibleMode] =
+    useState<ResponsibleMode>('unassigned')
+  const [selectedMember, setSelectedMember] =
+    useState<OrganizationMemberLookupItem>()
+  const [responsibleError, setResponsibleError] = useState<string>()
+  const [memberLookupVersion, setMemberLookupVersion] = useState(0)
   const canMutate =
     currentOrganization.role === 'Owner' ||
     currentOrganization.role === 'Administrator'
@@ -161,7 +181,39 @@ function DeadlineDetailsContent({
     setEditDueDateError(undefined)
     setMutationError(undefined)
     setSuccessMessage(undefined)
+    setIsResponsibleOpen(false)
     setIsEditing(true)
+  }
+
+  function startResponsibleChange(deadline: LegalDeadline) {
+    const current = deadline.responsibleMembershipId
+    const mode: ResponsibleMode =
+      current === null
+        ? 'unassigned'
+        : sameMembership(current, currentOrganization.membershipId)
+          ? 'self'
+          : 'other'
+
+    setResponsibleMode(mode)
+    setSelectedMember(
+      mode === 'other' && current !== null && deadline.responsibleDisplayName
+        ? { id: current, displayName: deadline.responsibleDisplayName }
+        : undefined,
+    )
+    setResponsibleError(undefined)
+    setMutationError(undefined)
+    setSuccessMessage(undefined)
+    setIsEditing(false)
+    setIsResponsibleOpen(true)
+  }
+
+  function cancelResponsibleChange() {
+    if (isMutatingRef.current) {
+      return
+    }
+
+    setIsResponsibleOpen(false)
+    setResponsibleError(undefined)
   }
 
   function cancelEditing() {
@@ -202,6 +254,26 @@ function DeadlineDetailsContent({
     return true
   }
 
+  async function refetchAfterFailure(
+    controller: AbortController,
+    mutationVersion: number,
+    isCurrent: () => boolean,
+  ): Promise<boolean> {
+    try {
+      await refetchAuthoritative(controller, mutationVersion)
+    } catch (refetchError) {
+      if (
+        isAbortError(refetchError) ||
+        (refetchError instanceof LegalDeadlineRequestError &&
+          refetchError.failure === 'unauthorized')
+      ) {
+        return false
+      }
+    }
+
+    return isCurrent()
+  }
+
   async function runMutation(
     kind: MutationKind,
     operation: (signal: AbortSignal) => Promise<void>,
@@ -213,6 +285,7 @@ function DeadlineDetailsContent({
 
     const mutationVersion = ++mutationVersionRef.current
     const controller = new AbortController()
+    const submittedResponsibleMode = responsibleMode
     mutationControllerRef.current = controller
     isMutatingRef.current = true
     setMutationKind(kind)
@@ -232,6 +305,7 @@ function DeadlineDetailsContent({
 
       if (await refetchAuthoritative(controller, mutationVersion)) {
         setIsEditing(false)
+        setIsResponsibleOpen(false)
         setSuccessMessage(success)
       }
     } catch (error) {
@@ -268,11 +342,33 @@ function DeadlineDetailsContent({
           setMutationError(editConflictMessage)
         }
       } else if (
+        kind === 'reopen' &&
+        error instanceof LegalDeadlineRequestError &&
+        error.failure === 'conflict'
+      ) {
+        if (await refetchAfterFailure(controller, mutationVersion, isCurrent)) {
+          setMutationError(reopenConflictMessage)
+        }
+      } else if (
+        kind === 'responsible' &&
+        error instanceof LegalDeadlineRequestError &&
+        error.failure === 'related-responsible-unavailable'
+      ) {
+        if (await refetchAfterFailure(controller, mutationVersion, isCurrent)) {
+          setSelectedMember(undefined)
+          if (submittedResponsibleMode === 'self') {
+            setResponsibleMode('unassigned')
+          }
+          setMemberLookupVersion((version) => version + 1)
+          setResponsibleError(responsibleUnavailableError)
+        }
+      } else if (
         error instanceof LegalDeadlineRequestError &&
         error.failure === 'not-found'
       ) {
         setDetailState({ status: 'not-found' })
         setIsEditing(false)
+        setIsResponsibleOpen(false)
       } else if (
         error instanceof LegalDeadlineRequestError &&
         error.failure === 'forbidden'
@@ -338,6 +434,46 @@ function DeadlineDetailsContent({
           signal,
         ),
       'Prazo atualizado com sucesso.',
+    )
+  }
+
+  function submitResponsible(deadline: LegalDeadline) {
+    if (!routeDeadlineId || isMutatingRef.current) {
+      return
+    }
+
+    const responsibleMembershipId =
+      responsibleMode === 'self'
+        ? currentOrganization.membershipId
+        : responsibleMode === 'other'
+          ? selectedMember?.id
+          : null
+
+    if (responsibleMembershipId === undefined) {
+      setResponsibleError('Selecione uma pessoa responsável.')
+      return
+    }
+
+    if (
+      sameMembership(responsibleMembershipId, deadline.responsibleMembershipId)
+    ) {
+      setIsResponsibleOpen(false)
+      setResponsibleError(undefined)
+      return
+    }
+
+    setResponsibleError(undefined)
+    void runMutation(
+      'responsible',
+      (signal) =>
+        changeLegalDeadlineResponsible(
+          currentOrganization.id,
+          routeDeadlineId,
+          responsibleMembershipId,
+          handleUnauthorized,
+          signal,
+        ),
+      'Responsável atualizado com sucesso.',
     )
   }
 
@@ -460,9 +596,13 @@ function DeadlineDetailsContent({
                 </span>
               </dd>
             </div>
+            <div>
+              <dt>Responsável</dt>
+              <dd>{deadline.responsibleDisplayName ?? 'Sem responsável'}</dd>
+            </div>
           </dl>
         </div>
-        {canMutate && !isEditing ? (
+        {canMutate && !isEditing && !isResponsibleOpen ? (
           <div className="deadline-detail-actions">
             {deadline.state === 'Pending' ? (
               <>
@@ -630,6 +770,111 @@ function DeadlineDetailsContent({
             </button>
           </div>
         </form>
+      ) : null}
+
+      {canMutate ? (
+        <section
+          className="deadline-responsible-panel"
+          aria-labelledby="deadline-responsible-title"
+          aria-busy={mutationKind === 'responsible'}
+        >
+          <div className="deadline-responsible-header">
+            <div>
+              <h2 id="deadline-responsible-title">Responsável</h2>
+            </div>
+            {!isResponsibleOpen ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => startResponsibleChange(deadline)}
+                disabled={isMutating || isEditing}
+              >
+                Alterar responsável
+              </button>
+            ) : null}
+          </div>
+
+          {isResponsibleOpen ? (
+            <div className="deadline-responsible-form">
+              <label htmlFor="deadline-responsible-mode">Novo responsável</label>
+              <select
+                id="deadline-responsible-mode"
+                value={responsibleMode}
+                onChange={(event) => {
+                  setResponsibleMode(event.target.value as ResponsibleMode)
+                  setSelectedMember(undefined)
+                  setResponsibleError(undefined)
+                }}
+                aria-describedby={
+                  responsibleError ? 'deadline-responsible-error' : undefined
+                }
+                aria-invalid={responsibleError ? true : undefined}
+                disabled={isMutating}
+              >
+                <option value="unassigned">Sem responsável</option>
+                <option value="self">Eu</option>
+                <option value="other">Outra pessoa</option>
+              </select>
+              {responsibleMode === 'other' ? (
+                <TaskLookupPicker
+                  key={memberLookupVersion}
+                  organizationId={currentOrganization.id}
+                  searchLabel="Buscar novo responsável"
+                  resultsLabel="Responsáveis encontrados para o prazo"
+                  loadingMessage="Carregando responsáveis..."
+                  emptyMessage="Não há responsáveis disponíveis."
+                  noResultsMessage="Nenhum responsável encontrado para esta busca."
+                  errorMessage="Não foi possível carregar os responsáveis. Tente novamente."
+                  selectedId={selectedMember?.id}
+                  disabled={isMutating}
+                  load={lookupOrganizationMembers}
+                  onUnauthorized={handleUnauthorized}
+                  onSelect={(item) => {
+                    setSelectedMember(item)
+                    setResponsibleError(undefined)
+                    setMutationError(undefined)
+                  }}
+                  renderItem={(item) => <span>{item.displayName}</span>}
+                />
+              ) : null}
+              {selectedMember && responsibleMode === 'other' ? (
+                <p className="deadline-selected-responsible" role="status">
+                  Responsável selecionado:{' '}
+                  <strong>{selectedMember.displayName}</strong>
+                </p>
+              ) : null}
+              {responsibleError ? (
+                <p
+                  id="deadline-responsible-error"
+                  className="form-error"
+                  role="alert"
+                >
+                  {responsibleError}
+                </p>
+              ) : null}
+              <div className="deadline-form-actions">
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={cancelResponsibleChange}
+                  disabled={isMutating}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => submitResponsible(deadline)}
+                  disabled={isMutating}
+                >
+                  {mutationKind === 'responsible'
+                    ? 'Salvando...'
+                    : 'Salvar responsável'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       <section

@@ -118,6 +118,7 @@ function AuditDetails({ details }: { readonly details: AuditLogDetails | null })
         </dl>
       )
     case 'legal_process.responsible_changed':
+    case 'legal_deadline.responsible_changed':
       return (
         <dl className="audit-details-list">
           <div>

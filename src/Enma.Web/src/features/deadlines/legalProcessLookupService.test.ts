@@ -34,6 +34,21 @@ describe('lookupLegalProcesses', () => {
     expect(result.items).toEqual([baseItem])
     expect(result.items[0]).not.toHaveProperty('processNumber')
     expect(result.items[0]).not.toHaveProperty('status')
+    expect(result.items[0]).not.toHaveProperty('responsibleMembershipId')
+  })
+
+  it('WithResponsibleMembershipId_ParsesGuidAndNull', async () => {
+    const items = [
+      { ...baseItem, responsibleMembershipId: '44444444-4444-4444-8444-444444444444' },
+      {
+        ...baseItem,
+        id: '33333333-3333-4333-8333-333333333333',
+        responsibleMembershipId: null,
+      },
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(lookupResponse(items)))
+
+    await expect(lookup()).resolves.toMatchObject({ items })
   })
 
   it('WithOperationalFields_ParsesNumberAndStatus', async () => {
@@ -57,6 +72,9 @@ describe('lookupLegalProcesses', () => {
     ['status nulo', { status: null }],
     ['processNumber vazio', { processNumber: '' }],
     ['processNumber numérico', { processNumber: 123 }],
+    ['responsável inválido', { responsibleMembershipId: 'not-a-guid' }],
+    ['responsável vazio', { responsibleMembershipId: '' }],
+    ['responsável numérico', { responsibleMembershipId: 123 }],
   ])('%s_FailsAsUnexpected', async (_, overrides) => {
     vi.stubGlobal(
       'fetch',

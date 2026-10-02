@@ -160,7 +160,8 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
         return { type: value.type, oldStatus: value.oldStatus, newStatus: value.newStatus }
       }
       return { type: 'unsupported' }
-    case 'legal_process.responsible_changed': {
+    case 'legal_process.responsible_changed':
+    case 'legal_deadline.responsible_changed': {
       const oldResponsibleMembershipId = parseNullableGuid(value.oldResponsibleMembershipId)
       const newResponsibleMembershipId = parseNullableGuid(value.newResponsibleMembershipId)
       if (

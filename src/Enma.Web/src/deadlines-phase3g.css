@@ -100,7 +100,8 @@
 }
 
 .process-lookup-search-row input,
-.deadline-create-form input {
+.deadline-create-form input,
+.deadline-create-form select {
   width: 100%;
   border-color: var(--enma-v3-border-strong, rgba(205, 162, 229, 0.2));
   color: var(--deadlines-text);
@@ -179,6 +180,43 @@
   background: rgba(164, 91, 214, 0.07);
 }
 
+/* Overrides the legacy light theme in styles.css (dark green pressed text). */
+.deadlines-page .process-result-button {
+  border-color: var(--deadlines-border);
+  color: #d6b3e9;
+  background: #211b26;
+}
+
+.deadlines-page .process-result-button:hover:not(:disabled) {
+  border-color: rgba(190, 123, 227, 0.28);
+  background: rgba(164, 91, 214, 0.12);
+}
+
+.deadlines-page .process-result-button[aria-pressed="true"],
+.deadlines-page .process-result-button[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: rgba(190, 123, 227, 0.34);
+  color: #f2ddff;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(164, 91, 214, 0.24),
+      rgba(164, 91, 214, 0.10)
+    );
+}
+
+.deadlines-page .process-result-button:focus-visible {
+  outline-color: #a45bd6;
+}
+
+/* Same autofill neutralization as public-auth-shell.css, scoped to creation. */
+.deadlines-page .deadline-create-panel input:-webkit-autofill,
+.deadlines-page .deadline-create-panel input:-webkit-autofill:hover,
+.deadlines-page .deadline-create-panel input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--deadlines-text);
+  box-shadow: inset 0 0 0 1000px #211b26;
+  caret-color: #d8a9ef;
+}
+
 .process-lookup-status {
   margin: 0.7rem 0 0;
   padding: 0.78rem 0.82rem;
@@ -206,7 +244,7 @@
   padding: 0.62rem 0.72rem;
   border: 1px solid rgba(164, 91, 214, 0.10);
   border-radius: 0.72rem;
-  background: rgba(71, 151, 108, 0.08);
+  background: rgba(164, 91, 214, 0.08);
 }
 
 .selected-process p {
@@ -231,6 +269,23 @@
 
 .deadline-create-form label + input {
   margin-bottom: 0.35rem;
+}
+
+.deadline-create-form > .task-lookup {
+  margin-top: 0.2rem;
+}
+
+.deadline-selected-responsible {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.35rem 0 0;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid rgba(164, 91, 214, 0.10);
+  border-radius: 0.72rem;
+  color: #d9cbe0;
+  background: rgba(164, 91, 214, 0.08);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .deadline-form-actions {
@@ -382,34 +437,47 @@
   overflow-wrap: anywhere;
 }
 
-.deadline-record-metadata,
-.deadline-record-context {
+/*
+ * Every item carries its "•" in a fixed leading slot. The container is
+ * shifted left by one slot and that slot is clipped, so whichever item
+ * starts a visual line (first item or after a wrap) never shows a bullet.
+ */
+.deadline-record-metadata {
+  --deadline-metadata-separator: 1.7rem;
+
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
+  gap: 0.25rem 0;
   min-width: 0;
-}
-
-.deadline-record-metadata {
-  gap: 0.35rem 0.85rem;
+  margin-left: calc(-1 * var(--deadline-metadata-separator));
   color: var(--deadlines-muted);
   font-size: 0.78rem;
   line-height: 1.45;
+  clip-path: inset(0 0 0 var(--deadline-metadata-separator));
 }
 
-.deadline-record-context {
-  gap: 0.25rem 0.7rem;
-}
-
-.deadline-record-context > * {
+.deadline-record-metadata > * {
   overflow-wrap: anywhere;
 }
 
-.deadline-record-context > * + *::before,
-.deadline-record-due-date::before {
-  margin-right: 0.7rem;
+.deadline-record-metadata > :not(.deadline-status) {
+  position: relative;
+  padding-left: var(--deadline-metadata-separator);
+}
+
+.deadline-record-metadata > :not(.deadline-status)::before {
+  position: absolute;
+  left: 0;
+  width: var(--deadline-metadata-separator);
   color: #756a7a;
+  text-align: center;
   content: "•";
+}
+
+.deadline-record-metadata > .deadline-status {
+  align-self: center;
+  margin-left: var(--deadline-metadata-separator);
 }
 
 .deadline-record-due-date time,
@@ -497,7 +565,7 @@
 
 .deadline-details-header {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 2rem;
   padding: 0 0 1.5rem;
@@ -522,17 +590,17 @@
 }
 
 .deadline-details-metadata {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.45rem 1.25rem;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.45rem 1rem;
   margin: 0.9rem 0 0;
 }
 
 .deadline-details-metadata > div {
-  display: flex;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: baseline;
-  gap: 0.4rem;
   min-width: 0;
 }
 
@@ -632,6 +700,167 @@
   background: rgba(157, 93, 78, 0.07);
 }
 
+/* ---------- List filters (Phase 9C.2e) ---------- */
+
+.deadline-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 24rem);
+  align-items: start;
+  gap: 0.9rem;
+  min-width: 0;
+  padding: 0.95rem 0;
+  border-block: 1px solid var(--deadlines-border);
+}
+
+.deadline-filter-control {
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.deadline-filter-control > label {
+  color: var(--deadlines-muted);
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.deadline-filter-control select {
+  width: 100%;
+  min-width: 0;
+}
+
+.deadline-active-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  min-height: 2.65rem;
+  padding: 0.58rem 0.68rem;
+  border: 1px solid rgba(164, 91, 214, 0.18);
+  border-radius: 0.68rem;
+  background: rgba(164, 91, 214, 0.08);
+}
+
+.deadline-active-filter > span {
+  min-width: 0;
+  color: #dec4ed;
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.deadline-filter-control > .task-lookup {
+  margin-top: 0;
+}
+
+/* ---------- Detail responsible (Phase 9C.2e) ---------- */
+
+/*
+ * .deadline-details-page is not part of the dark control lists in
+ * enma-app-shell-v3.css and enma-visual-system-v2.css, so the responsible
+ * form would fall back to the legacy light select/input from styles.css.
+ * Tokens mirror the creation panel on .deadlines-page.
+ */
+
+.deadline-details-page .deadline-responsible-form label {
+  color: var(--deadlines-muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.deadline-details-page .deadline-responsible-form :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--enma-ui-control-height, 3rem);
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--enma-v3-border-strong, rgba(164, 91, 214, 0.28));
+  border-radius: 0.5rem;
+  color: var(--deadlines-text);
+  background: #211b26;
+  box-shadow: none;
+  caret-color: #d6a8ed;
+  color-scheme: dark;
+  font: inherit;
+}
+
+.deadline-details-page .deadline-responsible-form select {
+  border-radius: var(--enma-ui-radius-control, 0.72rem);
+}
+
+.deadline-details-page .deadline-responsible-form input::placeholder {
+  color: var(--enma-v3-subtle, #8f8295);
+  opacity: 1;
+}
+
+.deadline-details-page .deadline-responsible-form :is(input, select):hover:not(:disabled) {
+  border-color: rgba(210, 166, 235, 0.34);
+}
+
+.deadline-details-page .deadline-responsible-form :is(input, select):focus-visible {
+  border-color: #c68ee4;
+  background: #251f2b;
+  outline: 3px solid #a45bd6;
+  outline-offset: 2px;
+}
+
+.deadline-details-page .deadline-responsible-form input:-webkit-autofill,
+.deadline-details-page .deadline-responsible-form input:-webkit-autofill:hover,
+.deadline-details-page .deadline-responsible-form input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--deadlines-text);
+  box-shadow: inset 0 0 0 1000px #211b26;
+  caret-color: #d8a9ef;
+}
+
+.deadline-details-page .deadline-responsible-form select option {
+  color: #f1eaf4;
+  background: #211a26;
+}
+
+.deadline-details-page .deadline-responsible-form .primary-button {
+  margin-top: 0;
+  color: #fff;
+}
+
+.deadline-responsible-panel {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 0.25rem 0 1rem;
+  border-bottom: 1px solid rgba(228, 211, 237, 0.08);
+}
+
+.deadline-responsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.deadline-responsible-header > div {
+  min-width: 0;
+}
+
+.deadline-responsible-header h2 {
+  margin: 0;
+  color: var(--deadlines-text);
+  font-family: var(--enma-ui-font-display);
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.deadline-responsible-form {
+  display: grid;
+  gap: 0.5rem;
+  width: min(100%, 42rem);
+  min-width: 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(228, 211, 237, 0.08);
+}
+
+.deadline-responsible-form > .task-lookup {
+  margin-top: 0.2rem;
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 60rem) {
@@ -660,6 +889,11 @@
 
   .process-lookup-results ul {
     grid-template-columns: 1fr;
+  }
+
+  .deadline-responsible-header {
+    align-items: start;
+    flex-direction: column;
   }
 }
 
@@ -713,8 +947,28 @@
   }
 
   .deadline-details-metadata {
+    display: flex;
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .deadline-details-metadata > div {
+    display: flex;
+    gap: 0.4rem;
+  }
+
+  .deadline-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .deadline-active-filter {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .deadline-responsible-header .secondary-button,
+  .deadline-responsible-form {
+    width: 100%;
   }
 
   .deadline-create-panel,
@@ -739,16 +993,15 @@
 }
 
 @media (max-width: 31rem) {
-  .deadline-record-metadata,
-  .deadline-record-context {
+  .deadline-record-metadata {
     align-items: flex-start;
     flex-direction: column;
     gap: 0.12rem;
   }
 
-  .deadline-record-context > * + *::before,
-  .deadline-record-due-date::before {
-    content: none;
+  .deadline-record-metadata > .deadline-status {
+    align-self: flex-start;
+    margin-top: 0.2rem;
   }
 }
 

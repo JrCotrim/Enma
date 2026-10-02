@@ -5,9 +5,13 @@ import {
   useCurrentOrganization,
   useOrganizationDiscovery,
 } from '../organizations/OrganizationContext'
+import type { OrganizationMemberLookupItem } from '../tasks/legalTaskTypes'
+import { lookupOrganizationMembers } from '../tasks/organizationMemberLookupService'
+import { TaskLookupPicker } from '../tasks/TaskLookupPicker'
 import {
   formatLegalDeadlineDueDate,
   isValidDateOnly,
+  isValidGuid,
 } from './legalDeadlineFormatting'
 import {
   createLegalDeadline,
@@ -35,6 +39,15 @@ const selectedProcessUnavailableError =
   'O processo selecionado não está disponível para este cadastro.'
 const createValidationError =
   'Não foi possível validar o cadastro. Verifique os dados e tente novamente.'
+const responsibleUnavailableError =
+  'O responsável selecionado não está mais disponível. Escolha outra pessoa.'
+
+type CreateResponsibleMode = 'unassigned' | 'self' | 'other'
+
+interface CreateResponsibleMember {
+  readonly id: string
+  readonly displayName?: string
+}
 
 type ListState =
   | { readonly status: 'loading'; readonly scope: string }
@@ -101,6 +114,15 @@ function isCanonicalPage(value: string | null, page: number): boolean {
   return value === null || value === page.toString()
 }
 
+function resolveResponsibleFilter(value: string | null): string {
+  if (value === 'self' || value === 'unassigned') return value
+  return value !== null && isValidGuid(value) ? value : 'any'
+}
+
+function sameMembership(left: string | null, right: string | null): boolean {
+  return left?.toLowerCase() === right?.toLowerCase()
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
@@ -141,8 +163,15 @@ export function DeadlinesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const pageParameter = searchParams.get('page')
   const page = resolvePage(pageParameter)
+  const responsibleParameter = searchParams.get('responsible')
+  const responsibleFilter = resolveResponsibleFilter(responsibleParameter)
   const [refreshVersion, setRefreshVersion] = useState(0)
-  const listScope = `${currentOrganization.id}:${page}:${refreshVersion}`
+  const listScope = JSON.stringify([
+    currentOrganization.id,
+    page,
+    responsibleFilter,
+    refreshVersion,
+  ])
   const [listState, setListState] = useState<ListState>({
     status: 'loading',
     scope: listScope,
@@ -150,6 +179,10 @@ export function DeadlinesPage() {
   const listRequestVersionRef = useRef(0)
   const currentOrganizationIdRef = useRef(currentOrganization.id)
   const mountedRef = useRef(true)
+
+  const [selectedFilterMember, setSelectedFilterMember] =
+    useState<OrganizationMemberLookupItem>()
+  const [isMemberFilterOpen, setIsMemberFilterOpen] = useState(false)
 
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [formContext, setFormContext] = useState<FormContext>()
@@ -162,6 +195,12 @@ export function DeadlinesPage() {
   const [selectedProcess, setSelectedProcess] =
     useState<LegalProcessLookupItem>()
   const [processError, setProcessError] = useState<string>()
+  const [createResponsibleMode, setCreateResponsibleMode] =
+    useState<CreateResponsibleMode>('unassigned')
+  const [selectedCreateMember, setSelectedCreateMember] =
+    useState<CreateResponsibleMember>()
+  const [isResponsibleTouched, setIsResponsibleTouched] = useState(false)
+  const [responsibleError, setResponsibleError] = useState<string>()
   const [createError, setCreateError] = useState<string>()
   const [successMessage, setSuccessMessage] = useState<{
     readonly organizationId: string
@@ -187,12 +226,33 @@ export function DeadlinesPage() {
   }, [currentOrganization.id])
 
   useEffect(() => {
+    const normalized = new URLSearchParams(searchParams)
+    let changed = false
+
     if (!isCanonicalPage(pageParameter, page)) {
-      const normalized = new URLSearchParams(searchParams)
       normalized.delete('page')
+      changed = true
+    }
+
+    if (
+      responsibleParameter !== null &&
+      responsibleParameter !== responsibleFilter
+    ) {
+      normalized.delete('responsible')
+      changed = true
+    }
+
+    if (changed) {
       setSearchParams(normalized, { replace: true })
     }
-  }, [page, pageParameter, searchParams, setSearchParams])
+  }, [
+    page,
+    pageParameter,
+    responsibleFilter,
+    responsibleParameter,
+    searchParams,
+    setSearchParams,
+  ])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -204,6 +264,7 @@ export function DeadlinesPage() {
       pageSize,
       handleUnauthorized,
       controller.signal,
+      { responsible: responsibleFilter },
     )
       .then((response) => {
         if (
@@ -245,6 +306,7 @@ export function DeadlinesPage() {
     listScope,
     page,
     refreshVersion,
+    responsibleFilter,
   ])
 
   useEffect(() => {
@@ -346,6 +408,25 @@ export function DeadlinesPage() {
       ? lookupState
       : undefined
 
+  function updateResponsibleFilter(value: string | undefined) {
+    const nextSearchParams = new URLSearchParams(searchParams)
+
+    if (value === undefined) {
+      nextSearchParams.delete('responsible')
+    } else {
+      nextSearchParams.set('responsible', value)
+    }
+
+    nextSearchParams.delete('page')
+    setSearchParams(nextSearchParams)
+  }
+
+  function clearFilters() {
+    setSelectedFilterMember(undefined)
+    setIsMemberFilterOpen(false)
+    updateResponsibleFilter(undefined)
+  }
+
   function navigateToPage(nextPage: number) {
     const nextSearchParams = new URLSearchParams(searchParams)
 
@@ -385,6 +466,37 @@ export function DeadlinesPage() {
     })
   }
 
+  function resetResponsibleFields() {
+    setCreateResponsibleMode('unassigned')
+    setSelectedCreateMember(undefined)
+    setIsResponsibleTouched(false)
+    setResponsibleError(undefined)
+  }
+
+  // D7: until the responsible field is changed by hand, it mirrors the
+  // selected process's responsible. A manual choice is never overwritten.
+  function applyProcessResponsibleSuggestion(
+    legalProcess: LegalProcessLookupItem | undefined,
+  ) {
+    if (isResponsibleTouched) {
+      return
+    }
+
+    const suggested = legalProcess?.responsibleMembershipId ?? null
+    setResponsibleError(undefined)
+
+    if (suggested === null) {
+      setCreateResponsibleMode('unassigned')
+      setSelectedCreateMember(undefined)
+    } else if (sameMembership(suggested, currentOrganization.membershipId)) {
+      setCreateResponsibleMode('self')
+      setSelectedCreateMember(undefined)
+    } else {
+      setCreateResponsibleMode('other')
+      setSelectedCreateMember({ id: suggested })
+    }
+  }
+
   function openCreate() {
     const context = {
       organizationId: currentOrganization.id,
@@ -399,6 +511,7 @@ export function DeadlinesPage() {
     setDueDateError(undefined)
     setSelectedProcess(undefined)
     setProcessError(undefined)
+    resetResponsibleFields()
     setCreateError(undefined)
     setSearchInput('')
     startLookup(context, '', 1, false, [])
@@ -416,6 +529,7 @@ export function DeadlinesPage() {
     setDueDateError(undefined)
     setSelectedProcess(undefined)
     setProcessError(undefined)
+    resetResponsibleFields()
     setCreateError(undefined)
     setSearchInput('')
     setLookupState({ status: 'idle' })
@@ -509,6 +623,11 @@ export function DeadlinesPage() {
       isValid = false
     }
 
+    if (createResponsibleMode === 'other' && !selectedCreateMember) {
+      setResponsibleError('Selecione uma pessoa responsável.')
+      isValid = false
+    }
+
     if (
       !isValid ||
       !selectedProcess ||
@@ -521,6 +640,13 @@ export function DeadlinesPage() {
     const operationId = ++createOperationRef.current
     const selectedProcessId = selectedProcess.id
     const literalDueDate = dueDate
+    const submittedResponsibleMode = createResponsibleMode
+    const responsibleMembershipId =
+      submittedResponsibleMode === 'self'
+        ? currentOrganization.membershipId
+        : submittedResponsibleMode === 'other'
+          ? selectedCreateMember?.id
+          : undefined
     const controller = new AbortController()
     createControllerRef.current = controller
     isSubmittingRef.current = true
@@ -528,6 +654,7 @@ export function DeadlinesPage() {
     setTitleError(undefined)
     setProcessError(undefined)
     setDueDateError(undefined)
+    setResponsibleError(undefined)
     setCreateError(undefined)
     setSuccessMessage(undefined)
 
@@ -546,6 +673,9 @@ export function DeadlinesPage() {
         literalDueDate,
         handleUnauthorized,
         controller.signal,
+        responsibleMembershipId !== undefined
+          ? { responsibleMembershipId }
+          : {},
       )
 
       if (!isCurrentOperation()) {
@@ -584,6 +714,16 @@ export function DeadlinesPage() {
         setCreateError(selectedProcessUnavailableError)
       } else if (
         error instanceof LegalDeadlineRequestError &&
+        error.failure === 'related-responsible-unavailable'
+      ) {
+        setSelectedCreateMember(undefined)
+        if (submittedResponsibleMode === 'self') {
+          setCreateResponsibleMode('unassigned')
+        }
+        setIsResponsibleTouched(true)
+        setResponsibleError(responsibleUnavailableError)
+      } else if (
+        error instanceof LegalDeadlineRequestError &&
         error.failure === 'bad-request'
       ) {
         setCreateError(createValidationError)
@@ -603,6 +743,15 @@ export function DeadlinesPage() {
     currentLookupState && currentLookupState.status !== 'forbidden'
       ? currentLookupState.items
       : []
+  const hasSpecificResponsible =
+    responsibleFilter !== 'any' &&
+    responsibleFilter !== 'self' &&
+    responsibleFilter !== 'unassigned'
+  const currentFilterMember =
+    selectedFilterMember?.id === responsibleFilter
+      ? selectedFilterMember
+      : undefined
+  const isFiltered = responsibleFilter !== 'any'
 
   return (
     <section className="deadlines-page" aria-labelledby="deadlines-title">
@@ -666,6 +815,7 @@ export function DeadlinesPage() {
                 type="button"
                 onClick={() => {
                   setSelectedProcess(undefined)
+                  applyProcessResponsibleSuggestion(undefined)
                   setCreateError(undefined)
                 }}
                 disabled={isSubmitting}
@@ -737,6 +887,7 @@ export function DeadlinesPage() {
                       type="button"
                       onClick={() => {
                         setSelectedProcess(legalProcess)
+                        applyProcessResponsibleSuggestion(legalProcess)
                         setProcessError(undefined)
                         setCreateError(undefined)
                       }}
@@ -819,6 +970,69 @@ export function DeadlinesPage() {
               </p>
             ) : null}
 
+            <label htmlFor="deadline-responsible">Responsável</label>
+            <select
+              id="deadline-responsible"
+              name="responsible"
+              value={createResponsibleMode}
+              onChange={(event) => {
+                setCreateResponsibleMode(
+                  event.target.value as CreateResponsibleMode,
+                )
+                setSelectedCreateMember(undefined)
+                setIsResponsibleTouched(true)
+                setResponsibleError(undefined)
+              }}
+              aria-describedby={
+                responsibleError ? 'deadline-responsible-error' : undefined
+              }
+              aria-invalid={responsibleError ? true : undefined}
+              disabled={isSubmitting}
+            >
+              <option value="unassigned">Sem responsável</option>
+              <option value="self">Eu</option>
+              <option value="other">Outra pessoa</option>
+            </select>
+            {createResponsibleMode === 'other' ? (
+              <TaskLookupPicker
+                organizationId={currentOrganization.id}
+                searchLabel="Buscar responsável para prazo"
+                resultsLabel="Responsáveis encontrados para o prazo"
+                loadingMessage="Carregando responsáveis..."
+                emptyMessage="Não há responsáveis disponíveis."
+                noResultsMessage="Nenhum responsável encontrado para esta busca."
+                errorMessage="Não foi possível carregar os responsáveis. Tente novamente."
+                selectedId={selectedCreateMember?.id}
+                disabled={isSubmitting}
+                load={lookupOrganizationMembers}
+                onUnauthorized={handleUnauthorized}
+                onSelect={(item) => {
+                  setSelectedCreateMember(item)
+                  setIsResponsibleTouched(true)
+                  setResponsibleError(undefined)
+                  setCreateError(undefined)
+                }}
+                renderItem={(item) => <span>{item.displayName}</span>}
+              />
+            ) : null}
+            {selectedCreateMember && createResponsibleMode === 'other' ? (
+              <p className="deadline-selected-responsible" role="status">
+                Responsável selecionado:{' '}
+                <strong>
+                  {selectedCreateMember.displayName ?? 'Responsável do processo'}
+                </strong>
+              </p>
+            ) : null}
+            {responsibleError ? (
+              <p
+                id="deadline-responsible-error"
+                className="form-error"
+                role="alert"
+              >
+                {responsibleError}
+              </p>
+            ) : null}
+
             {createError ? (
               <div className="deadline-create-error">
                 <p className="form-error" role="alert">
@@ -857,6 +1071,80 @@ export function DeadlinesPage() {
           </form>
         </div>
       ) : null}
+
+      <div className="deadline-filters" role="group" aria-label="Filtros de prazos">
+        <div className="deadline-filter-control">
+          <label htmlFor="deadline-responsible-filter">Responsável</label>
+          <select
+            id="deadline-responsible-filter"
+            value={
+              isMemberFilterOpen || hasSpecificResponsible
+                ? 'specific'
+                : responsibleFilter
+            }
+            onChange={(event) => {
+              const value = event.target.value
+              setSelectedFilterMember(undefined)
+              if (value === 'specific') {
+                setIsMemberFilterOpen(true)
+              } else {
+                setIsMemberFilterOpen(false)
+                updateResponsibleFilter(value === 'any' ? undefined : value)
+              }
+            }}
+          >
+            <option value="any">Todos</option>
+            <option value="self">Meus</option>
+            <option value="unassigned">Sem responsável</option>
+            <option value="specific">Pessoa específica</option>
+          </select>
+          {hasSpecificResponsible ? (
+            <div className="deadline-active-filter">
+              <span>{currentFilterMember?.displayName ?? 'Pessoa selecionada'}</span>
+              <button
+                className="text-button"
+                type="button"
+                onClick={() => {
+                  setSelectedFilterMember(undefined)
+                  setIsMemberFilterOpen(false)
+                  updateResponsibleFilter(undefined)
+                }}
+              >
+                Limpar responsável
+              </button>
+            </div>
+          ) : null}
+          {hasSpecificResponsible && !isMemberFilterOpen ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setIsMemberFilterOpen(true)}
+            >
+              Alterar pessoa
+            </button>
+          ) : null}
+          {isMemberFilterOpen ? (
+            <TaskLookupPicker
+              organizationId={currentOrganization.id}
+              searchLabel="Buscar pessoa para filtro"
+              resultsLabel="Pessoas encontradas para o filtro"
+              loadingMessage="Carregando pessoas..."
+              emptyMessage="Não há pessoas disponíveis."
+              noResultsMessage="Nenhuma pessoa encontrada para esta busca."
+              errorMessage="Não foi possível carregar as pessoas. Tente novamente."
+              selectedId={hasSpecificResponsible ? responsibleFilter : undefined}
+              load={lookupOrganizationMembers}
+              onUnauthorized={handleUnauthorized}
+              onSelect={(item) => {
+                setSelectedFilterMember(item)
+                setIsMemberFilterOpen(false)
+                updateResponsibleFilter(item.id)
+              }}
+              renderItem={(item) => <span>{item.displayName}</span>}
+            />
+          ) : null}
+        </div>
+      </div>
 
       {currentListState.status === 'loading' ? (
         <p className="deadlines-state" role="status">
@@ -898,7 +1186,18 @@ export function DeadlinesPage() {
 
       {currentListState.status === 'success' ? (
         <>
-          {currentListState.response.items.length === 0 ? (
+          {currentListState.response.items.length === 0 && isFiltered ? (
+            <div className="deadlines-state" role="status">
+              <p>Nenhum prazo encontrado com estes filtros.</p>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={clearFilters}
+              >
+                Limpar filtros
+              </button>
+            </div>
+          ) : currentListState.response.items.length === 0 ? (
             <div className="deadlines-state" role="status">
               <p>
                 {page === 1
@@ -946,9 +1245,11 @@ export function DeadlinesPage() {
                           className="deadline-record-metadata"
                           id={`deadline-${deadline.id}-metadata`}
                         >
-                          <span className="deadline-record-context">
-                            <span>{deadline.processTitle}</span>
-                            <span>{deadline.clientName}</span>
+                          <span>{deadline.processTitle}</span>
+                          <span>{deadline.clientName}</span>
+                          <span className="deadline-record-responsible">
+                            {deadline.responsibleDisplayName ??
+                              'Sem responsável'}
                           </span>
                           <span className="deadline-record-due-date">
                             <span>Vence em</span>{' '}

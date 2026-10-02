@@ -543,6 +543,56 @@ describe('Audit G flow', () => {
     ).toHaveValue('legal_process.responsible_changed')
   })
 
+  it('LegalDeadlineResponsibleChanged_RendersLabelMembershipValuesAndFilterOption', async () => {
+    const oldResponsibleId = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc3'
+    const newResponsibleId = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd4'
+    vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333360',
+        eventType: 'legal_deadline.responsible_changed',
+        entityType: 'legal_deadline',
+        details: {
+          type: 'legal_deadline.responsible_changed',
+          oldResponsibleMembershipId: null,
+          newResponsibleMembershipId: newResponsibleId,
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333361',
+        eventType: 'legal_deadline.responsible_changed',
+        entityType: 'legal_deadline',
+        details: {
+          type: 'legal_deadline.responsible_changed',
+          oldResponsibleMembershipId: oldResponsibleId,
+          newResponsibleMembershipId: null,
+        },
+      }),
+    ])))
+
+    renderRoute()
+
+    const rows = (
+      await screen.findAllByRole('cell', { name: 'Responsável do prazo alterado' })
+    ).map((cell) => cell.closest('tr')!)
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0]!).getByText('Responsável anterior')).toBeInTheDocument()
+    expect(within(rows[0]!).getByText('Sem responsável')).toBeInTheDocument()
+    expect(within(rows[0]!).getByText('Novo responsável')).toBeInTheDocument()
+    expect(within(rows[0]!).getByText(newResponsibleId)).toHaveClass('audit-membership-id')
+    expect(within(rows[1]!).getByText(oldResponsibleId)).toHaveClass('audit-membership-id')
+    expect(within(rows[1]!).getByText('Sem responsável')).toBeInTheDocument()
+    expect(screen.queryByText('Não atribuído')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Detalhes indisponíveis para este tipo de evento.'),
+    ).not.toBeInTheDocument()
+
+    expect(
+      within(screen.getByLabelText('Tipo de evento')).getByRole('option', {
+        name: 'Responsável do prazo alterado',
+      }),
+    ).toHaveValue('legal_deadline.responsible_changed')
+  })
+
   it('não mostra actorMembershipId nem campos internos adicionais', async () => {
     const internalActorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'
     vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([
@@ -631,12 +681,38 @@ describe('Audit G flow', () => {
           responsibleDisplayName: 'Nome secreto',
         },
       }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333347',
+        eventType: 'legal_deadline.responsible_changed',
+        entityType: 'legal_deadline',
+        details: {
+          type: 'legal_deadline.responsible_changed',
+          oldResponsibleMembershipId: null,
+          newResponsibleMembershipId: 'segredo-em-responsavel-de-prazo',
+          responsibleDisplayName: 'Nome secreto do prazo',
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333348',
+        eventType: 'legal_deadline.responsible_changed',
+        entityType: 'legal_deadline',
+        details: {
+          type: 'legal_deadline.responsible_changed',
+          oldResponsibleMembershipId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5',
+          newResponsibleMembershipId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5',
+        },
+      }),
     ])))
 
     renderRoute()
 
     expect(await screen.findByText('Evento desconhecido (future.event)')).toBeInTheDocument()
-    expect(screen.getAllByText('Detalhes indisponíveis para este tipo de evento.')).toHaveLength(7)
+    expect(screen.getAllByText('Detalhes indisponíveis para este tipo de evento.')).toHaveLength(9)
+    expect(screen.queryByText(/segredo-em-responsavel-de-prazo/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Nome secreto do prazo/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5'),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('segredo arbitrário')).not.toBeInTheDocument()
     expect(screen.queryByText('trace-interno')).not.toBeInTheDocument()
     expect(screen.queryByText('segredo-em-campo-desconhecido')).not.toBeInTheDocument()

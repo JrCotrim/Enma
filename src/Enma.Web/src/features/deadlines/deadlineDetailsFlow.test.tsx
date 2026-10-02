@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -35,6 +35,8 @@ const deadlineA: LegalDeadline = {
   state: 'Pending',
   createdAt: '2026-08-12T14:30:00Z',
   completedAt: null,
+  responsibleMembershipId: null,
+  responsibleDisplayName: null,
 }
 
 const deadlineB: LegalDeadline = {
@@ -836,5 +838,350 @@ describe('Deadlines D2 detail flow', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Reabrir' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Concluir' })).not.toBeInTheDocument()
+  })
+})
+
+const responsibleMember = {
+  id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  displayName: 'Bruna Costa',
+}
+
+function memberLookupResponse(
+  items: readonly { readonly id: string; readonly displayName: string }[],
+): Response {
+  return response(200, { items, pageNumber: 1, pageSize: 20, hasNext: false })
+}
+
+function memberLookupUrl(organizationId: string): string {
+  return `/api/organizations/${organizationId}/members/lookup?search=&pageNumber=1&pageSize=20`
+}
+
+function responsibleUrl(deadline: LegalDeadline): string {
+  return `/api/organizations/${organizationA.id}/deadlines/${deadline.id}/responsible`
+}
+
+function metadataEntries(): [string | null, string | null][] {
+  const metadata = document.querySelector('.deadline-details-metadata')!
+  return [...metadata.children].map((entry) => [
+    entry.querySelector('dt')!.textContent,
+    entry.querySelector('dd')!.textContent,
+  ])
+}
+
+function responsibleModeSelect(): HTMLSelectElement {
+  return screen.getByLabelText('Novo responsável') as HTMLSelectElement
+}
+
+describe('Deadlines responsible detail (Phase 9C.2e)', () => {
+  it('DeadlineDetail_Metadata_ListsResponsibleInVerticalLabelValueList', async () => {
+    const assigned = {
+      ...deadlineA,
+      responsibleMembershipId: responsibleMember.id,
+      responsibleDisplayName: responsibleMember.displayName,
+    }
+    vi.stubGlobal('fetch', authenticatedFetch([organizationA], response(200, assigned)))
+
+    renderRoute(detailPath(organizationA, assigned))
+    await screen.findByRole('heading', { name: assigned.title })
+
+    expect(metadataEntries()).toEqual([
+      ['Vencimento', '01/11/2026'],
+      ['Estado', 'Pendente'],
+      ['Responsável', responsibleMember.displayName],
+    ])
+    expect(screen.queryByText(responsibleMember.id)).not.toBeInTheDocument()
+  })
+
+  it('DeadlineDetail_Member_SeesResponsibleWithoutAnyMutationAction', async () => {
+    const member = { ...organizationA, role: 'Member' as const }
+    const fetchMock = authenticatedFetch([member], response(200, deadlineA))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(member, deadlineA))
+    await screen.findByRole('heading', { name: deadlineA.title })
+
+    expect(metadataEntries()).toContainEqual(['Responsável', 'Sem responsável'])
+    for (const action of [
+      'Alterar responsável',
+      'Editar',
+      'Concluir',
+      'Reabrir',
+    ]) {
+      expect(screen.queryByRole('button', { name: action })).not.toBeInTheDocument()
+    }
+    expect(screen.queryByLabelText('Novo responsável')).not.toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('DeadlineResponsible_UnassignedToSelf_SendsCsrfPutAndRefetchesAuthoritatively', async () => {
+    let resolveChange: ((value: Response) => void) | undefined
+    const pendingChange = new Promise<Response>((resolve) => {
+      resolveChange = resolve
+    })
+    const assignedToSelf = {
+      ...deadlineA,
+      responsibleMembershipId: organizationA.membershipId,
+      responsibleDisplayName: 'Ana Dona',
+    }
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      response(200, deadlineA),
+      response(200, { requestToken: 'responsible-token' }),
+      pendingChange,
+      response(200, assignedToSelf),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, deadlineA))
+    await screen.findByRole('heading', { name: deadlineA.title })
+    fireEvent.click(screen.getByRole('button', { name: 'Alterar responsável' }))
+
+    expect(responsibleModeSelect()).toHaveValue('unassigned')
+    expect(
+      within(responsibleModeSelect())
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Sem responsável', 'Eu', 'Outra pessoa'])
+    expect(screen.queryByRole('button', { name: 'Concluir' })).not.toBeInTheDocument()
+    fireEvent.change(responsibleModeSelect(), { target: { value: 'self' } })
+    expect(screen.queryByLabelText('Buscar novo responsável')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+
+    expect(await screen.findByRole('button', { name: 'Salvando...' })).toBeDisabled()
+    expect(metadataEntries()).toContainEqual(['Responsável', 'Sem responsável'])
+    const [url, init] = fetchMock.mock.calls[4] as [string, RequestInit]
+    expect(url).toBe(responsibleUrl(deadlineA))
+    expect(init.method).toBe('PUT')
+    expect(init.headers).toEqual({
+      'Content-Type': 'application/json',
+      'X-CSRF-TOKEN': 'responsible-token',
+    })
+    expect(JSON.parse(init.body as string)).toEqual({
+      responsibleMembershipId: organizationA.membershipId,
+    })
+
+    await act(async () => {
+      resolveChange?.(response(204))
+      await pendingChange
+    })
+
+    expect(
+      await screen.findByText('Responsável atualizado com sucesso.'),
+    ).toBeInTheDocument()
+    expect(metadataEntries()).toContainEqual(['Responsável', 'Ana Dona'])
+    expect(screen.queryByLabelText('Novo responsável')).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls[5]?.[0]).toBe(
+      `/api/organizations/${organizationA.id}/deadlines/${deadlineA.id}`,
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(6)
+  })
+
+  it('DeadlineResponsible_OtherPersonViaPicker_SendsSelectedMembership', async () => {
+    const assigned = {
+      ...deadlineA,
+      responsibleMembershipId: responsibleMember.id,
+      responsibleDisplayName: responsibleMember.displayName,
+    }
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      response(200, deadlineA),
+      memberLookupResponse([responsibleMember]),
+      response(200, { requestToken: 'test-token' }),
+      response(204),
+      response(200, assigned),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, deadlineA))
+    await screen.findByRole('heading', { name: deadlineA.title })
+    fireEvent.click(screen.getByRole('button', { name: 'Alterar responsável' }))
+    fireEvent.change(responsibleModeSelect(), { target: { value: 'other' } })
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    )
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(memberLookupUrl(organizationA.id))
+    expect(screen.getByText(/Responsável selecionado:/)).toHaveTextContent(
+      `Responsável selecionado: ${responsibleMember.displayName}`,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+
+    expect(
+      await screen.findByText('Responsável atualizado com sucesso.'),
+    ).toBeInTheDocument()
+    const init = fetchMock.mock.calls[5]?.[1] as RequestInit
+    expect(JSON.parse(init.body as string)).toEqual({
+      responsibleMembershipId: responsibleMember.id,
+    })
+    expect(metadataEntries()).toContainEqual([
+      'Responsável',
+      responsibleMember.displayName,
+    ])
+  })
+
+  it('DeadlineResponsible_OtherPersonWithoutSelection_ShowsValidationWithoutRequest', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      response(200, deadlineA),
+      memberLookupResponse([responsibleMember]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, deadlineA))
+    await screen.findByRole('heading', { name: deadlineA.title })
+    fireEvent.click(screen.getByRole('button', { name: 'Alterar responsável' }))
+    fireEvent.change(responsibleModeSelect(), { target: { value: 'other' } })
+    await screen.findByRole('button', { name: responsibleMember.displayName })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+
+    expect(
+      await screen.findByText('Selecione uma pessoa responsável.'),
+    ).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('DeadlineResponsible_CompletedDeadline_AllowsChangeToUnassigned', async () => {
+    const completedAssigned = {
+      ...deadlineB,
+      responsibleMembershipId: responsibleMember.id,
+      responsibleDisplayName: responsibleMember.displayName,
+    }
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      response(200, completedAssigned),
+      memberLookupResponse([responsibleMember]),
+      response(200, { requestToken: 'test-token' }),
+      response(204),
+      response(200, deadlineB),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, completedAssigned))
+    await screen.findByRole('heading', { name: completedAssigned.title })
+    expect(screen.getByRole('button', { name: 'Reabrir' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Alterar responsável' }))
+
+    expect(responsibleModeSelect()).toHaveValue('other')
+    expect(screen.getByText(/Responsável selecionado:/)).toHaveTextContent(
+      `Responsável selecionado: ${responsibleMember.displayName}`,
+    )
+    expect(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.change(responsibleModeSelect(), { target: { value: 'unassigned' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+
+    expect(
+      await screen.findByText('Responsável atualizado com sucesso.'),
+    ).toBeInTheDocument()
+    const [url, init] = fetchMock.mock.calls[5] as [string, RequestInit]
+    expect(url).toBe(responsibleUrl(completedAssigned))
+    expect(JSON.parse(init.body as string)).toEqual({ responsibleMembershipId: null })
+    expect(metadataEntries()).toContainEqual(['Responsável', 'Sem responsável'])
+    expect(screen.getByText('Concluído')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['sem responsável', null, 'unassigned'],
+    ['eu', organizationA.membershipId, 'self'],
+  ] as const)(
+    'DeadlineResponsible_Unchanged_%s_ClosesWithoutRequest',
+    async (_, currentResponsible, expectedMode) => {
+      const deadline = {
+        ...deadlineA,
+        responsibleMembershipId: currentResponsible,
+        responsibleDisplayName: currentResponsible === null ? null : 'Ana Dona',
+      }
+      const fetchMock = authenticatedFetch([organizationA], response(200, deadline))
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderRoute(detailPath(organizationA, deadline))
+      await screen.findByRole('heading', { name: deadline.title })
+      fireEvent.click(screen.getByRole('button', { name: 'Alterar responsável' }))
+      expect(responsibleModeSelect()).toHaveValue(expectedMode)
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+
+      expect(screen.queryByLabelText('Novo responsável')).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Alterar responsável' }),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Responsável atualizado com sucesso.')).not.toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    },
+  )
+
+  it('DeadlineResponsible_RelatedResponsibleUnavailable_ClearsSelectionAndRefetches', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      response(200, deadlineA),
+      memberLookupResponse([responsibleMember]),
+      response(200, { requestToken: 'test-token' }),
+      response(400, {
+        title: 'Related responsible member unavailable',
+        detail: 'private server reason',
+      }),
+      response(200, deadlineA),
+      memberLookupResponse([]),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, deadlineA))
+    await screen.findByRole('heading', { name: deadlineA.title })
+    fireEvent.click(screen.getByRole('button', { name: 'Alterar responsável' }))
+    fireEvent.change(responsibleModeSelect(), { target: { value: 'other' } })
+    fireEvent.click(
+      await screen.findByRole('button', { name: responsibleMember.displayName }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar responsável' }))
+
+    expect(
+      await screen.findByText(
+        'O responsável selecionado não está mais disponível. Escolha outra pessoa.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('private server reason')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Responsável selecionado:/)).not.toBeInTheDocument()
+    expect(responsibleModeSelect()).toHaveValue('other')
+    expect(fetchMock.mock.calls[6]?.[0]).toBe(
+      `/api/organizations/${organizationA.id}/deadlines/${deadlineA.id}`,
+    )
+    expect(await screen.findByText('Não há responsáveis disponíveis.')).toBeInTheDocument()
+  })
+
+  it('DeadlineReopen_CurrentResponsibleUnavailable_ExplainsAndRefetches', async () => {
+    const completedAssigned = {
+      ...deadlineB,
+      responsibleMembershipId: responsibleMember.id,
+      responsibleDisplayName: responsibleMember.displayName,
+    }
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      response(200, completedAssigned),
+      response(200, { requestToken: 'test-token' }),
+      response(409, {
+        title: 'Resource conflict',
+        detail: 'private conflict detail',
+      }),
+      response(200, completedAssigned),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, completedAssigned))
+    await screen.findByRole('heading', { name: completedAssigned.title })
+    fireEvent.click(screen.getByRole('button', { name: 'Reabrir' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Não foi possível reabrir: o responsável atual está indisponível. Altere o responsável e tente novamente.',
+    )
+    expect(alert).not.toHaveTextContent('private conflict detail')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6))
+    expect(fetchMock.mock.calls[5]?.[0]).toBe(
+      `/api/organizations/${organizationA.id}/deadlines/${completedAssigned.id}`,
+    )
+    expect(screen.getByText('Concluído')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reabrir' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Alterar responsável' })).toBeEnabled()
   })
 })

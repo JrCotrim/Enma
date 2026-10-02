@@ -300,7 +300,7 @@ function OrganizationTeamPage() {
         case 'role':
           return 'O papel deste integrante mudou. A equipe foi atualizada; tente novamente.'
         case 'deactivate':
-          return 'Este integrante ainda possui tarefas, compromissos ou processos em aberto. Reatribua antes de desativá-lo.'
+          return 'Este integrante ainda possui tarefas, compromissos, prazos ou processos em aberto. Reatribua antes de desativá-lo.'
         case 'reactivate':
           return 'A conta deste usuário está inativa. Ela precisa ser reativada fora desta tela antes que o acesso à organização possa ser restaurado.'
       }

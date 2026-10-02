@@ -4,6 +4,7 @@ import {
 } from '../authentication/sessionClient'
 import { isLegalProcessStatus } from '../processes/legalProcessFormatting'
 import type { LegalProcessStatus } from '../processes/legalProcessTypes'
+import { isValidGuid } from './legalDeadlineFormatting'
 import { LegalDeadlineRequestError } from './legalDeadlineService'
 import type {
   LegalProcessLookupItem,
@@ -30,7 +31,11 @@ function parseLegalProcessLookupItem(
       candidate.processNumber !== null &&
       (typeof candidate.processNumber !== 'string' ||
         candidate.processNumber.length === 0)) ||
-    (candidate.status !== undefined && !isLegalProcessStatus(candidate.status))
+    (candidate.status !== undefined && !isLegalProcessStatus(candidate.status)) ||
+    (candidate.responsibleMembershipId !== undefined &&
+      candidate.responsibleMembershipId !== null &&
+      (typeof candidate.responsibleMembershipId !== 'string' ||
+        !isValidGuid(candidate.responsibleMembershipId)))
   ) {
     return undefined
   }
@@ -44,6 +49,13 @@ function parseLegalProcessLookupItem(
       : {}),
     ...(candidate.status !== undefined
       ? { status: candidate.status as LegalProcessStatus }
+      : {}),
+    ...(candidate.responsibleMembershipId !== undefined
+      ? {
+          responsibleMembershipId: candidate.responsibleMembershipId as
+            | string
+            | null,
+        }
       : {}),
   }
 }

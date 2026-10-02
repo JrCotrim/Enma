@@ -17,6 +17,7 @@ export const auditEventTypes = [
   'legal_deadline.details_changed',
   'legal_deadline.completed',
   'legal_deadline.reopened',
+  'legal_deadline.responsible_changed',
   'legal_task.created',
   'legal_task.details_changed',
   'legal_task.assignee_changed',
@@ -83,7 +84,9 @@ export type AuditLogDetails =
       readonly newStatus: AuditLegalProcessStatus
     }
   | {
-      readonly type: 'legal_process.responsible_changed'
+      readonly type:
+        | 'legal_process.responsible_changed'
+        | 'legal_deadline.responsible_changed'
       readonly oldResponsibleMembershipId: string | null
       readonly newResponsibleMembershipId: string | null
     }
