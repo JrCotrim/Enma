@@ -22,6 +22,26 @@ public sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
             table.HasCheckConstraint(
                 "ck_clients_cpf_normalized",
                 "cpf IS NULL OR cpf ~ '^[0-9]{11}$'");
+
+            table.HasCheckConstraint(
+                "ck_clients_person_type",
+                "person_type IN (1, 2)");
+
+            table.HasCheckConstraint(
+                "ck_clients_cnpj_normalized",
+                "cnpj IS NULL OR (cnpj COLLATE \"C\") ~ '^[0-9A-Z]{12}[0-9]{2}$'");
+
+            table.HasCheckConstraint(
+                "ck_clients_document_matches_person_type",
+                "(person_type = 1 AND cnpj IS NULL) OR (person_type = 2 AND cpf IS NULL)");
+
+            table.HasCheckConstraint(
+                "ck_clients_address_normalized",
+                "address IS NULL OR (address = btrim(address) AND length(address) > 0)");
+
+            table.HasCheckConstraint(
+                "ck_clients_notes_normalized",
+                "notes IS NULL OR (notes = btrim(notes) AND length(notes) > 0)");
         });
 
         builder.HasKey(client => client.Id)
@@ -59,6 +79,27 @@ public sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
             .HasMaxLength(11)
             .HasColumnType("varchar(11)");
 
+        builder.Property(client => client.PersonType)
+            .HasColumnName("person_type")
+            .HasColumnType("smallint")
+            .HasConversion<short>()
+            .IsRequired();
+
+        builder.Property(client => client.Cnpj)
+            .HasColumnName("cnpj")
+            .HasMaxLength(14)
+            .HasColumnType("varchar(14)");
+
+        builder.Property(client => client.Address)
+            .HasColumnName("address")
+            .HasMaxLength(300)
+            .HasColumnType("varchar(300)");
+
+        builder.Property(client => client.Notes)
+            .HasColumnName("notes")
+            .HasMaxLength(2000)
+            .HasColumnType("varchar(2000)");
+
         builder.Property(client => client.IsActive)
             .HasColumnName("is_active")
             .HasColumnType("boolean")
@@ -75,6 +116,25 @@ public sealed class ClientConfiguration : IEntityTypeConfiguration<Client>
                 client.Id
             })
             .HasName("ak_clients_organization_id_id");
+
+        // Inactive clients keep their documents reserved within the organization.
+        builder.HasIndex(client => new
+            {
+                client.OrganizationId,
+                client.Cpf
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_clients_organization_id_cpf")
+            .HasFilter("cpf IS NOT NULL");
+
+        builder.HasIndex(client => new
+            {
+                client.OrganizationId,
+                client.Cnpj
+            })
+            .IsUnique()
+            .HasDatabaseName("ux_clients_organization_id_cnpj")
+            .HasFilter("cnpj IS NOT NULL");
 
         builder.HasOne<Organization>()
             .WithMany()

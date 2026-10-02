@@ -8,7 +8,8 @@ public sealed class Client
     private const int MaximumEmailLength = 254;
     private const int MinimumPhoneLength = 8;
     private const int MaximumPhoneLength = 15;
-    private const int CpfLength = 11;
+    private const int MaximumAddressLength = 300;
+    private const int MaximumNotesLength = 2_000;
 
     public Client(
         Guid organizationId,
@@ -16,7 +17,11 @@ public sealed class Client
         DateTimeOffset createdAt,
         string? email = null,
         string? phone = null,
-        string? cpf = null)
+        string? cpf = null,
+        PersonType personType = PersonType.Individual,
+        string? cnpj = null,
+        string? address = null,
+        string? notes = null)
     {
         if (organizationId == Guid.Empty)
         {
@@ -32,12 +37,30 @@ public sealed class Client
                 ClientErrors.CreatedAtInvalid);
         }
 
+        string normalizedName = NormalizeName(name);
+        string? normalizedEmail = NormalizeEmail(email);
+        string? normalizedPhone = NormalizePhone(phone);
+        string? normalizedCpf = NormalizeCpf(cpf);
+        PersonType validatedPersonType = ValidatePersonType(personType);
+        string? normalizedCnpj = NormalizeCnpj(cnpj);
+        string? normalizedAddress = NormalizeAddress(address);
+        string? normalizedNotes = NormalizeNotes(notes);
+
+        ValidateDocumentMatchesPersonType(
+            validatedPersonType,
+            normalizedCpf,
+            normalizedCnpj);
+
         Id = Guid.NewGuid();
         OrganizationId = organizationId;
-        Name = NormalizeName(name);
-        Email = NormalizeEmail(email);
-        Phone = NormalizePhone(phone);
-        Cpf = NormalizeCpf(cpf);
+        Name = normalizedName;
+        Email = normalizedEmail;
+        Phone = normalizedPhone;
+        Cpf = normalizedCpf;
+        PersonType = validatedPersonType;
+        Cnpj = normalizedCnpj;
+        Address = normalizedAddress;
+        Notes = normalizedNotes;
         IsActive = true;
         CreatedAt = createdAt;
     }
@@ -54,6 +77,14 @@ public sealed class Client
 
     public string? Cpf { get; private set; }
 
+    public PersonType PersonType { get; private set; }
+
+    public string? Cnpj { get; private set; }
+
+    public string? Address { get; private set; }
+
+    public string? Notes { get; private set; }
+
     public bool IsActive { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
@@ -69,15 +100,49 @@ public sealed class Client
         string? phone,
         string? cpf)
     {
+        UpdateProfile(
+            name,
+            email,
+            phone,
+            cpf,
+            PersonType,
+            Cnpj,
+            Address,
+            Notes);
+    }
+
+    public void UpdateProfile(
+        string name,
+        string? email,
+        string? phone,
+        string? cpf,
+        PersonType personType,
+        string? cnpj,
+        string? address,
+        string? notes)
+    {
         string normalizedName = NormalizeName(name);
         string? normalizedEmail = NormalizeEmail(email);
         string? normalizedPhone = NormalizePhone(phone);
         string? normalizedCpf = NormalizeCpf(cpf);
+        PersonType validatedPersonType = ValidatePersonType(personType);
+        string? normalizedCnpj = NormalizeCnpj(cnpj);
+        string? normalizedAddress = NormalizeAddress(address);
+        string? normalizedNotes = NormalizeNotes(notes);
+
+        ValidateDocumentMatchesPersonType(
+            validatedPersonType,
+            normalizedCpf,
+            normalizedCnpj);
 
         Name = normalizedName;
         Email = normalizedEmail;
         Phone = normalizedPhone;
         Cpf = normalizedCpf;
+        PersonType = validatedPersonType;
+        Cnpj = normalizedCnpj;
+        Address = normalizedAddress;
+        Notes = normalizedNotes;
     }
 
     public void Activate()
@@ -184,29 +249,7 @@ public sealed class Client
             return null;
         }
 
-        string trimmedCpf = cpf.Trim();
-
-        foreach (char character in trimmedCpf)
-        {
-            bool allowed =
-                character is >= '0' and <= '9' ||
-                character is '.' or '-' or ' ';
-
-            if (!allowed)
-            {
-                throw new ArgumentException(
-                    ClientErrors.CpfInvalid,
-                    nameof(cpf));
-            }
-        }
-
-        string normalizedCpf = new(
-            trimmedCpf
-                .Where(character => character is >= '0' and <= '9')
-                .ToArray());
-
-        if (normalizedCpf.Length != CpfLength ||
-            !HasValidCpfCheckDigits(normalizedCpf))
+        if (!BrazilianTaxId.TryNormalizeCpf(cpf, out string? normalizedCpf))
         {
             throw new ArgumentException(
                 ClientErrors.CpfInvalid,
@@ -216,57 +259,90 @@ public sealed class Client
         return normalizedCpf;
     }
 
-    private static bool HasValidCpfCheckDigits(string cpf)
+    private static PersonType ValidatePersonType(PersonType personType)
     {
-        bool allDigitsEqual = true;
-
-        for (int index = 1; index < cpf.Length; index++)
+        if (!Enum.IsDefined(personType))
         {
-            if (cpf[index] != cpf[0])
-            {
-                allDigitsEqual = false;
-                break;
-            }
+            throw new ArgumentOutOfRangeException(
+                nameof(personType),
+                ClientErrors.PersonTypeInvalid);
         }
 
-        if (allDigitsEqual)
+        return personType;
+    }
+
+    private static string? NormalizeCnpj(string? cnpj)
+    {
+        if (string.IsNullOrWhiteSpace(cnpj))
         {
-            return false;
+            return null;
         }
 
-        int firstSum = 0;
-
-        for (int index = 0; index < 9; index++)
+        if (!BrazilianTaxId.TryNormalizeCnpj(cnpj, out string? normalizedCnpj))
         {
-            firstSum += (cpf[index] - '0') * (10 - index);
+            throw new ArgumentException(
+                ClientErrors.CnpjInvalid,
+                nameof(cnpj));
         }
 
-        int firstDigit = 11 - firstSum % 11;
+        return normalizedCnpj;
+    }
 
-        if (firstDigit >= 10)
+    private static string? NormalizeAddress(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address))
         {
-            firstDigit = 0;
+            return null;
         }
 
-        if (cpf[9] - '0' != firstDigit)
+        string normalizedAddress = address.Trim();
+
+        if (normalizedAddress.Length > MaximumAddressLength)
         {
-            return false;
+            throw new ArgumentOutOfRangeException(
+                nameof(address),
+                ClientErrors.AddressTooLong);
         }
 
-        int secondSum = 0;
+        return normalizedAddress;
+    }
 
-        for (int index = 0; index < 10; index++)
+    private static string? NormalizeNotes(string? notes)
+    {
+        if (string.IsNullOrWhiteSpace(notes))
         {
-            secondSum += (cpf[index] - '0') * (11 - index);
+            return null;
         }
 
-        int secondDigit = 11 - secondSum % 11;
+        string normalizedNotes = notes.Trim();
 
-        if (secondDigit >= 10)
+        if (normalizedNotes.Length > MaximumNotesLength)
         {
-            secondDigit = 0;
+            throw new ArgumentOutOfRangeException(
+                nameof(notes),
+                ClientErrors.NotesTooLong);
         }
 
-        return cpf[10] - '0' == secondDigit;
+        return normalizedNotes;
+    }
+
+    private static void ValidateDocumentMatchesPersonType(
+        PersonType personType,
+        string? cpf,
+        string? cnpj)
+    {
+        if (personType == PersonType.Individual && cnpj is not null)
+        {
+            throw new ArgumentException(
+                ClientErrors.CnpjNotAllowedForIndividual,
+                nameof(cnpj));
+        }
+
+        if (personType == PersonType.Company && cpf is not null)
+        {
+            throw new ArgumentException(
+                ClientErrors.CpfNotAllowedForCompany,
+                nameof(cpf));
+        }
     }
 }

@@ -198,7 +198,20 @@ public sealed class ClientPersistenceTests(
         Assert.Equal(
             [nameof(Client.OrganizationId), nameof(Client.Id)],
             alternateKey.Properties.Select(property => property.Name).ToArray());
-        Assert.Empty(entityType.GetIndexes());
+        Assert.Equal(
+            [
+                "ux_clients_organization_id_cnpj|OrganizationId,Cnpj|cnpj IS NOT NULL|unique",
+                "ux_clients_organization_id_cpf|OrganizationId,Cpf|cpf IS NOT NULL|unique"
+            ],
+            entityType.GetIndexes()
+                .Select(index => string.Join(
+                    "|",
+                    index.GetDatabaseName(),
+                    string.Join(",", index.Properties.Select(property => property.Name)),
+                    index.GetFilter(),
+                    index.IsUnique ? "unique" : "non-unique"))
+                .Order(StringComparer.Ordinal)
+                .ToArray());
         Assert.DoesNotContain(
             entityType.GetIndexes(),
             candidate => candidate.Properties.Any(

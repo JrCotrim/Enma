@@ -52,7 +52,12 @@ public sealed class LegalDeadlineResponsibleMigrationTests(
 
         await using (EnmaDbContext seedContext = fixture.CreateDbContext())
         {
-            seedContext.AddRange(GetGraphEntities(graph));
+            seedContext.AddRange(graph.Organization, graph.User, graph.Membership);
+            await seedContext.SaveChangesAsync();
+            await PostgreSqlFixture.InsertClientWithoutPersonTypeColumnsAsync(
+                seedContext,
+                graph.Client);
+            seedContext.Add(graph.LegalProcess);
             await seedContext.SaveChangesAsync();
             await PostgreSqlFixture.InsertLegalDeadlineWithoutResponsibleColumnAsync(
                 seedContext,

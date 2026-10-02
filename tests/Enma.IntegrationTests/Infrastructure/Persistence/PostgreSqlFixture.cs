@@ -56,6 +56,22 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
             """);
     }
 
+    public static Task InsertClientWithoutPersonTypeColumnsAsync(
+        EnmaDbContext dbContext,
+        Client client)
+    {
+        return dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO clients
+                (id, organization_id, name, email, phone, cpf, is_active,
+                 created_at)
+            VALUES
+                ({client.Id}, {client.OrganizationId}, {client.Name},
+                 {client.Email}, {client.Phone}, {client.Cpf}, {client.IsActive},
+                 {client.CreatedAt})
+            """);
+    }
+
     public static async Task InsertLegalProcessWithoutOperationalColumnsAsync(
         EnmaDbContext dbContext,
         LegalProcess legalProcess)
