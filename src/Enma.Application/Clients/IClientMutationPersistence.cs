@@ -57,5 +57,6 @@ public enum ClientMutationPersistenceResult
 {
     AccessDenied = 0,
     NotFound = 1,
-    Succeeded = 2
+    Succeeded = 2,
+    DuplicateDocument = 3
 }

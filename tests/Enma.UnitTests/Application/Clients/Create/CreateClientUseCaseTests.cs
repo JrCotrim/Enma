@@ -150,6 +150,177 @@ public sealed class CreateClientUseCaseTests
             persistence.CancellationToken);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_WithoutPersonType_CreatesIndividualClient()
+    {
+        var persistence = new FakeClientCreationPersistence();
+        CreateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        CreateClientResult result = await ExecuteProfileAsync(
+            useCase,
+            personType: null,
+            cpf: "529.982.247-25");
+
+        Assert.Equal(CreateClientResultStatus.Succeeded, result.Status);
+        Assert.Equal(PersonType.Individual, persistence.PersistedClient?.PersonType);
+        Assert.Equal("52998224725", persistence.PersistedClient?.Cpf);
+        Assert.Null(persistence.PersistedClient?.Cnpj);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithCompanyProfile_PersistsNewProfileFields()
+    {
+        var persistence = new FakeClientCreationPersistence();
+        CreateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Administrator,
+            persistence);
+
+        CreateClientResult result = await ExecuteProfileAsync(
+            useCase,
+            personType: "company",
+            cnpj: "12.ABC.345/01DE-35",
+            address: "  Rua Sintetica, 100  ",
+            notes: "  Synthetic notes  ");
+
+        Assert.Equal(CreateClientResultStatus.Succeeded, result.Status);
+        Client? client = persistence.PersistedClient;
+        Assert.NotNull(client);
+        Assert.Equal(PersonType.Company, client.PersonType);
+        Assert.Equal("12ABC34501DE35", client.Cnpj);
+        Assert.Null(client.Cpf);
+        Assert.Equal("Rua Sintetica, 100", client.Address);
+        Assert.Equal("Synthetic notes", client.Notes);
+    }
+
+    [Theory]
+    [InlineData("Company")]
+    [InlineData("INDIVIDUAL")]
+    [InlineData("pj")]
+    [InlineData("")]
+    [InlineData("1")]
+    public async Task ExecuteAsync_WithUnknownPersonType_RejectsBeforePersistence(
+        string personType)
+    {
+        var persistence = new FakeClientCreationPersistence();
+        CreateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        RequestValidationException exception =
+            await Assert.ThrowsAsync<RequestValidationException>(
+                () => ExecuteProfileAsync(useCase, personType: personType));
+
+        Assert.Contains("person type", exception.Message);
+        Assert.Equal(0, persistence.CallCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithUnknownPersonTypeAndMemberRole_DeniesBeforeValidation()
+    {
+        var persistence = new FakeClientCreationPersistence();
+        CreateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Member,
+            persistence);
+
+        CreateClientResult result = await ExecuteProfileAsync(
+            useCase,
+            personType: "unknown");
+
+        Assert.Equal(CreateClientResultStatus.AccessDenied, result.Status);
+        Assert.Equal(0, persistence.CallCount);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidNewProfileFields))]
+    public async Task ExecuteAsync_WithInvalidNewProfileField_TranslatesToValidationWithoutEchoingValue(
+        string? personType,
+        string? cpf,
+        string? cnpj,
+        string? address,
+        string? notes,
+        string expectedError,
+        string expectedParameter,
+        string rejectedValue)
+    {
+        var persistence = new FakeClientCreationPersistence();
+        CreateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        RequestValidationException exception =
+            await Assert.ThrowsAsync<RequestValidationException>(
+                () => ExecuteProfileAsync(
+                    useCase,
+                    personType,
+                    cpf,
+                    cnpj,
+                    address,
+                    notes));
+
+        Assert.Contains(expectedError, exception.Message);
+        Assert.Contains($"'{expectedParameter}'", exception.Message);
+        Assert.DoesNotContain(rejectedValue, exception.Message);
+        Assert.Null(persistence.PersistedClient);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenPersistenceReportsDuplicateDocument_ReturnsDuplicateDocument()
+    {
+        var persistence = new FakeClientCreationPersistence(
+            ClientCreationPersistenceResult.DuplicateDocument);
+        CreateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        CreateClientResult result = await ExecuteProfileAsync(
+            useCase,
+            cpf: "529.982.247-25");
+
+        Assert.Equal(CreateClientResultStatus.DuplicateDocument, result.Status);
+        Assert.Null(result.ClientId);
+        Assert.Equal(1, persistence.CallCount);
+    }
+
+    public static TheoryData<string?, string?, string?, string?, string?, string, string, string>
+        InvalidNewProfileFields()
+    {
+        string longAddress = new('a', 301);
+        string longNotes = new('n', 2_001);
+
+        return new()
+        {
+            { "company", null, "12.345.678/0001-00", null, null, ClientErrors.CnpjInvalid, "cnpj", "12.345.678/0001-00" },
+            { "individual", null, "11.222.333/0001-81", null, null, ClientErrors.CnpjNotAllowedForIndividual, "cnpj", "11.222.333/0001-81" },
+            { null, null, "11.222.333/0001-81", null, null, ClientErrors.CnpjNotAllowedForIndividual, "cnpj", "11.222.333/0001-81" },
+            { "company", "529.982.247-25", null, null, null, ClientErrors.CpfNotAllowedForCompany, "cpf", "529.982.247-25" },
+            { "individual", null, null, longAddress, null, ClientErrors.AddressTooLong, "address", longAddress },
+            { "individual", null, null, null, longNotes, ClientErrors.NotesTooLong, "notes", longNotes }
+        };
+    }
+
+    private static Task<CreateClientResult> ExecuteProfileAsync(
+        CreateClientUseCase useCase,
+        string? personType = null,
+        string? cpf = null,
+        string? cnpj = null,
+        string? address = null,
+        string? notes = null)
+    {
+        return useCase.ExecuteAsync(
+            UserId,
+            OrganizationId,
+            "Profile Client",
+            null,
+            null,
+            cpf,
+            personType,
+            cnpj,
+            address,
+            notes);
+    }
+
     private static CreateClientUseCase CreateUseCase(
         OrganizationRole? role,
         FakeClientCreationPersistence persistence)
@@ -217,7 +388,9 @@ public sealed class CreateClientUseCaseTests
         }
     }
 
-    private sealed class FakeClientCreationPersistence : IClientCreationPersistence
+    private sealed class FakeClientCreationPersistence(
+        ClientCreationPersistenceResult? acceptedDecisionResult = null)
+        : IClientCreationPersistence
     {
         public int CallCount { get; private set; }
 
@@ -248,6 +421,11 @@ public sealed class CreateClientUseCaseTests
             {
                 return Task.FromResult(
                     ClientCreationPersistenceResult.AccessDenied);
+            }
+
+            if (acceptedDecisionResult is { } overriddenResult)
+            {
+                return Task.FromResult(overriddenResult);
             }
 
             PersistedClient = client;

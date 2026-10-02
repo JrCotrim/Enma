@@ -103,11 +103,7 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
             return ClientMutationPersistenceResult.NotFound;
         }
 
-        string oldName = client.Name;
-        string? oldEmail = client.Email;
-        string? oldPhone = client.Phone;
-        string? oldCpf = client.Cpf;
-        bool oldIsActive = client.IsActive;
+        ClientSnapshot snapshot = ClientSnapshot.From(client);
 
         OrganizationMembership? actorMembership =
             await LockActorMembershipAsync(
@@ -141,15 +137,18 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
             return ClientMutationPersistenceResult.AccessDenied;
         }
 
-        IReadOnlyList<AuditEventType> eventTypes =
-            GetEventTypes(
+        if (operation == ClientMutationOperation.Update &&
+            await ClientDocumentUniqueness.HasConflictAsync(
+                dbContext,
                 client,
-                oldName,
-                oldEmail,
-                oldPhone,
-                oldCpf,
-                oldIsActive,
-                operation);
+                cancellationToken))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ClientMutationPersistenceResult.DuplicateDocument;
+        }
+
+        IReadOnlyList<AuditEventType> eventTypes =
+            GetEventTypes(client, snapshot, operation);
 
         if (eventTypes.Count == 0)
         {
@@ -176,7 +175,18 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
                 new AuditIntent(eventType, client.Id));
         }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (
+            operation == ClientMutationOperation.Update &&
+            ClientDocumentUniqueness.IsUniqueViolation(exception))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ClientMutationPersistenceResult.DuplicateDocument;
+        }
+
         await transaction.CommitAsync(cancellationToken);
 
         return ClientMutationPersistenceResult.Succeeded;
@@ -184,20 +194,22 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
 
     private static IReadOnlyList<AuditEventType> GetEventTypes(
         Client client,
-        string oldName,
-        string? oldEmail,
-        string? oldPhone,
-        string? oldCpf,
-        bool oldIsActive,
+        ClientSnapshot snapshot,
         ClientMutationOperation operation)
     {
+        bool oldIsActive = snapshot.IsActive;
+
         bool nameChanged =
-            !StringComparer.Ordinal.Equals(oldName, client.Name);
+            !StringComparer.Ordinal.Equals(snapshot.Name, client.Name);
 
         bool profileChanged =
-            !StringComparer.Ordinal.Equals(oldEmail, client.Email) ||
-            !StringComparer.Ordinal.Equals(oldPhone, client.Phone) ||
-            !StringComparer.Ordinal.Equals(oldCpf, client.Cpf);
+            !StringComparer.Ordinal.Equals(snapshot.Email, client.Email) ||
+            !StringComparer.Ordinal.Equals(snapshot.Phone, client.Phone) ||
+            !StringComparer.Ordinal.Equals(snapshot.Cpf, client.Cpf) ||
+            snapshot.PersonType != client.PersonType ||
+            !StringComparer.Ordinal.Equals(snapshot.Cnpj, client.Cnpj) ||
+            !StringComparer.Ordinal.Equals(snapshot.Address, client.Address) ||
+            !StringComparer.Ordinal.Equals(snapshot.Notes, client.Notes);
 
         switch (operation)
         {
@@ -331,5 +343,31 @@ public sealed class ClientMutationPersistence : IClientMutationPersistence
         Update = 0,
         Deactivate = 1,
         Reactivate = 2
+    }
+
+    private readonly record struct ClientSnapshot(
+        string Name,
+        string? Email,
+        string? Phone,
+        string? Cpf,
+        PersonType PersonType,
+        string? Cnpj,
+        string? Address,
+        string? Notes,
+        bool IsActive)
+    {
+        public static ClientSnapshot From(Client client)
+        {
+            return new ClientSnapshot(
+                client.Name,
+                client.Email,
+                client.Phone,
+                client.Cpf,
+                client.PersonType,
+                client.Cnpj,
+                client.Address,
+                client.Notes,
+                client.IsActive);
+        }
     }
 }

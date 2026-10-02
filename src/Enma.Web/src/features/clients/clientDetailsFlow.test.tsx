@@ -34,6 +34,10 @@ const clientA: ClientDetail = {
   email: 'cliente.alfa@example.com',
   phone: '22999998888',
   cpf: '52998224725',
+  personType: 'individual',
+  cnpj: null,
+  address: 'Rua Sintética, 10',
+  notes: 'Observação sintética',
   isActive: true,
   createdAt: '2026-08-12T14:30:00Z',
 }
@@ -44,6 +48,10 @@ const clientB: ClientDetail = {
   email: null,
   phone: null,
   cpf: null,
+  personType: 'individual',
+  cnpj: null,
+  address: null,
+  notes: null,
   isActive: false,
   createdAt: '2026-08-11T12:00:00Z',
 }
@@ -479,12 +487,20 @@ describe('Clients D2 flow', () => {
       email: clientA.email,
       phone: clientA.phone,
       cpf: clientA.cpf,
+      personType: clientA.personType,
+      cnpj: clientA.cnpj,
+      address: clientA.address,
+      notes: clientA.notes,
     })
     expect(Object.keys(JSON.parse(updateInit.body as string))).toEqual([
       'name',
       'email',
       'phone',
       'cpf',
+      'personType',
+      'cnpj',
+      'address',
+      'notes',
     ])
 
     await act(async () => {
@@ -563,10 +579,88 @@ describe('Clients D2 flow', () => {
       email: null,
       phone: null,
       cpf: null,
+      personType: clientA.personType,
+      cnpj: clientA.cnpj,
+      address: clientA.address,
+      notes: clientA.notes,
     })
 
     expect(screen.getAllByText('Não informado')).toHaveLength(3)
   })
+
+  it('ClientEdit_CompanyClient_ResendsLoadedProfileFieldsUnchanged', async () => {
+    const companyClient: ClientDetail = {
+      ...clientA,
+      cpf: null,
+      personType: 'company',
+      cnpj: '12ABC34501DE35',
+      address: 'Avenida Sintética, 200',
+      notes: 'Observação da empresa',
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(organizationResponse([organizationA]))
+      .mockResolvedValueOnce(response(200, companyClient))
+      .mockResolvedValueOnce(response(200, { requestToken: 'test-token' }))
+      .mockResolvedValueOnce(response(204))
+      .mockResolvedValueOnce(response(200, { ...companyClient, name: 'Empresa' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, companyClient))
+    await screen.findByRole('heading', { name: companyClient.name })
+    openEditAndSubmit('Empresa')
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(6)
+    })
+
+    const [, updateInit] = fetchMock.mock.calls[4] as [string, RequestInit]
+    expect(updateInit.method).toBe('PUT')
+    expect(JSON.parse(updateInit.body as string)).toEqual({
+      name: 'Empresa',
+      email: companyClient.email,
+      phone: companyClient.phone,
+      cpf: null,
+      personType: 'company',
+      cnpj: '12ABC34501DE35',
+      address: 'Avenida Sintética, 200',
+      notes: 'Observação da empresa',
+    })
+    expect(screen.queryByText('Avenida Sintética, 200')).not.toBeInTheDocument()
+    expect(screen.queryByText('Observação da empresa')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['unknown person type', { ...clientA, personType: 'legalEntity' }],
+    ['missing person type', { ...clientA, personType: undefined }],
+    [
+      'missing notes key',
+      Object.fromEntries(
+        Object.entries(clientA).filter(([key]) => key !== 'notes'),
+      ),
+    ],
+    ['non-string cnpj', { ...clientA, cnpj: 12345678000195 }],
+    ['non-string address', { ...clientA, address: { street: 'Rua' } }],
+  ])(
+    'ClientDetail_StrictParser_RejectsPayloadWith %s',
+    async (_case, payload) => {
+      vi.stubGlobal(
+        'fetch',
+        authenticatedDetailFetch(organizationA, response(200, payload)),
+      )
+
+      renderRoute(detailPath(organizationA, clientA))
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(
+        'Não foi possível carregar o cliente. Tente novamente.',
+      )
+      expect(
+        screen.queryByRole('heading', { name: clientA.name }),
+      ).not.toBeInTheDocument()
+    },
+  )
 
   it('ClientEdit_InvalidNames_PreventWhitespaceAndOverlongRequests', async () => {
     const fetchMock = authenticatedDetailFetch(organizationA, response(200, clientA))

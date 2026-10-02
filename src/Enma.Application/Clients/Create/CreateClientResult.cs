@@ -18,6 +18,10 @@ public sealed class CreateClientResult
         CreateClientResultStatus.AccessDenied,
         null);
 
+    public static CreateClientResult DuplicateDocument { get; } = new(
+        CreateClientResultStatus.DuplicateDocument,
+        null);
+
     public static CreateClientResult Success(Guid clientId)
     {
         if (clientId == Guid.Empty)
@@ -36,5 +40,6 @@ public sealed class CreateClientResult
 public enum CreateClientResultStatus
 {
     AccessDenied = 0,
-    Succeeded = 1
+    Succeeded = 1,
+    DuplicateDocument = 2
 }

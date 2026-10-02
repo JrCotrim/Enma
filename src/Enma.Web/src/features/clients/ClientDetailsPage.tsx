@@ -257,10 +257,15 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
   function handleEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (!routeClientId || isMutatingRef.current) {
+    if (
+      !routeClientId ||
+      isMutatingRef.current ||
+      currentDetailState.status !== 'success'
+    ) {
       return
     }
 
+    const loadedClient = currentDetailState.client
     const trimmedName = editName.trim()
 
     if (trimmedName.length === 0) {
@@ -286,6 +291,12 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
             email: normalizeOptionalClientField(editEmail),
             phone: normalizeOptionalClientField(editPhone),
             cpf: normalizeOptionalClientField(editCpf),
+            // The current form does not edit these fields; the full-replacement
+            // PUT resends the loaded values so they are preserved.
+            personType: loadedClient.personType,
+            cnpj: loadedClient.cnpj,
+            address: loadedClient.address,
+            notes: loadedClient.notes,
           },
           handleUnauthorized,
           signal,

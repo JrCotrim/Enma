@@ -40,6 +40,29 @@ public sealed class CreateClientUseCase
             cancellationToken);
     }
 
+    public Task<CreateClientResult> ExecuteAsync(
+        Guid userId,
+        Guid organizationId,
+        string name,
+        string? email,
+        string? phone,
+        string? cpf,
+        CancellationToken cancellationToken = default)
+    {
+        return ExecuteAsync(
+            userId,
+            organizationId,
+            name,
+            email,
+            phone,
+            cpf,
+            null,
+            null,
+            null,
+            null,
+            cancellationToken);
+    }
+
     public async Task<CreateClientResult> ExecuteAsync(
         Guid userId,
         Guid organizationId,
@@ -47,6 +70,10 @@ public sealed class CreateClientUseCase
         string? email,
         string? phone,
         string? cpf,
+        string? personType,
+        string? cnpj,
+        string? address,
+        string? notes,
         CancellationToken cancellationToken = default)
     {
         OrganizationAccessAuthorizationResult authorization =
@@ -61,27 +88,36 @@ public sealed class CreateClientUseCase
             return CreateClientResult.AccessDenied;
         }
 
+        PersonType parsedPersonType = personType is null
+            ? PersonType.Individual
+            : ClientPersonTypeParser.Parse(personType);
+
         var request = new ClientCreationPersistenceRequest(
             userId,
             organizationId,
             actorMembershipId);
+        var profile = new ClientProfile(
+            name,
+            email,
+            phone,
+            cpf,
+            parsedPersonType,
+            cnpj,
+            address,
+            notes);
 
         ClientCreationPersistenceResult persistenceResult =
             await _creationPersistence.ExecuteAsync(
                 request,
-                state => DecideCreation(
-                    request,
-                    state,
-                    name,
-                    email,
-                    phone,
-                    cpf),
+                state => DecideCreation(request, state, profile),
                 cancellationToken);
 
         return persistenceResult.Status switch
         {
             ClientCreationDecisionStatus.AccessDenied =>
                 CreateClientResult.AccessDenied,
+            ClientCreationDecisionStatus.DuplicateDocument =>
+                CreateClientResult.DuplicateDocument,
             ClientCreationDecisionStatus.Persist
                 when persistenceResult.ClientId is Guid clientId =>
                 CreateClientResult.Success(clientId),
@@ -93,10 +129,7 @@ public sealed class CreateClientUseCase
     private ClientCreationDecision DecideCreation(
         ClientCreationPersistenceRequest request,
         ClientCreationLockedState state,
-        string name,
-        string? email,
-        string? phone,
-        string? cpf)
+        ClientProfile profile)
     {
         if (!state.IsOrganizationActive ||
             state.Actor is not { } actor ||
@@ -112,30 +145,28 @@ public sealed class CreateClientUseCase
         return ClientCreationDecision.Persist(
             CreateClient(
                 request.OrganizationId,
-                name,
-                email,
-                phone,
-                cpf,
+                profile,
                 _timeProvider.GetUtcNow()));
     }
 
     private static Client CreateClient(
         Guid organizationId,
-        string name,
-        string? email,
-        string? phone,
-        string? cpf,
+        ClientProfile profile,
         DateTimeOffset createdAt)
     {
         try
         {
             return new Client(
                 organizationId,
-                name,
+                profile.Name,
                 createdAt,
-                email,
-                phone,
-                cpf);
+                profile.Email,
+                profile.Phone,
+                profile.Cpf,
+                profile.PersonType,
+                profile.Cnpj,
+                profile.Address,
+                profile.Notes);
         }
         catch (ArgumentException exception)
             when (IsProfileParameter(exception.ParamName))
@@ -146,6 +177,17 @@ public sealed class CreateClientUseCase
 
     private static bool IsProfileParameter(string? parameterName)
     {
-        return parameterName is "name" or "email" or "phone" or "cpf";
+        return parameterName is "name" or "email" or "phone" or "cpf" or
+            "personType" or "cnpj" or "address" or "notes";
     }
+
+    private sealed record ClientProfile(
+        string Name,
+        string? Email,
+        string? Phone,
+        string? Cpf,
+        PersonType PersonType,
+        string? Cnpj,
+        string? Address,
+        string? Notes);
 }

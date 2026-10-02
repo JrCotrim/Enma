@@ -7,4 +7,8 @@ public sealed record ClientResponse(
     string? Phone,
     string? Cpf,
     bool IsActive,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    ClientPersonTypeResponse PersonType,
+    string? Cnpj,
+    string? Address,
+    string? Notes);

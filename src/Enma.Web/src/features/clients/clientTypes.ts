@@ -1,3 +1,7 @@
+export const clientPersonTypes = ['individual', 'company'] as const
+
+export type ClientPersonType = (typeof clientPersonTypes)[number]
+
 export interface Client {
   readonly id: string
   readonly name: string
@@ -9,6 +13,10 @@ export interface ClientDetail extends Client {
   readonly email: string | null
   readonly phone: string | null
   readonly cpf: string | null
+  readonly personType: ClientPersonType
+  readonly cnpj: string | null
+  readonly address: string | null
+  readonly notes: string | null
 }
 
 export interface ClientListResponse {
@@ -29,6 +37,10 @@ export interface UpdateClientRequest {
   readonly email: string | null
   readonly phone: string | null
   readonly cpf: string | null
+  readonly personType: ClientPersonType
+  readonly cnpj: string | null
+  readonly address: string | null
+  readonly notes: string | null
 }
 
 export interface CreateClientResponse {

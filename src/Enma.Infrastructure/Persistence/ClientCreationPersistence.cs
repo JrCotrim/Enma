@@ -82,6 +82,15 @@ public sealed class ClientCreationPersistence : IClientCreationPersistence
                 "A client persistence decision returned invalid state.");
         }
 
+        if (await ClientDocumentUniqueness.HasConflictAsync(
+                dbContext,
+                client,
+                cancellationToken))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ClientCreationPersistenceResult.DuplicateDocument;
+        }
+
         await dbContext.Clients.AddAsync(client, cancellationToken);
         TransactionalAuditActorContext auditActor =
             TransactionalAuditActorContext.FromValidatedMembership(actorMembership);
@@ -90,7 +99,18 @@ public sealed class ClientCreationPersistence : IClientCreationPersistence
             _timeProvider,
             auditActor,
             new AuditIntent(AuditEventType.ClientCreated, client.Id));
-        await dbContext.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (
+            ClientDocumentUniqueness.IsUniqueViolation(exception))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return ClientCreationPersistenceResult.DuplicateDocument;
+        }
+
         await transaction.CommitAsync(cancellationToken);
 
         return ClientCreationPersistenceResult.Created(client.Id);

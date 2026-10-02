@@ -219,6 +219,161 @@ public sealed class UpdateClientUseCaseTests
         Assert.Equal(ClientId, persistence.ClientId);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_WithFullProfile_ReplacesNewProfileFields()
+    {
+        var persistence = new FakeClientMutationPersistence();
+        UpdateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        UpdateClientResult result = await ExecuteProfileAsync(
+            useCase,
+            personType: "company",
+            cnpj: "11.222.333/0001-81",
+            address: " Rua Sintetica, 200 ",
+            notes: " Synthetic notes ");
+
+        Assert.Equal(UpdateClientResultStatus.Succeeded, result.Status);
+        Assert.Equal(PersonType.Company, persistence.Client.PersonType);
+        Assert.Equal("11222333000181", persistence.Client.Cnpj);
+        Assert.Equal("Rua Sintetica, 200", persistence.Client.Address);
+        Assert.Equal("Synthetic notes", persistence.Client.Notes);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("Company")]
+    [InlineData("pf")]
+    public async Task ExecuteAsync_WithMissingOrUnknownPersonType_RejectsWithoutMutation(
+        string? personType)
+    {
+        var persistence = new FakeClientMutationPersistence();
+        UpdateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        RequestValidationException exception =
+            await Assert.ThrowsAsync<RequestValidationException>(
+                () => ExecuteProfileAsync(
+                    useCase,
+                    personType: personType,
+                    address: "Changed address"));
+
+        Assert.Contains("person type", exception.Message);
+        Assert.Equal("Acme Legal", persistence.Client.Name);
+        Assert.Null(persistence.Client.Address);
+        Assert.Equal(PersonType.Individual, persistence.Client.PersonType);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithUnknownPersonTypeAndMemberRole_DeniesBeforeValidation()
+    {
+        var persistence = new FakeClientMutationPersistence();
+        UpdateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Member,
+            persistence);
+
+        UpdateClientResult result = await ExecuteProfileAsync(
+            useCase,
+            personType: "unknown");
+
+        Assert.Equal(UpdateClientResultStatus.AccessDenied, result.Status);
+        Assert.Equal(0, persistence.UpdateCallCount);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidNewProfileFields))]
+    public async Task ExecuteAsync_WithInvalidNewProfileField_TranslatesToValidationWithoutEchoingValue(
+        string personType,
+        string? cpf,
+        string? cnpj,
+        string? address,
+        string? notes,
+        string expectedError,
+        string expectedParameter,
+        string rejectedValue)
+    {
+        var persistence = new FakeClientMutationPersistence();
+        UpdateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Administrator,
+            persistence);
+
+        RequestValidationException exception =
+            await Assert.ThrowsAsync<RequestValidationException>(
+                () => ExecuteProfileAsync(
+                    useCase,
+                    personType,
+                    cpf,
+                    cnpj,
+                    address,
+                    notes));
+
+        Assert.Contains(expectedError, exception.Message);
+        Assert.Contains($"'{expectedParameter}'", exception.Message);
+        Assert.DoesNotContain(rejectedValue, exception.Message);
+        Assert.Equal("Acme Legal", persistence.Client.Name);
+        Assert.Null(persistence.Client.Cnpj);
+        Assert.Null(persistence.Client.Address);
+        Assert.Null(persistence.Client.Notes);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenPersistenceReportsDuplicateDocument_ReturnsDuplicateDocument()
+    {
+        var persistence = new FakeClientMutationPersistence(
+            ClientMutationPersistenceResult.DuplicateDocument);
+        UpdateClientUseCase useCase = CreateUseCase(
+            OrganizationRole.Owner,
+            persistence);
+
+        UpdateClientResult result = await ExecuteProfileAsync(
+            useCase,
+            cpf: "529.982.247-25");
+
+        Assert.Equal(UpdateClientResultStatus.DuplicateDocument, result.Status);
+        Assert.Equal(1, persistence.UpdateCallCount);
+    }
+
+    public static TheoryData<string, string?, string?, string?, string?, string, string, string>
+        InvalidNewProfileFields()
+    {
+        string longAddress = new('a', 301);
+        string longNotes = new('n', 2_001);
+
+        return new()
+        {
+            { "company", null, "12.345.678/0001-00", null, null, ClientErrors.CnpjInvalid, "cnpj", "12.345.678/0001-00" },
+            { "individual", null, "12.ABC.345/01DE-35", null, null, ClientErrors.CnpjNotAllowedForIndividual, "cnpj", "12.ABC.345/01DE-35" },
+            { "company", "529.982.247-25", null, null, null, ClientErrors.CpfNotAllowedForCompany, "cpf", "529.982.247-25" },
+            { "individual", null, null, longAddress, null, ClientErrors.AddressTooLong, "address", longAddress },
+            { "individual", null, null, null, longNotes, ClientErrors.NotesTooLong, "notes", longNotes }
+        };
+    }
+
+    private static Task<UpdateClientResult> ExecuteProfileAsync(
+        UpdateClientUseCase useCase,
+        string? personType = "individual",
+        string? cpf = null,
+        string? cnpj = null,
+        string? address = null,
+        string? notes = null)
+    {
+        return useCase.ExecuteAsync(
+            UserId,
+            OrganizationId,
+            ClientId,
+            "Profile Client",
+            null,
+            null,
+            cpf,
+            personType,
+            cnpj,
+            address,
+            notes);
+    }
+
     private static UpdateClientUseCase CreateUseCase(
         OrganizationRole? role,
         FakeClientMutationPersistence persistence)

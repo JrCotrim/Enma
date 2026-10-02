@@ -186,6 +186,74 @@ public sealed class LegacyMutationAuditPersistenceTests(
     }
 
     [Fact]
+    public async Task ClientProfileUpdates_NewProfileFields_RecordNullDetailsProfileUpdatedPerEffectiveChange()
+    {
+        LegacyGraph graph = await SeedGraphAsync();
+        var mutation = new ClientMutationPersistence(CreateOptions(), Clock());
+        ClientMutationPersistenceRequest request = CreateClientMutationRequest(graph);
+        const string cnpj = "11222333000181";
+        const string address = "Rua Sintetica Auditoria, 10";
+        const string notes = "Synthetic audit notes";
+
+        (PersonType PersonType, string? Cnpj, string? Address, string? Notes)[] steps =
+        [
+            (PersonType.Company, null, null, null),
+            (PersonType.Company, cnpj, null, null),
+            (PersonType.Company, cnpj, address, null),
+            (PersonType.Company, cnpj, address, notes),
+            (PersonType.Company, cnpj, $"  {address}  ", $" {notes} "),
+            (PersonType.Company, cnpj, null, notes)
+        ];
+        int[] expectedProfileEventCounts = [1, 2, 3, 4, 4, 5];
+
+        for (int index = 0; index < steps.Length; index++)
+        {
+            (PersonType personType, string? stepCnpj, string? stepAddress, string? stepNotes) =
+                steps[index];
+
+            ClientMutationPersistenceResult result = await mutation.UpdateNameAsync(
+                request,
+                state =>
+                {
+                    state.Client.UpdateProfile(
+                        "Initial client",
+                        null,
+                        null,
+                        null,
+                        personType,
+                        stepCnpj,
+                        stepAddress,
+                        stepNotes);
+                    return ClientMutationDecision.Persist;
+                });
+
+            Assert.Equal(ClientMutationPersistenceResult.Succeeded, result);
+            AuditLog[] stepLogs = await FindAuditLogsAsync();
+            Assert.Equal(expectedProfileEventCounts[index], stepLogs.Length);
+        }
+
+        AuditLog[] auditLogs = await FindAuditLogsAsync();
+        Assert.All(auditLogs, auditLog =>
+        {
+            Assert.Equal(AuditEventType.ClientProfileUpdated, auditLog.EventType);
+            Assert.Equal(AuditEntityType.Client, auditLog.EntityType);
+            Assert.Equal(graph.Client.Id, auditLog.EntityId);
+            Assert.Equal(graph.ActorMembership.Id, auditLog.ActorMembershipId);
+            Assert.Null(auditLog.Details);
+        });
+        string serializedAuditPayload = JsonSerializer.Serialize(auditLogs);
+        Assert.DoesNotContain(cnpj, serializedAuditPayload);
+        Assert.DoesNotContain(address, serializedAuditPayload);
+        Assert.DoesNotContain(notes, serializedAuditPayload);
+
+        Client persisted = await FindClientAsync(graph.Client.Id);
+        Assert.Equal(PersonType.Company, persisted.PersonType);
+        Assert.Equal(cnpj, persisted.Cnpj);
+        Assert.Null(persisted.Address);
+        Assert.Equal(notes, persisted.Notes);
+    }
+
+    [Fact]
     public async Task LegalProcessOperations_RecordActorAndTwoNullDetailsEvents_WithoutNoOpAudit()
     {
         LegacyGraph graph = await SeedGraphAsync();

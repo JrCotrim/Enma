@@ -73,7 +73,8 @@ public sealed class ClientCreationDecision
 public enum ClientCreationDecisionStatus
 {
     AccessDenied = 0,
-    Persist = 1
+    Persist = 1,
+    DuplicateDocument = 2
 }
 
 public sealed class ClientCreationPersistenceResult
@@ -92,6 +93,10 @@ public sealed class ClientCreationPersistenceResult
 
     public static ClientCreationPersistenceResult AccessDenied { get; } = new(
         ClientCreationDecisionStatus.AccessDenied,
+        null);
+
+    public static ClientCreationPersistenceResult DuplicateDocument { get; } = new(
+        ClientCreationDecisionStatus.DuplicateDocument,
         null);
 
     public static ClientCreationPersistenceResult Created(Guid clientId)

@@ -5,6 +5,7 @@ using System.Text.Json;
 using Enma.Api.Contracts.Clients;
 using Enma.Application.Authentication;
 using Enma.Domain.Authentication;
+using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
@@ -76,7 +77,11 @@ public sealed class ClientEndpointTests : IAsyncLifetime
                 nameof(CreateClientRequest.Name),
                 nameof(CreateClientRequest.Email),
                 nameof(CreateClientRequest.Phone),
-                nameof(CreateClientRequest.Cpf)
+                nameof(CreateClientRequest.Cpf),
+                nameof(CreateClientRequest.PersonType),
+                nameof(CreateClientRequest.Cnpj),
+                nameof(CreateClientRequest.Address),
+                nameof(CreateClientRequest.Notes)
             ],
             GetPropertyNames<CreateClientRequest>());
         Assert.Equal(
@@ -84,7 +89,11 @@ public sealed class ClientEndpointTests : IAsyncLifetime
                 nameof(UpdateClientRequest.Name),
                 nameof(UpdateClientRequest.Email),
                 nameof(UpdateClientRequest.Phone),
-                nameof(UpdateClientRequest.Cpf)
+                nameof(UpdateClientRequest.Cpf),
+                nameof(UpdateClientRequest.PersonType),
+                nameof(UpdateClientRequest.Cnpj),
+                nameof(UpdateClientRequest.Address),
+                nameof(UpdateClientRequest.Notes)
             ],
             GetPropertyNames<UpdateClientRequest>());
         Assert.Equal(
@@ -98,7 +107,11 @@ public sealed class ClientEndpointTests : IAsyncLifetime
                 nameof(ClientResponse.Phone),
                 nameof(ClientResponse.Cpf),
                 nameof(ClientResponse.IsActive),
-                nameof(ClientResponse.CreatedAt)
+                nameof(ClientResponse.CreatedAt),
+                nameof(ClientResponse.PersonType),
+                nameof(ClientResponse.Cnpj),
+                nameof(ClientResponse.Address),
+                nameof(ClientResponse.Notes)
             ],
             GetPropertyNames<ClientResponse>());
         Assert.Equal(
@@ -257,7 +270,19 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         string getJson = await getResponse.Content.ReadAsStringAsync();
         using JsonDocument getDocument = JsonDocument.Parse(getJson);
         Assert.Equal(
-            ["id", "name", "email", "phone", "cpf", "isActive", "createdAt"],
+            [
+                "id",
+                "name",
+                "email",
+                "phone",
+                "cpf",
+                "isActive",
+                "createdAt",
+                "personType",
+                "cnpj",
+                "address",
+                "notes"
+            ],
             getDocument.RootElement
                 .EnumerateObject()
                 .Select(property => property.Name)
@@ -337,7 +362,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organization.Id, activeClient.Id),
             rawHandle,
             csrf,
-            new { name = "Denied Update" });
+            UpdateBody("Denied Update"));
         using HttpResponseMessage deactivateResponse = await SendMutationAsync(
             HttpMethod.Post,
             $"{GetClientPath(organization.Id, activeClient.Id)}/deactivate",
@@ -417,7 +442,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organization.Id, created.Id),
             rawHandle,
             csrf,
-            new { name = "Updated Client" });
+            UpdateBody("Updated Client"));
         using HttpResponseMessage deactivateResponse = await SendMutationAsync(
             HttpMethod.Post,
             $"{GetClientPath(organization.Id, created.Id)}/deactivate",
@@ -484,7 +509,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organization.Id, created.Id),
             rawHandle,
             csrf,
-            new { name = "Administrator Updated" });
+            UpdateBody("Administrator Updated"));
         using HttpResponseMessage deactivateResponse = await SendMutationAsync(
             HttpMethod.Post,
             $"{GetClientPath(organization.Id, created.Id)}/deactivate",
@@ -556,13 +581,11 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organization.Id, created.Id),
             rawHandle,
             csrf,
-            new
-            {
-                name = "  Updated Profile  ",
-                email = "  UPDATED@Example.TEST ",
-                phone = "(21) 2345-6789",
-                cpf = "111.444.777-35"
-            });
+            UpdateBody(
+                "  Updated Profile  ",
+                "  UPDATED@Example.TEST ",
+                "(21) 2345-6789",
+                "111.444.777-35"));
 
         await AssertEmptyResponseAsync(updateResponse, HttpStatusCode.NoContent);
         ClientEntity updated = await GetPersistedClientAsync(created.Id);
@@ -576,13 +599,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organization.Id, created.Id),
             rawHandle,
             csrf,
-            new
-            {
-                name = "Updated Profile",
-                email = "  ",
-                phone = " ",
-                cpf = ""
-            });
+            UpdateBody("Updated Profile", "  ", " ", ""));
         using HttpResponseMessage clearedDetailResponse = await SendGetAsync(
             GetClientPath(organization.Id, created.Id),
             rawHandle);
@@ -631,13 +648,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organization.Id, existingClient.Id),
             rawHandle,
             csrf,
-            new
-            {
-                name = "Partially Changed",
-                email,
-                phone,
-                cpf
-            });
+            UpdateBody("Partially Changed", email, phone, cpf));
 
         await AssertProblemResponseAsync(response, HttpStatusCode.BadRequest);
         ClientEntity persisted = await GetPersistedClientAsync(existingClient.Id);
@@ -832,7 +843,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organizationA.Id, clientB.Id),
             rawHandle,
             csrf,
-            new { name = "Cross Tenant Name" });
+            UpdateBody("Cross Tenant Name"));
 
         await AssertEmptyResponseAsync(
             crossTenantResponse,
@@ -844,7 +855,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organizationB.Id, clientB.Id),
             rawHandle,
             csrf,
-            new { name = "Own Tenant Name" });
+            UpdateBody("Own Tenant Name"));
 
         await AssertEmptyResponseAsync(
             ownTenantResponse,
@@ -1190,7 +1201,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organization.Id, existingClient.Id),
             rawHandle,
             csrf,
-            new { name = "Invalid Csrf Update" },
+            UpdateBody("Invalid Csrf Update"),
             requestTokenOverride: "malformed");
         using HttpResponseMessage deactivateResponse = await SendMutationAsync(
             HttpMethod.Post,
@@ -1241,7 +1252,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             GetClientPath(organization.Id, existingClient.Id),
             rawHandle,
             csrf,
-            new { name = new string('x', 151) });
+            UpdateBody(new string('x', 151)));
         using HttpResponseMessage listResponse = await SendGetAsync(
             $"{GetClientsPath(organization.Id)}?pageNumber=0&pageSize=101",
             rawHandle);
@@ -1326,6 +1337,592 @@ public sealed class ClientEndpointTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.NotFound, organizationResponse.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, clientResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateClient_IndividualAndCompanyProfiles_ReturnCreatedAndDetailExposesNewFields()
+    {
+        User user = CreateUser("person-type-create");
+        Organization organization = CreateOrganization("Person Type Create");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        (object Body, string PersonType, string? Cpf, string? Cnpj, string? Address, string? Notes)[] cases =
+        [
+            (new { name = "PF Sem Documento" }, "individual", null, null, null, null),
+            (
+                new { name = "PF Com CPF", cpf = "529.982.247-25", address = " Rua A, 1 ", notes = " Nota PF " },
+                "individual",
+                "52998224725",
+                null,
+                "Rua A, 1",
+                "Nota PF"),
+            (
+                new { name = "PJ Numerica", personType = "company", cnpj = "11.222.333/0001-81" },
+                "company",
+                null,
+                "11222333000181",
+                null,
+                null),
+            (
+                new { name = "PJ Alfanumerica", personType = "company", cnpj = "12.abc.345/01de-35", notes = "Nota PJ" },
+                "company",
+                null,
+                "12ABC34501DE35",
+                null,
+                "Nota PJ")
+        ];
+
+        foreach ((object body, string personType, string? cpf, string? cnpj, string? address, string? notes) in cases)
+        {
+            using HttpResponseMessage createResponse = await SendMutationAsync(
+                HttpMethod.Post,
+                GetClientsPath(organization.Id),
+                rawHandle,
+                csrf,
+                body);
+
+            Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+            CreateClientResponse? created =
+                await createResponse.Content.ReadFromJsonAsync<CreateClientResponse>();
+            Assert.NotNull(created);
+
+            using HttpResponseMessage detailResponse = await SendGetAsync(
+                GetClientPath(organization.Id, created.Id),
+                rawHandle);
+            Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+            using JsonDocument detail = JsonDocument.Parse(
+                await detailResponse.Content.ReadAsStringAsync());
+            JsonElement root = detail.RootElement;
+            Assert.Equal(personType, root.GetProperty("personType").GetString());
+            Assert.Equal(cpf, root.GetProperty("cpf").GetString());
+            Assert.Equal(cnpj, root.GetProperty("cnpj").GetString());
+            Assert.Equal(address, root.GetProperty("address").GetString());
+            Assert.Equal(notes, root.GetProperty("notes").GetString());
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(4, await dbContext.Clients.CountAsync());
+    }
+
+    [Theory]
+    [InlineData("company", null, "12.345.678/0001-00", "cnpj")]
+    [InlineData("individual", null, "11.222.333/0001-81", "cnpj")]
+    [InlineData(null, null, "12.ABC.345/01DE-35", "cnpj")]
+    [InlineData("company", "529.982.247-25", null, "cpf")]
+    [InlineData("individual", "111.111.111-11", null, "cpf")]
+    [InlineData("Company", null, null, "person type")]
+    [InlineData("pj", null, null, "person type")]
+    public async Task CreateClient_InvalidOrMismatchedDocument_ReturnsBadRequestWithoutEchoingValue(
+        string? personType,
+        string? cpf,
+        string? cnpj,
+        string expectedField)
+    {
+        User user = CreateUser("invalid-document");
+        Organization organization = CreateOrganization("Invalid Document");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage response = await SendMutationAsync(
+            HttpMethod.Post,
+            GetClientsPath(organization.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                name = "Invalid Document Client",
+                personType,
+                cpf,
+                cnpj,
+                address = "Synthetic address",
+                notes = "Synthetic notes"
+            });
+
+        await AssertProblemResponseAsync(response, HttpStatusCode.BadRequest);
+        string content = await response.Content.ReadAsStringAsync();
+        Assert.Contains(expectedField, content, StringComparison.Ordinal);
+        AssertDoesNotContainDocument(content, cpf);
+        AssertDoesNotContainDocument(content, cnpj);
+        Assert.DoesNotContain("Synthetic address", content);
+        Assert.DoesNotContain("Synthetic notes", content);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.Clients.CountAsync());
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task CreateClient_DocumentUsedInSameOrganization_ReturnsFixedConflictAndOtherOrganizationAccepts(
+        bool company,
+        bool existingInactive)
+    {
+        User user = CreateUser("duplicate-document");
+        Organization organizationA = CreateOrganization("Duplicate A");
+        Organization organizationB = CreateOrganization("Duplicate B");
+        OrganizationMembership ownerA = CreateMembership(
+            user,
+            organizationA,
+            OrganizationRole.Owner);
+        OrganizationMembership ownerB = CreateMembership(
+            user,
+            organizationB,
+            OrganizationRole.Owner);
+        ClientEntity existing = company
+            ? new ClientEntity(
+                organizationA.Id,
+                "Existing Company",
+                Now.AddMinutes(-5),
+                personType: PersonType.Company,
+                cnpj: "12ABC34501DE35")
+            : new ClientEntity(
+                organizationA.Id,
+                "Existing Individual",
+                Now.AddMinutes(-5),
+                cpf: "52998224725");
+
+        if (existingInactive)
+        {
+            existing.Deactivate();
+        }
+
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organizationA, organizationB],
+            [ownerA, ownerB],
+            [existing]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        object body = company
+            ? new { name = "Duplicate Company", personType = "company", cnpj = "12.abc.345/01de-35" }
+            : new { name = "Duplicate Individual", cpf = "529.982.247-25" };
+
+        using HttpResponseMessage conflictResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetClientsPath(organizationA.Id),
+            rawHandle,
+            csrf,
+            body);
+        using HttpResponseMessage otherOrganizationResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetClientsPath(organizationB.Id),
+            rawHandle,
+            csrf,
+            body);
+
+        await AssertDuplicateDocumentConflictAsync(conflictResponse);
+        Assert.Equal(HttpStatusCode.Created, otherOrganizationResponse.StatusCode);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(
+            1,
+            await dbContext.Clients.CountAsync(
+                candidate => candidate.OrganizationId == organizationA.Id));
+        Assert.Equal(
+            1,
+            await dbContext.Clients.CountAsync(
+                candidate => candidate.OrganizationId == organizationB.Id));
+    }
+
+    [Fact]
+    public async Task CreateClient_ConcurrentSameDocument_CreatesOneAndRejectsOther()
+    {
+        User user = CreateUser("concurrent-document");
+        Organization organization = CreateOrganization("Concurrent Document");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            []);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        Task<HttpResponseMessage>[] requests = Enumerable.Range(1, 2)
+            .Select(index => SendMutationAsync(
+                HttpMethod.Post,
+                GetClientsPath(organization.Id),
+                rawHandle,
+                csrf,
+                new
+                {
+                    name = $"Concurrent Company {index}",
+                    personType = "company",
+                    cnpj = index == 1 ? "11.222.333/0001-81" : "11222333000181"
+                }))
+            .ToArray();
+        HttpResponseMessage[] responses = await Task.WhenAll(requests);
+
+        try
+        {
+            Assert.Single(
+                responses,
+                response => response.StatusCode == HttpStatusCode.Created);
+            HttpResponseMessage conflict = Assert.Single(
+                responses,
+                response => response.StatusCode == HttpStatusCode.Conflict);
+            await AssertDuplicateDocumentConflictAsync(conflict);
+            await using EnmaDbContext dbContext = fixture.CreateDbContext();
+            Assert.Equal(1, await dbContext.Clients.CountAsync());
+        }
+        finally
+        {
+            foreach (HttpResponseMessage response in responses)
+            {
+                response.Dispose();
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateClient_CopyingOtherDocumentConflictsAndKeepingOwnDocumentSucceeds(
+        bool company)
+    {
+        User user = CreateUser("update-document");
+        Organization organization = CreateOrganization("Update Document");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Administrator);
+        PersonType personType = company ? PersonType.Company : PersonType.Individual;
+        string firstDocument = company ? "11222333000181" : "52998224725";
+        string secondDocument = company ? "12ABC34501DE35" : "11144477735";
+        ClientEntity first = CreateDocumentClient(
+            organization,
+            "First Document",
+            personType,
+            firstDocument);
+        ClientEntity second = CreateDocumentClient(
+            organization,
+            "Second Document",
+            personType,
+            secondDocument);
+        second.Deactivate();
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [first, second]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        string apiPersonType = company ? "company" : "individual";
+
+        using HttpResponseMessage conflictResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetClientPath(organization.Id, first.Id),
+            rawHandle,
+            csrf,
+            UpdateBody(
+                "Copied Document",
+                cpf: company ? null : secondDocument,
+                personType: apiPersonType,
+                cnpj: company ? secondDocument.ToLowerInvariant() : null,
+                notes: "Should not persist"));
+
+        await AssertDuplicateDocumentConflictAsync(conflictResponse);
+        ClientEntity unchanged = await GetPersistedClientAsync(first.Id);
+        Assert.Equal("First Document", unchanged.Name);
+        Assert.Equal(firstDocument, company ? unchanged.Cnpj : unchanged.Cpf);
+        Assert.Null(unchanged.Notes);
+
+        using HttpResponseMessage keepResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetClientPath(organization.Id, first.Id),
+            rawHandle,
+            csrf,
+            UpdateBody(
+                "Kept Document",
+                cpf: company ? null : firstDocument,
+                personType: apiPersonType,
+                cnpj: company ? firstDocument : null,
+                address: "Rua Mantida, 5",
+                notes: "Persisted notes"));
+
+        await AssertEmptyResponseAsync(keepResponse, HttpStatusCode.NoContent);
+        ClientEntity kept = await GetPersistedClientAsync(first.Id);
+        Assert.Equal("Kept Document", kept.Name);
+        Assert.Equal(firstDocument, company ? kept.Cnpj : kept.Cpf);
+        Assert.Equal("Rua Mantida, 5", kept.Address);
+        Assert.Equal("Persisted notes", kept.Notes);
+    }
+
+    [Theory]
+    [InlineData("personType", false)]
+    [InlineData("cnpj", false)]
+    [InlineData("address", false)]
+    [InlineData("notes", false)]
+    [InlineData("personType", true)]
+    public async Task UpdateClient_MissingNewKeyOrNullPersonType_ReturnsBadRequestWithoutMutation(
+        string key,
+        bool sendNull)
+    {
+        User user = CreateUser("missing-key");
+        Organization organization = CreateOrganization("Missing Key");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Owner);
+        var existingClient = new ClientEntity(
+            organization.Id,
+            "Original Keys",
+            Now.AddMinutes(-1),
+            cpf: "52998224725",
+            address: "Original address",
+            notes: "Original notes");
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [existingClient]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+        Dictionary<string, object?> body = UpdateBody(
+            "Changed Keys",
+            "changed@example.test",
+            cpf: "111.444.777-35",
+            address: "Changed address",
+            notes: "Changed notes");
+
+        if (sendNull)
+        {
+            body[key] = null;
+        }
+        else
+        {
+            Assert.True(body.Remove(key));
+        }
+
+        using HttpResponseMessage response = await SendMutationAsync(
+            HttpMethod.Put,
+            GetClientPath(organization.Id, existingClient.Id),
+            rawHandle,
+            csrf,
+            body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        string content = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("System.Text.Json", content);
+        Assert.DoesNotContain("JsonException", content);
+        ClientEntity persisted = await GetPersistedClientAsync(existingClient.Id);
+        Assert.Equal("Original Keys", persisted.Name);
+        Assert.Null(persisted.Email);
+        Assert.Equal("52998224725", persisted.Cpf);
+        Assert.Equal("Original address", persisted.Address);
+        Assert.Equal("Original notes", persisted.Notes);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
+    public async Task ClientReads_MemberWithCompanyClient_DetailExposesProfileButCollectionsDoNot()
+    {
+        User user = CreateUser("member-company-read");
+        Organization organization = CreateOrganization("Member Company Read");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Member);
+        const string cnpj = "12ABC34501DE35";
+        const string address = "Rua Privada Sintetica, 77";
+        const string notes = "Observacao privada sintetica";
+        var companyClient = new ClientEntity(
+            organization.Id,
+            "Company Read Client",
+            Now.AddMinutes(-1),
+            personType: PersonType.Company,
+            cnpj: cnpj,
+            address: address,
+            notes: notes);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [companyClient]);
+
+        using HttpResponseMessage detailResponse = await SendGetAsync(
+            GetClientPath(organization.Id, companyClient.Id),
+            rawHandle);
+        using HttpResponseMessage listResponse = await SendGetAsync(
+            GetClientsPath(organization.Id),
+            rawHandle);
+        using HttpResponseMessage lookupResponse = await SendGetAsync(
+            GetClientLookupPath(organization.Id),
+            rawHandle);
+
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        ClientResponse? detail = JsonSerializer.Deserialize<ClientResponse>(
+            await detailResponse.Content.ReadAsStringAsync(),
+            JsonSerializerOptions.Web);
+        Assert.NotNull(detail);
+        Assert.Equal(ClientPersonTypeResponse.Company, detail.PersonType);
+        Assert.Null(detail.Cpf);
+        Assert.Equal(cnpj, detail.Cnpj);
+        Assert.Equal(address, detail.Address);
+        Assert.Equal(notes, detail.Notes);
+
+        foreach (HttpResponseMessage collectionResponse in new[] { listResponse, lookupResponse })
+        {
+            Assert.Equal(HttpStatusCode.OK, collectionResponse.StatusCode);
+            string json = await collectionResponse.Content.ReadAsStringAsync();
+            Assert.Contains(companyClient.Id.ToString("D"), json);
+            Assert.DoesNotContain(cnpj, json);
+            Assert.DoesNotContain(address, json);
+            Assert.DoesNotContain(notes, json);
+            Assert.DoesNotContain("personType", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("cnpj", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("address", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("notes", json, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task ClientMutations_MemberWithFullProfilePayload_ReturnForbiddenWithoutMutation()
+    {
+        User user = CreateUser("member-profile-mutations");
+        Organization organization = CreateOrganization("Member Profile Mutations");
+        OrganizationMembership membership = CreateMembership(
+            user,
+            organization,
+            OrganizationRole.Member);
+        ClientEntity existingClient = CreateClient(organization, "Member Target", 1);
+        string rawHandle = await SeedAuthenticatedUserAsync(
+            user,
+            [organization],
+            [membership],
+            [existingClient]);
+        CsrfPair csrf = await GetCsrfPairAsync(rawHandle);
+
+        using HttpResponseMessage createResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetClientsPath(organization.Id),
+            rawHandle,
+            csrf,
+            new
+            {
+                name = "Denied Company",
+                personType = "company",
+                cnpj = "11.222.333/0001-81",
+                address = "Denied address",
+                notes = "Denied notes"
+            });
+        using HttpResponseMessage updateResponse = await SendMutationAsync(
+            HttpMethod.Put,
+            GetClientPath(organization.Id, existingClient.Id),
+            rawHandle,
+            csrf,
+            UpdateBody(
+                "Denied Update",
+                personType: "company",
+                cnpj: "11.222.333/0001-81",
+                address: "Denied address",
+                notes: "Denied notes"));
+
+        await AssertEmptyResponseAsync(createResponse, HttpStatusCode.Forbidden);
+        await AssertEmptyResponseAsync(updateResponse, HttpStatusCode.Forbidden);
+        ClientEntity persisted = await GetPersistedClientAsync(existingClient.Id);
+        Assert.Equal("Member Target", persisted.Name);
+        Assert.Equal(PersonType.Individual, persisted.PersonType);
+        Assert.Null(persisted.Cnpj);
+        Assert.Null(persisted.Address);
+        Assert.Null(persisted.Notes);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(1, await dbContext.Clients.CountAsync());
+    }
+
+    private static Dictionary<string, object?> UpdateBody(
+        string name,
+        string? email = null,
+        string? phone = null,
+        string? cpf = null,
+        string? personType = "individual",
+        string? cnpj = null,
+        string? address = null,
+        string? notes = null)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["name"] = name,
+            ["email"] = email,
+            ["phone"] = phone,
+            ["cpf"] = cpf,
+            ["personType"] = personType,
+            ["cnpj"] = cnpj,
+            ["address"] = address,
+            ["notes"] = notes
+        };
+    }
+
+    private static ClientEntity CreateDocumentClient(
+        Organization organization,
+        string name,
+        PersonType personType,
+        string document)
+    {
+        return personType == PersonType.Company
+            ? new ClientEntity(
+                organization.Id,
+                name,
+                Now.AddMinutes(-2),
+                personType: PersonType.Company,
+                cnpj: document)
+            : new ClientEntity(
+                organization.Id,
+                name,
+                Now.AddMinutes(-2),
+                cpf: document);
+    }
+
+    private static void AssertDoesNotContainDocument(string content, string? document)
+    {
+        if (document is null)
+        {
+            return;
+        }
+
+        Assert.DoesNotContain(document, content, StringComparison.OrdinalIgnoreCase);
+        string normalized = new(document.Where(char.IsLetterOrDigit).ToArray());
+        Assert.DoesNotContain(normalized, content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task AssertDuplicateDocumentConflictAsync(
+        HttpResponseMessage response)
+    {
+        await AssertProblemResponseAsync(response, HttpStatusCode.Conflict);
+        string content = await response.Content.ReadAsStringAsync();
+        using JsonDocument problem = JsonDocument.Parse(content);
+        Assert.Equal(
+            "The document is already used by another client.",
+            problem.RootElement.GetProperty("detail").GetString());
+
+        foreach (string document in new[]
+                 {
+                     "52998224725",
+                     "11144477735",
+                     "11222333000181",
+                     "12ABC34501DE35"
+                 })
+        {
+            AssertDoesNotContainDocument(content, document);
+        }
     }
 
     private static string[] GetPropertyNames<T>()

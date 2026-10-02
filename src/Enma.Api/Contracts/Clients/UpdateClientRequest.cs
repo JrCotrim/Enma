@@ -9,4 +9,12 @@ public sealed class UpdateClientRequest
     public string? Phone { get; init; }
 
     public string? Cpf { get; init; }
+
+    public required string PersonType { get; init; }
+
+    public required string? Cnpj { get; init; }
+
+    public required string? Address { get; init; }
+
+    public required string? Notes { get; init; }
 }

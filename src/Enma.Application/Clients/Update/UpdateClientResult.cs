@@ -17,11 +17,15 @@ public sealed class UpdateClientResult
 
     public static UpdateClientResult Succeeded { get; } = new(
         UpdateClientResultStatus.Succeeded);
+
+    public static UpdateClientResult DuplicateDocument { get; } = new(
+        UpdateClientResultStatus.DuplicateDocument);
 }
 
 public enum UpdateClientResultStatus
 {
     AccessDenied = 0,
     NotFound = 1,
-    Succeeded = 2
+    Succeeded = 2,
+    DuplicateDocument = 3
 }

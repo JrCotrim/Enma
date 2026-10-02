@@ -3,13 +3,15 @@ import {
   fetchWithSession,
   type UnauthorizedHandler,
 } from '../authentication/sessionClient'
-import type {
-  Client,
-  ClientDetail,
-  ClientListResponse,
-  CreateClientRequest,
-  CreateClientResponse,
-  UpdateClientRequest,
+import {
+  clientPersonTypes,
+  type Client,
+  type ClientDetail,
+  type ClientListResponse,
+  type ClientPersonType,
+  type CreateClientRequest,
+  type CreateClientResponse,
+  type UpdateClientRequest,
 } from './clientTypes'
 
 export type ClientRequestFailure =
@@ -54,6 +56,12 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string'
 }
 
+const knownClientPersonTypes = new Set<unknown>(clientPersonTypes)
+
+function isClientPersonType(value: unknown): value is ClientPersonType {
+  return knownClientPersonTypes.has(value)
+}
+
 function parseClientDetail(value: unknown): ClientDetail | undefined {
   const client = parseClient(value)
 
@@ -67,9 +75,16 @@ function parseClientDetail(value: unknown): ClientDetail | undefined {
     !Object.prototype.hasOwnProperty.call(candidate, 'email') ||
     !Object.prototype.hasOwnProperty.call(candidate, 'phone') ||
     !Object.prototype.hasOwnProperty.call(candidate, 'cpf') ||
+    !Object.prototype.hasOwnProperty.call(candidate, 'cnpj') ||
+    !Object.prototype.hasOwnProperty.call(candidate, 'address') ||
+    !Object.prototype.hasOwnProperty.call(candidate, 'notes') ||
     !isNullableString(candidate.email) ||
     !isNullableString(candidate.phone) ||
-    !isNullableString(candidate.cpf)
+    !isNullableString(candidate.cpf) ||
+    !isClientPersonType(candidate.personType) ||
+    !isNullableString(candidate.cnpj) ||
+    !isNullableString(candidate.address) ||
+    !isNullableString(candidate.notes)
   ) {
     return undefined
   }
@@ -79,6 +94,10 @@ function parseClientDetail(value: unknown): ClientDetail | undefined {
     email: candidate.email,
     phone: candidate.phone,
     cpf: candidate.cpf,
+    personType: candidate.personType,
+    cnpj: candidate.cnpj,
+    address: candidate.address,
+    notes: candidate.notes,
   }
 }
 

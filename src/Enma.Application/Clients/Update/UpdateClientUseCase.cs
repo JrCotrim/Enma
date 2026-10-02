@@ -56,6 +56,36 @@ public sealed class UpdateClientUseCase
             cancellationToken);
     }
 
+    public Task<UpdateClientResult> ExecuteAsync(
+        Guid userId,
+        Guid organizationId,
+        Guid clientId,
+        string name,
+        string? email,
+        string? phone,
+        string? cpf,
+        string? personType,
+        string? cnpj,
+        string? address,
+        string? notes,
+        CancellationToken cancellationToken = default)
+    {
+        return ExecuteCoreAsync(
+            userId,
+            organizationId,
+            clientId,
+            state => state.Client.UpdateProfile(
+                name,
+                email,
+                phone,
+                cpf,
+                ClientPersonTypeParser.Parse(personType),
+                cnpj,
+                address,
+                notes),
+            cancellationToken);
+    }
+
     private async Task<UpdateClientResult> ExecuteCoreAsync(
         Guid userId,
         Guid organizationId,
@@ -111,6 +141,8 @@ public sealed class UpdateClientUseCase
                 UpdateClientResult.NotFound,
             ClientMutationPersistenceResult.Succeeded =>
                 UpdateClientResult.Succeeded,
+            ClientMutationPersistenceResult.DuplicateDocument =>
+                UpdateClientResult.DuplicateDocument,
             _ => throw new InvalidOperationException(
                 "Client mutation persistence returned an invalid result.")
         };
@@ -146,6 +178,7 @@ public sealed class UpdateClientUseCase
 
     private static bool IsProfileParameter(string? parameterName)
     {
-        return parameterName is "name" or "email" or "phone" or "cpf";
+        return parameterName is "name" or "email" or "phone" or "cpf" or
+            "personType" or "cnpj" or "address" or "notes";
     }
 }

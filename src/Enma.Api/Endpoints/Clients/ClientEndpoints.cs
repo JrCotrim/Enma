@@ -12,6 +12,7 @@ using Enma.Application.Clients.List;
 using Enma.Application.Clients.Lookup;
 using Enma.Application.Clients.Reactivate;
 using Enma.Application.Clients.Update;
+using Enma.Domain.Clients;
 
 namespace Enma.Api.Endpoints.Clients;
 
@@ -19,6 +20,9 @@ public static class ClientEndpoints
 {
     private const string RoutePrefix =
         "/api/organizations/{organizationId:guid}/clients";
+
+    private const string DuplicateDocumentDetail =
+        "The document is already used by another client.";
 
     public static IEndpointRouteBuilder MapClientEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -39,6 +43,7 @@ public static class ClientEndpoints
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status500InternalServerError)
             .RequireEnmaAntiforgery();
 
@@ -78,6 +83,7 @@ public static class ClientEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status500InternalServerError)
             .RequireEnmaAntiforgery();
 
@@ -125,11 +131,20 @@ public static class ClientEndpoints
             request.Email,
             request.Phone,
             request.Cpf,
+            request.PersonType,
+            request.Cnpj,
+            request.Address,
+            request.Notes,
             cancellationToken);
 
         if (result.Status == CreateClientResultStatus.AccessDenied)
         {
             return TypedResults.Forbid();
+        }
+
+        if (result.Status == CreateClientResultStatus.DuplicateDocument)
+        {
+            return CreateConflictProblem(DuplicateDocumentDetail);
         }
 
         Guid clientId = result.ClientId
@@ -230,12 +245,18 @@ public static class ClientEndpoints
             request.Email,
             request.Phone,
             request.Cpf,
+            request.PersonType,
+            request.Cnpj,
+            request.Address,
+            request.Notes,
             cancellationToken);
 
         return result.Status switch
         {
             UpdateClientResultStatus.AccessDenied => TypedResults.Forbid(),
             UpdateClientResultStatus.NotFound => TypedResults.NotFound(),
+            UpdateClientResultStatus.DuplicateDocument =>
+                CreateConflictProblem(DuplicateDocumentDetail),
             UpdateClientResultStatus.Succeeded => TypedResults.NoContent(),
             _ => throw new InvalidOperationException(
                 "The client update returned an unknown status.")
@@ -383,7 +404,30 @@ public static class ClientEndpoints
             client.Phone,
             client.Cpf,
             client.IsActive,
-            client.CreatedAt);
+            client.CreatedAt,
+            MapPersonType(client.PersonType),
+            client.Cnpj,
+            client.Address,
+            client.Notes);
+    }
+
+    private static ClientPersonTypeResponse MapPersonType(PersonType personType)
+    {
+        return personType switch
+        {
+            PersonType.Individual => ClientPersonTypeResponse.Individual,
+            PersonType.Company => ClientPersonTypeResponse.Company,
+            _ => throw new InvalidOperationException(
+                "The client has an unsupported person type.")
+        };
+    }
+
+    private static IResult CreateConflictProblem(string detail)
+    {
+        return TypedResults.Problem(
+            title: "Resource conflict",
+            detail: detail,
+            statusCode: StatusCodes.Status409Conflict);
     }
 
     private static ClientSummaryResponse MapClientSummary(
