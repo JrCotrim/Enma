@@ -1213,7 +1213,7 @@ describe('Payment plan detail', () => {
   })
 
   describe('Mark paid', () => {
-    it('RendersOnlyForUnpaidInstallments_AndHasNoUnpayAction', async () => {
+    it('RendersOnlyForUnpaidInstallments_AndPaidRowsOnlyOfferUndo', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, paymentPlan())))
       renderDetail()
 
@@ -1227,8 +1227,16 @@ describe('Payment plan detail', () => {
         Array.from(firstRow.querySelectorAll('td'), (cell) => cell.dataset.label),
       ).toEqual(['Parcela', 'Vencimento', 'Valor', 'Status', 'Pagamento', 'Ação'])
       const paidRow = within(table).getByText('Paga').closest('tr')!
-      expect(within(paidRow).queryByRole('button')).not.toBeInTheDocument()
-      expect(table).not.toHaveTextContent(/desfazer|reabrir|não paga/i)
+      expect(
+        within(paidRow).getAllByRole('button').map((button) => button.textContent),
+      ).toEqual(['Desfazer pagamento'])
+      for (const label of ['Em atraso', 'Vence hoje', 'A vencer']) {
+        const unpaidRow = within(table).getByText(label).closest('tr')!
+        expect(
+          within(unpaidRow).getAllByRole('button').map((button) => button.textContent),
+        ).toEqual(['Marcar como paga'])
+      }
+      expect(table).not.toHaveTextContent(/reabrir|não paga/i)
     })
 
     it('RequiresExactAccessibleConfirmation_AndCancelRestoresFocus', async () => {
@@ -1245,8 +1253,9 @@ describe('Payment plan detail', () => {
       expect(dialog).toHaveTextContent('R$ 200,02')
       expect(dialog).toHaveTextContent('Vencimento 01/09/2026')
       expect(dialog).toHaveTextContent(
-        'Esta ação não pode ser desfeita no ENMA nesta versão.',
+        'Se necessário, você poderá desfazer o pagamento depois.',
       )
+      expect(dialog).not.toHaveTextContent(/não pode ser desfeita/i)
       const cancel = within(dialog).getByRole('button', { name: 'Cancelar' })
       const confirm = within(dialog).getByRole('button', {
         name: 'Confirmar pagamento',
@@ -1366,7 +1375,9 @@ describe('Payment plan detail', () => {
       const newlyPaidRow = paidRows.find((row) =>
         within(row).queryByText('R$ 200,02'),
       )!
-      expect(within(newlyPaidRow).queryByRole('button')).not.toBeInTheDocument()
+      expect(
+        within(newlyPaidRow).getAllByRole('button').map((button) => button.textContent),
+      ).toEqual(['Desfazer pagamento'])
       expect(
         newlyPaidRow.querySelector(
           'time[datetime="2026-09-09T14:20:00-03:00"]',
@@ -1665,5 +1676,389 @@ describe('Payment plan detail', () => {
         ),
       ).toHaveLength(1)
     })
+  })
+})
+
+const paidInstallmentId = '77777777-7777-4777-8777-777777777771'
+
+function paymentPlanWithFirstInstallmentReopened(): PaymentPlan {
+  const original = paymentPlan()
+  return {
+    ...original,
+    installments: original.installments.map((installment) =>
+      installment.sequenceNumber === 1
+        ? { ...installment, status: 'Overdue', paidAt: null }
+        : installment,
+    ),
+  }
+}
+
+function isReversePost([input, init]: readonly unknown[]): boolean {
+  return (
+    String(input).endsWith('/reverse-payment') &&
+    (init as RequestInit | undefined)?.method === 'POST'
+  )
+}
+
+function reverseFetch(
+  postResult: () => Response | Promise<Response> = () => response(204),
+  authoritativePlan: PaymentPlan = paymentPlanWithFirstInstallmentReopened(),
+) {
+  let detailRequestCount = 0
+  return vi.fn((input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input)
+    if (url === '/api/auth/csrf') {
+      return Promise.resolve(response(200, { requestToken: 'csrf-reverse' }))
+    }
+    if (init.method === 'POST' && url.endsWith('/reverse-payment')) {
+      return Promise.resolve(postResult())
+    }
+    if (url.endsWith(`/finance/payment-plans/${paymentPlanAId}`)) {
+      detailRequestCount += 1
+      return Promise.resolve(
+        response(200, detailRequestCount === 1 ? paymentPlan() : authoritativePlan),
+      )
+    }
+    throw new Error(`Unexpected request: ${init.method ?? 'GET'} ${url}`)
+  })
+}
+
+async function openReverseConfirmation() {
+  const paidRow = (await screen.findByText('Paga')).closest('tr')!
+  fireEvent.click(
+    within(paidRow).getByRole('button', { name: 'Desfazer pagamento' }),
+  )
+  const dialog = within(paidRow).getByRole('alertdialog')
+  return { paidRow, dialog }
+}
+
+function chooseReason(dialog: HTMLElement, label: string) {
+  const select = within(dialog).getByRole('combobox', { name: 'Motivo' })
+  const option = within(select).getByRole('option', { name: label })
+  fireEvent.change(select, { target: { value: (option as HTMLOptionElement).value } })
+}
+
+function confirmReversal(dialog: HTMLElement) {
+  fireEvent.click(
+    within(dialog).getByRole('button', { name: 'Desfazer pagamento' }),
+  )
+}
+
+describe('Payment plan detail · Reverse payment', () => {
+  it.each(['Owner', 'Administrator'] as const)(
+    '%s_SeesUndoOnlyOnPaidInstallments',
+    async (role) => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, paymentPlan())))
+      renderDetail({ role })
+
+      const table = await screen.findByRole('table')
+      const undoButtons = within(table).getAllByRole('button', {
+        name: 'Desfazer pagamento',
+      })
+      expect(undoButtons).toHaveLength(1)
+      expect(undoButtons[0]!.closest('tr')).toHaveTextContent('Paga')
+      expect(undoButtons[0]).toHaveClass('secondary-button')
+    },
+  )
+
+  it('Member_NeverSeesUndoOrMarkPaidAndNoRequestIsMade', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    renderDetail({ role: 'Member' })
+
+    expect(screen.getByRole('heading', { name: 'Acesso negado' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Desfazer pagamento' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Marcar como paga' }),
+    ).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('OpensAnAccessibleConfirmationWithARequiredReasonList', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, paymentPlan())))
+    renderDetail()
+    const { dialog } = await openReverseConfirmation()
+
+    expect(dialog).toHaveAccessibleName('Desfazer o pagamento da parcela 1?')
+    expect(dialog).toHaveAccessibleDescription(
+      'R$ 10.000.000.000.000,01 · Vencimento 10/08/2026. A parcela voltará a ficar em aberto.',
+    )
+    const select = within(dialog).getByRole('combobox', { name: 'Motivo' })
+    expect(select).toBeRequired()
+    expect(select).toHaveValue('')
+    expect(
+      within(select).getAllByRole('option').map((option) => [
+        option.textContent,
+        (option as HTMLOptionElement).value,
+      ]),
+    ).toEqual([
+      ['Selecione o motivo', ''],
+      ['Marcada por engano', 'registeredByMistake'],
+      ['Parcela errada', 'wrongInstallment'],
+      ['Pagamento não compensado ou devolvido', 'paymentNotCompleted'],
+      ['Outro', 'other'],
+    ])
+    const cancel = within(dialog).getByRole('button', { name: 'Cancelar' })
+    const confirm = within(dialog).getByRole('button', {
+      name: 'Desfazer pagamento',
+    })
+    expect(cancel).toHaveFocus()
+    confirm.focus()
+    fireEvent.keyDown(dialog, { key: 'Tab' })
+    expect(select).toHaveFocus()
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
+    expect(confirm).toHaveFocus()
+  })
+
+  it('ConfirmWithoutReason_ShowsLocalValidationAndSendsNoRequest', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(200, paymentPlan()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderDetail()
+    const { dialog } = await openReverseConfirmation()
+
+    confirmReversal(dialog)
+
+    const error = within(dialog).getByRole('alert')
+    expect(error).toHaveTextContent('Selecione o motivo.')
+    const select = within(dialog).getByRole('combobox', { name: 'Motivo' })
+    expect(select).toHaveAttribute('aria-invalid', 'true')
+    expect(select).toHaveAccessibleDescription('Selecione o motivo.')
+    expect(select).toHaveFocus()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    chooseReason(dialog, 'Outro')
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument()
+    expect(select).not.toHaveAttribute('aria-invalid')
+  })
+
+  it('CancelClosesWithoutARequest_AndRestoresFocus', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(200, paymentPlan()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderDetail()
+    const { paidRow, dialog } = await openReverseConfirmation()
+    chooseReason(dialog, 'Parcela errada')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }))
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        within(paidRow).getByRole('button', { name: 'Desfazer pagamento' }),
+      ).toHaveFocus(),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const reopened = await openReverseConfirmation()
+    expect(
+      within(reopened.dialog).getByRole('combobox', { name: 'Motivo' }),
+    ).toHaveValue('')
+  })
+
+  it('EscapeClosesWithoutARequest_AndRestoresFocus', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(200, paymentPlan()))
+    vi.stubGlobal('fetch', fetchMock)
+    renderDetail()
+    const { paidRow, dialog } = await openReverseConfirmation()
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        within(paidRow).getByRole('button', { name: 'Desfazer pagamento' }),
+      ).toHaveFocus(),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['Marcada por engano', 'registeredByMistake'],
+    ['Parcela errada', 'wrongInstallment'],
+    ['Pagamento não compensado ou devolvido', 'paymentNotCompleted'],
+    ['Outro', 'other'],
+  ])(
+    'Reason "%s"_PostsExactContractRefetchesAndAnnouncesSuccess',
+    async (label, reason) => {
+      const fetchMock = reverseFetch()
+      vi.stubGlobal('fetch', fetchMock)
+      renderDetail()
+      const { dialog } = await openReverseConfirmation()
+
+      chooseReason(dialog, label)
+      confirmReversal(dialog)
+
+      const success = await screen.findByText(
+        'Pagamento desfeito. A parcela voltou a ficar em aberto.',
+      )
+      expect(success).toHaveAttribute('role', 'status')
+      expect(success).toHaveFocus()
+      const posts = fetchMock.mock.calls.filter(isReversePost)
+      expect(posts).toHaveLength(1)
+      expect(posts[0]![0]).toBe(
+        `/api/organizations/${organizationAId}/finance/payment-plans/${paymentPlanAId}/installments/${paidInstallmentId}/reverse-payment`,
+      )
+      expect(posts[0]![1]).toEqual(
+        expect.objectContaining({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': 'csrf-reverse',
+          },
+          body: JSON.stringify({ reason }),
+        }),
+      )
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).endsWith(`/finance/payment-plans/${paymentPlanAId}`),
+        ),
+      ).toHaveLength(2)
+      expect(screen.queryByText('Paga')).not.toBeInTheDocument()
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Desfazer pagamento' }),
+      ).not.toBeInTheDocument()
+      const reopenedRow = screen
+        .getByText('R$ 10.000.000.000.000,01')
+        .closest('tr')!
+      expect(within(reopenedRow).getByText('Em atraso')).toBeInTheDocument()
+      expect(
+        within(reopenedRow).getByRole('button', { name: 'Marcar como paga' }),
+      ).toBeInTheDocument()
+    },
+  )
+
+  it('PendingReversal_DisablesControlsBlocksDoubleSubmitAndOtherTriggers', async () => {
+    const post = deferred<Response>()
+    const fetchMock = reverseFetch(() => post.promise as unknown as Response)
+    vi.stubGlobal('fetch', fetchMock)
+    renderDetail()
+    const { dialog } = await openReverseConfirmation()
+    chooseReason(dialog, 'Outro')
+    const confirm = within(dialog).getByRole('button', {
+      name: 'Desfazer pagamento',
+    })
+
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole('button', { name: 'Desfazendo…' })).toBeDisabled(),
+    )
+    expect(dialog).toHaveAttribute('aria-busy', 'true')
+    expect(within(dialog).getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(within(dialog).getByRole('combobox', { name: 'Motivo' })).toBeDisabled()
+    for (const button of screen.getAllByRole('button', { name: 'Marcar como paga' })) {
+      expect(button).toBeDisabled()
+    }
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(isReversePost)).toHaveLength(1)
+
+    await act(async () => {
+      post.resolve(response(204))
+      await post.promise
+    })
+    expect(
+      await screen.findByText('Pagamento desfeito. A parcela voltou a ficar em aberto.'),
+    ).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(isReversePost)).toHaveLength(1)
+  })
+
+  it('NotFound_ShowsTheExistingUnavailableMessageAndRefetches', async () => {
+    const withoutPaidInstallment = paymentPlan({
+      installments: paymentPlan().installments.filter(
+        (installment) => installment.sequenceNumber !== 1,
+      ),
+    })
+    const fetchMock = reverseFetch(
+      () => response(404, { detail: 'private not found detail' }),
+      withoutPaidInstallment,
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    renderDetail()
+    const { dialog } = await openReverseConfirmation()
+    chooseReason(dialog, 'Marcada por engano')
+
+    confirmReversal(dialog)
+
+    expect(
+      await screen.findByText('Esta parcela não está mais disponível.'),
+    ).toHaveAttribute('role', 'alert')
+    expect(screen.queryByText('Paga')).not.toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('private not found detail')
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith(`/finance/payment-plans/${paymentPlanAId}`),
+      ),
+    ).toHaveLength(2)
+  })
+
+  it.each([
+    ['server error', () => response(500, { detail: 'private server failure' })],
+    ['bad request', () => response(400, { detail: 'private validation failure' })],
+    ['network error', () => Promise.reject(new TypeError('private network detail'))],
+  ])('%s_ShowsTheGenericMessageWithoutServerTextAndCanRetry', async (_name, failure) => {
+    let postCount = 0
+    const fetchMock = reverseFetch(() => {
+      postCount += 1
+      return postCount === 1 ? (failure() as Response) : response(204)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderDetail()
+    const { dialog } = await openReverseConfirmation()
+    chooseReason(dialog, 'Outro')
+
+    confirmReversal(dialog)
+
+    const alert = await screen.findByText(
+      'Não foi possível desfazer o pagamento. Tente novamente.',
+    )
+    expect(alert).toHaveAttribute('role', 'alert')
+    expect(document.body).not.toHaveTextContent(/private/)
+    expect(screen.getByText('Paga')).toBeInTheDocument()
+    expect(within(dialog).getByRole('combobox', { name: 'Motivo' })).toHaveValue('other')
+
+    confirmReversal(dialog)
+    expect(
+      await screen.findByText('Pagamento desfeito. A parcela voltou a ficar em aberto.'),
+    ).toBeInTheDocument()
+    expect(postCount).toBe(2)
+  })
+
+  it('Forbidden_RefreshesOrganizationsAndReportsChangedAccess', async () => {
+    const refreshOrganizations = vi.fn()
+    vi.stubGlobal(
+      'fetch',
+      reverseFetch(() => response(403, { detail: 'private policy' })),
+    )
+    renderDetail({ refreshOrganizations })
+    const { dialog } = await openReverseConfirmation()
+    chooseReason(dialog, 'Outro')
+
+    confirmReversal(dialog)
+
+    expect(
+      await screen.findByText('Seu acesso à organização pode ter mudado.'),
+    ).toHaveAttribute('role', 'alert')
+    expect(refreshOrganizations).toHaveBeenCalledTimes(1)
+    expect(document.body).not.toHaveTextContent('private policy')
+    expect(screen.getByText('Paga')).toBeInTheDocument()
+  })
+
+  it('Unauthorized_DelegatesToSessionHandlingWithoutAnError', async () => {
+    const handleUnauthorized = vi.fn()
+    vi.stubGlobal('fetch', reverseFetch(() => response(401)))
+    renderDetail({ handleUnauthorized })
+    const { dialog } = await openReverseConfirmation()
+    chooseReason(dialog, 'Outro')
+
+    confirmReversal(dialog)
+
+    await waitFor(() => expect(handleUnauthorized).toHaveBeenCalledTimes(1))
+    expect(
+      screen.queryByText('Não foi possível desfazer o pagamento. Tente novamente.'),
+    ).not.toBeInTheDocument()
   })
 })

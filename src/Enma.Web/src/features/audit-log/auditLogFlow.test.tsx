@@ -127,6 +127,82 @@ describe('Audit G flow', () => {
     ).toHaveValue('payment_installment')
   })
 
+  it('PaymentInstallmentPaymentReversed_RendersLabelEntityAndEachTranslatedReason', async () => {
+    const reasons = [
+      ['RegisteredByMistake', 'Marcada por engano'],
+      ['WrongInstallment', 'Parcela errada'],
+      ['PaymentNotCompleted', 'Pagamento não compensado ou devolvido'],
+      ['Other', 'Outro'],
+    ] as const
+    vi.stubGlobal('fetch', authenticatedFetch(
+      'Owner',
+      auditList(
+        reasons.map(([reason], index) =>
+          auditItem({
+            id: `33333333-3333-4333-8333-33333333337${index}`,
+            eventType: 'payment_installment.payment_reversed',
+            entityType: 'payment_installment',
+            details: { type: 'payment_installment.payment_reversed', reason },
+          }),
+        ),
+      ),
+    ))
+
+    renderRoute()
+
+    const rows = (
+      await screen.findAllByRole('cell', { name: 'Pagamento de parcela desfeito' })
+    ).map((cell) => cell.closest('tr')!)
+    expect(rows).toHaveLength(reasons.length)
+    reasons.forEach(([reason, label], index) => {
+      const row = rows[index]!
+      expect(within(row).getByText('Parcela')).toBeInTheDocument()
+      expect(within(row).getByText('Motivo')).toBeInTheDocument()
+      expect(within(row).getByText(label)).toBeInTheDocument()
+      expect(row).not.toHaveTextContent(reason)
+    })
+    expect(
+      screen.queryByText('Detalhes indisponíveis para este tipo de evento.'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Tipo de evento')).getByRole('option', {
+        name: 'Pagamento de parcela desfeito',
+      }),
+    ).toHaveValue('payment_installment.payment_reversed')
+  })
+
+  it('PaymentPlanCreated_RendersKnownEventAndEntityLabelsAndFilterOptions', async () => {
+    vi.stubGlobal('fetch', authenticatedFetch(
+      'Owner',
+      auditList([
+        auditItem({
+          eventType: 'payment_plan.created',
+          entityType: 'client_payment_plan',
+        }),
+      ]),
+    ))
+
+    renderRoute()
+
+    const eventCell = await screen.findByRole('cell', {
+      name: 'Plano de pagamento criado',
+    })
+    const row = eventCell.closest('tr')!
+    expect(within(row).getByText('Plano de pagamento')).toBeInTheDocument()
+    expect(within(row).getByText('Sem detalhes adicionais.')).toBeInTheDocument()
+    expect(row).not.toHaveTextContent(/desconhecid/i)
+    expect(
+      within(screen.getByLabelText('Tipo de evento')).getByRole('option', {
+        name: 'Plano de pagamento criado',
+      }),
+    ).toHaveValue('payment_plan.created')
+    expect(
+      within(screen.getByLabelText('Tipo de entidade')).getByRole('option', {
+        name: 'Plano de pagamento',
+      }),
+    ).toHaveValue('client_payment_plan')
+  })
+
   it('ClientProfileUpdated_RendersKnownLabelAndFilterOptionWithoutProfileDetails', async () => {
     const fetchMock = authenticatedFetch(
       'Owner',
@@ -702,12 +778,51 @@ describe('Audit G flow', () => {
           newResponsibleMembershipId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5',
         },
       }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333349',
+        eventType: 'payment_installment.payment_reversed',
+        entityType: 'payment_installment',
+        details: {
+          type: 'payment_installment.payment_reversed',
+          reason: 'segredo-em-motivo',
+          note: 'observação secreta do estorno',
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333350',
+        eventType: 'payment_installment.payment_reversed',
+        entityType: 'payment_installment',
+        details: { type: 'payment_installment.payment_reversed', reason: 'other' },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333351',
+        eventType: 'payment_installment.payment_reversed',
+        entityType: 'payment_installment',
+        details: { type: 'payment_installment.payment_reversed', reason: 4 },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333352',
+        eventType: 'payment_installment.payment_reversed',
+        entityType: 'payment_installment',
+        details: {
+          type: 'payment_installment.payment_reversed',
+          reason: 'Other',
+          note: 'nota secreta com motivo válido',
+          amount: '9999.99',
+        },
+      }),
     ])))
 
     renderRoute()
 
     expect(await screen.findByText('Evento desconhecido (future.event)')).toBeInTheDocument()
-    expect(screen.getAllByText('Detalhes indisponíveis para este tipo de evento.')).toHaveLength(9)
+    expect(screen.getAllByText('Detalhes indisponíveis para este tipo de evento.')).toHaveLength(12)
+    expect(screen.queryByText(/segredo-em-motivo/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/observação secreta do estorno/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/nota secreta com motivo válido/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/9999/)).not.toBeInTheDocument()
+    expect(screen.queryByText('other')).not.toBeInTheDocument()
+    expect(screen.getByText('Outro')).toBeInTheDocument()
     expect(screen.queryByText(/segredo-em-responsavel-de-prazo/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Nome secreto do prazo/)).not.toBeInTheDocument()
     expect(

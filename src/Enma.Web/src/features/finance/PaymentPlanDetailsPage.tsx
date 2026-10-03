@@ -20,11 +20,13 @@ import {
   FinanceRequestError,
   getPaymentPlan,
   markPaymentInstallmentPaid,
+  reverseInstallmentPayment,
 } from './financeService'
 import type {
   PaymentInstallment,
   PaymentInstallmentStatus,
   PaymentPlan,
+  PaymentReversalReason,
 } from './financeTypes'
 
 type PaymentPlanState =
@@ -50,8 +52,43 @@ type InstallmentNotice = {
   readonly message: string
 }
 
+type InstallmentMutation =
+  | { readonly kind: 'mark-paid' }
+  | {
+      readonly kind: 'reverse-payment'
+      readonly reason: PaymentReversalReason
+    }
+
 const paymentPlanErrorMessage =
   'Não foi possível carregar o plano de pagamento. Tente novamente.'
+
+const installmentMutationMessages = {
+  'mark-paid': {
+    success: 'Parcela marcada como paga.',
+    failure: 'Não foi possível marcar a parcela como paga. Tente novamente.',
+  },
+  'reverse-payment': {
+    success: 'Pagamento desfeito. A parcela voltou a ficar em aberto.',
+    failure: 'Não foi possível desfazer o pagamento. Tente novamente.',
+  },
+} as const
+
+const paymentReversalReasonOptions: readonly {
+  readonly value: PaymentReversalReason
+  readonly label: string
+}[] = [
+  { value: 'registeredByMistake', label: 'Marcada por engano' },
+  { value: 'wrongInstallment', label: 'Parcela errada' },
+  {
+    value: 'paymentNotCompleted',
+    label: 'Pagamento não compensado ou devolvido',
+  },
+  { value: 'other', label: 'Outro' },
+]
+
+function isPaymentReversalReason(value: string): value is PaymentReversalReason {
+  return paymentReversalReasonOptions.some((option) => option.value === value)
+}
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
@@ -267,10 +304,13 @@ function PaymentPlanDetailsContent({ financePath }: { readonly financePath: stri
     }
   }
 
-  async function markInstallmentPaid(
+  async function mutateInstallment(
     installment: PaymentInstallment,
+    mutation: InstallmentMutation,
   ): Promise<boolean> {
     if (!validPaymentPlanId || mutationControllerRef.current) return false
+
+    const messages = installmentMutationMessages[mutation.kind]
 
     const controller = new AbortController()
     const mutationVersion = ++mutationVersionRef.current
@@ -284,13 +324,24 @@ function PaymentPlanDetailsContent({ financePath }: { readonly financePath: stri
     setInstallmentNotice(undefined)
 
     try {
-      await markPaymentInstallmentPaid(
-        currentOrganization.id,
-        validPaymentPlanId,
-        installment.id,
-        handleUnauthorized,
-        controller.signal,
-      )
+      if (mutation.kind === 'reverse-payment') {
+        await reverseInstallmentPayment(
+          currentOrganization.id,
+          validPaymentPlanId,
+          installment.id,
+          mutation.reason,
+          handleUnauthorized,
+          controller.signal,
+        )
+      } else {
+        await markPaymentInstallmentPaid(
+          currentOrganization.id,
+          validPaymentPlanId,
+          installment.id,
+          handleUnauthorized,
+          controller.signal,
+        )
+      }
       if (
         controller.signal.aborted ||
         mutationVersion !== mutationVersionRef.current ||
@@ -313,7 +364,7 @@ function PaymentPlanDetailsContent({ financePath }: { readonly financePath: stri
       setInstallmentNotice({
         scope: mutationScope,
         kind: 'success',
-        message: 'Parcela marcada como paga.',
+        message: messages.success,
       })
       return true
     } catch (error: unknown) {
@@ -334,8 +385,7 @@ function PaymentPlanDetailsContent({ financePath }: { readonly financePath: stri
         return false
       }
 
-      let message =
-        'Não foi possível marcar a parcela como paga. Tente novamente.'
+      let message: string = messages.failure
       if (
         error instanceof FinanceRequestError &&
         error.failure === 'not-found'
@@ -445,7 +495,7 @@ function PaymentPlanDetailsContent({ financePath }: { readonly financePath: stri
             mutationState={currentMutationState}
             installmentNotice={currentInstallmentNotice}
             successNoticeRef={successNoticeRef}
-            markInstallmentPaid={markInstallmentPaid}
+            mutateInstallment={mutateInstallment}
           />
         ) : null}
       </section>
@@ -458,7 +508,10 @@ interface PaymentPlanDisplayProps {
   readonly mutationState?: InstallmentMutationState
   readonly installmentNotice?: InstallmentNotice
   readonly successNoticeRef: React.RefObject<HTMLParagraphElement | null>
-  markInstallmentPaid(installment: PaymentInstallment): Promise<boolean>
+  mutateInstallment(
+    installment: PaymentInstallment,
+    mutation: InstallmentMutation,
+  ): Promise<boolean>
 }
 
 function PaymentPlanDisplay({
@@ -466,7 +519,7 @@ function PaymentPlanDisplay({
   mutationState,
   installmentNotice,
   successNoticeRef,
-  markInstallmentPaid,
+  mutateInstallment,
 }: PaymentPlanDisplayProps) {
   return (
     <>
@@ -533,7 +586,7 @@ function PaymentPlanDisplay({
                 key={installment.id}
                 installment={installment}
                 mutationState={mutationState}
-                markInstallmentPaid={markInstallmentPaid}
+                mutateInstallment={mutateInstallment}
               />
             ))}
           </tbody>
@@ -546,29 +599,45 @@ function PaymentPlanDisplay({
 interface PaymentInstallmentRowProps {
   readonly installment: PaymentInstallment
   readonly mutationState?: InstallmentMutationState
-  markInstallmentPaid(installment: PaymentInstallment): Promise<boolean>
+  mutateInstallment(
+    installment: PaymentInstallment,
+    mutation: InstallmentMutation,
+  ): Promise<boolean>
 }
 
 function PaymentInstallmentRow({
   installment,
   mutationState,
-  markInstallmentPaid,
+  mutateInstallment,
 }: PaymentInstallmentRowProps) {
-  const [isConfirming, setIsConfirming] = useState(false)
+  const [confirmationKind, setConfirmationKind] =
+    useState<InstallmentMutation['kind']>()
+  const [reversalReason, setReversalReason] = useState('')
+  const [isReversalReasonMissing, setIsReversalReasonMissing] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const reversalReasonRef = useRef<HTMLSelectElement | null>(null)
+  const isPaid = installment.status === 'Paid'
+  const availableKind: InstallmentMutation['kind'] = isPaid
+    ? 'reverse-payment'
+    : 'mark-paid'
+  const isConfirming = confirmationKind === availableKind
   const isPending =
     mutationState?.installmentId === installment.id &&
     mutationState.status === 'pending'
   const anyMutationPending = mutationState?.status === 'pending'
+  const reversalReasonId = `reverse-payment-reason-${installment.id}`
+  const reversalReasonErrorId = `reverse-payment-reason-error-${installment.id}`
 
   function openConfirmation(event: MouseEvent<HTMLButtonElement>) {
     triggerRef.current = event.currentTarget
-    setIsConfirming(true)
+    setReversalReason('')
+    setIsReversalReasonMissing(false)
+    setConfirmationKind(availableKind)
   }
 
   function closeConfirmation() {
     if (isPending) return
-    setIsConfirming(false)
+    setConfirmationKind(undefined)
     window.setTimeout(() => triggerRef.current?.focus())
   }
 
@@ -580,24 +649,43 @@ function PaymentInstallmentRow({
     }
 
     if (event.key !== 'Tab') return
-    const buttons = Array.from(
-      event.currentTarget.querySelectorAll<HTMLButtonElement>(
-        'button:not([disabled])',
+    const controls = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        'select:not([disabled]), button:not([disabled])',
       ),
     )
-    const firstButton = buttons.at(0)
-    const lastButton = buttons.at(-1)
-    if (event.shiftKey && document.activeElement === firstButton) {
+    const firstControl = controls.at(0)
+    const lastControl = controls.at(-1)
+    if (event.shiftKey && document.activeElement === firstControl) {
       event.preventDefault()
-      lastButton?.focus()
-    } else if (!event.shiftKey && document.activeElement === lastButton) {
+      lastControl?.focus()
+    } else if (!event.shiftKey && document.activeElement === lastControl) {
       event.preventDefault()
-      firstButton?.focus()
+      firstControl?.focus()
     }
   }
 
   async function confirmPaid() {
-    if (await markInstallmentPaid(installment)) setIsConfirming(false)
+    if (await mutateInstallment(installment, { kind: 'mark-paid' })) {
+      setConfirmationKind(undefined)
+    }
+  }
+
+  async function confirmReversal() {
+    if (!isPaymentReversalReason(reversalReason)) {
+      setIsReversalReasonMissing(true)
+      reversalReasonRef.current?.focus()
+      return
+    }
+
+    if (
+      await mutateInstallment(installment, {
+        kind: 'reverse-payment',
+        reason: reversalReason,
+      })
+    ) {
+      setConfirmationKind(undefined)
+    }
   }
 
   return (
@@ -622,7 +710,7 @@ function PaymentInstallmentRow({
         )}
       </td>
       <td data-label="Ação" className="finance-installment-actions-cell">
-        {installment.status !== 'Paid' ? (
+        {!isPaid ? (
           isConfirming ? (
             <div
               className="finance-installment-confirmation"
@@ -640,8 +728,8 @@ function PaymentInstallmentRow({
                 className="finance-installment-confirmation-detail"
               >
                 {formatFinanceMoney(installment.amount)} · Vencimento{' '}
-                {formatFinanceDate(installment.dueDate)}. Esta ação não pode ser
-                desfeita no ENMA nesta versão.
+                {formatFinanceDate(installment.dueDate)}. Se necessário, você
+                poderá desfazer o pagamento depois.
               </p>
               <div className="finance-installment-confirmation-actions">
                 <button
@@ -674,7 +762,91 @@ function PaymentInstallmentRow({
               Marcar como paga
             </button>
           )
-        ) : null}
+        ) : isConfirming ? (
+          <div
+            className="finance-installment-confirmation"
+            role="alertdialog"
+            aria-labelledby={`reverse-payment-title-${installment.id}`}
+            aria-describedby={`reverse-payment-description-${installment.id}`}
+            aria-busy={isPending}
+            onKeyDown={handleConfirmationKeyDown}
+          >
+            <p id={`reverse-payment-title-${installment.id}`}>
+              Desfazer o pagamento da parcela {installment.sequenceNumber}?
+            </p>
+            <p
+              id={`reverse-payment-description-${installment.id}`}
+              className="finance-installment-confirmation-detail"
+            >
+              {formatFinanceMoney(installment.amount)} · Vencimento{' '}
+              {formatFinanceDate(installment.dueDate)}. A parcela voltará a
+              ficar em aberto.
+            </p>
+            <div className="finance-installment-reason-field">
+              <label htmlFor={reversalReasonId}>Motivo</label>
+              <select
+                ref={reversalReasonRef}
+                id={reversalReasonId}
+                value={reversalReason}
+                onChange={(event) => {
+                  setReversalReason(event.target.value)
+                  setIsReversalReasonMissing(false)
+                }}
+                aria-invalid={isReversalReasonMissing ? true : undefined}
+                aria-describedby={
+                  isReversalReasonMissing ? reversalReasonErrorId : undefined
+                }
+                disabled={isPending}
+                required
+              >
+                <option value="">Selecione o motivo</option>
+                {paymentReversalReasonOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {isReversalReasonMissing ? (
+                <p
+                  id={reversalReasonErrorId}
+                  className="form-error"
+                  role="alert"
+                >
+                  Selecione o motivo.
+                </p>
+              ) : null}
+            </div>
+            <div className="finance-installment-confirmation-actions">
+              <button
+                className="secondary-button finance-installment-button"
+                type="button"
+                onClick={closeConfirmation}
+                disabled={isPending}
+                autoFocus
+              >
+                Cancelar
+              </button>
+              <button
+                className="primary-button finance-installment-button"
+                type="button"
+                onClick={() => void confirmReversal()}
+                disabled={isPending}
+              >
+                {isPending ? 'Desfazendo…' : 'Desfazer pagamento'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            ref={triggerRef}
+            className="secondary-button finance-installment-button"
+            type="button"
+            onClick={openConfirmation}
+            disabled={anyMutationPending}
+          >
+            Desfazer pagamento
+          </button>
+        )}
       </td>
     </tr>
   )

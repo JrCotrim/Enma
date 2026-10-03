@@ -5,6 +5,7 @@ import type { LegalProcessStatus } from '../processes/legalProcessTypes'
 import type {
   AuditEntityType,
   AuditEventType,
+  AuditPaymentReversalReason,
 } from './auditLogTypes'
 
 export const auditEventOptions: readonly {
@@ -41,7 +42,12 @@ export const auditEventOptions: readonly {
   { value: 'calendar_event.deleted', label: 'Evento de agenda excluído' },
   { value: 'legal_document.uploaded', label: 'Documento enviado' },
   { value: 'legal_document.deleted', label: 'Documento excluído' },
+  { value: 'payment_plan.created', label: 'Plano de pagamento criado' },
   { value: 'payment_installment.paid', label: 'Parcela marcada como paga' },
+  {
+    value: 'payment_installment.payment_reversed',
+    label: 'Pagamento de parcela desfeito',
+  },
 ]
 
 export const auditEntityOptions: readonly {
@@ -56,6 +62,7 @@ export const auditEntityOptions: readonly {
   { value: 'legal_task', label: 'Tarefa' },
   { value: 'calendar_event', label: 'Evento de agenda' },
   { value: 'legal_document', label: 'Documento' },
+  { value: 'client_payment_plan', label: 'Plano de pagamento' },
   { value: 'payment_installment', label: 'Parcela' },
 ]
 
@@ -78,6 +85,14 @@ const legalProcessStatusesByAuditValue = new Map<string, LegalProcessStatus>([
   ['Suspended', 'suspended'],
   ['Closed', 'closed'],
 ])
+const paymentReversalReasonLabels: Readonly<
+  Record<AuditPaymentReversalReason, string>
+> = {
+  RegisteredByMistake: 'Marcada por engano',
+  WrongInstallment: 'Parcela errada',
+  PaymentNotCompleted: 'Pagamento não compensado ou devolvido',
+  Other: 'Outro',
+}
 const timestampFormatter = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short',
   timeStyle: 'short',
@@ -108,6 +123,12 @@ export function getAuditChangedFieldLabel(value: string): string {
 export function getAuditLegalProcessStatusLabel(value: string): string {
   const status = legalProcessStatusesByAuditValue.get(value)
   return status ? getLegalProcessStatusLabel(status) : 'Status desconhecido'
+}
+
+export function getAuditPaymentReversalReasonLabel(
+  value: AuditPaymentReversalReason,
+): string {
+  return paymentReversalReasonLabels[value]
 }
 
 export function formatAuditTimestamp(value: string): string {

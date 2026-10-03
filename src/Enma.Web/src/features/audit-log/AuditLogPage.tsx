@@ -13,6 +13,7 @@ import {
   getAuditEntityLabel,
   getAuditEventLabel,
   getAuditLegalProcessStatusLabel,
+  getAuditPaymentReversalReasonLabel,
   getAuditRoleLabel,
 } from './auditLogFormatting'
 import {
@@ -138,6 +139,15 @@ function AuditDetails({ details }: { readonly details: AuditLogDetails | null })
                 emptyLabel="Sem responsável"
               />
             </dd>
+          </div>
+        </dl>
+      )
+    case 'payment_installment.payment_reversed':
+      return (
+        <dl className="audit-details-list">
+          <div>
+            <dt>Motivo</dt>
+            <dd>{getAuditPaymentReversalReasonLabel(details.reason)}</dd>
           </div>
         </dl>
       )

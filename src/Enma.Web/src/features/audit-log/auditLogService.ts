@@ -7,6 +7,7 @@ import {
   auditEntityTypes,
   auditEventTypes,
   auditLegalProcessStatuses,
+  auditPaymentReversalReasons,
   type AuditEntityType,
   type AuditEventType,
   type AuditLegalProcessStatus,
@@ -14,6 +15,7 @@ import {
   type AuditLogFilters,
   type AuditLogItem,
   type AuditLogPageResponse,
+  type AuditPaymentReversalReason,
 } from './auditLogTypes'
 
 export type AuditLogRequestFailure =
@@ -52,6 +54,7 @@ const knownChangedFields = {
   'legal_process.details_changed': new Set(['ProcessNumber', 'CourtOrAuthority']),
 } as const
 const knownLegalProcessStatuses = new Set<unknown>(auditLegalProcessStatuses)
+const knownPaymentReversalReasons = new Set<unknown>(auditPaymentReversalReasons)
 
 function isAuditLegalProcessStatus(value: unknown): value is AuditLegalProcessStatus {
   return knownLegalProcessStatuses.has(value)
@@ -67,6 +70,12 @@ export function isAuditEntityType(value: string): value is AuditEntityType {
 
 export function isUsableGuid(value: string): boolean {
   return isValidGuid(value) && value.toLowerCase() !== emptyGuid
+}
+
+function isAuditPaymentReversalReason(
+  value: unknown,
+): value is AuditPaymentReversalReason {
+  return knownPaymentReversalReasons.has(value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -177,6 +186,11 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
       }
       return { type: 'unsupported' }
     }
+    case 'payment_installment.payment_reversed':
+      if (isAuditPaymentReversalReason(value.reason)) {
+        return { type: value.type, reason: value.reason }
+      }
+      return { type: 'unsupported' }
     default:
       return { type: 'unsupported' }
   }

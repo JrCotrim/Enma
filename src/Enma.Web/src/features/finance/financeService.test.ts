@@ -13,7 +13,9 @@ import {
   parseClientFinanceSummary,
   parseListPaymentPlansResponse,
   parsePaymentPlan,
+  reverseInstallmentPayment,
 } from './financeService'
+import type { PaymentReversalReason } from './financeTypes'
 
 const organizationId = '11111111-1111-4111-8111-111111111111'
 const clientId = '22222222-2222-4222-8222-222222222222'
@@ -228,4 +230,144 @@ describe('financeService HTTP contract', () => {
     })
     expect(fetchMock.mock.calls[1]?.[1]).not.toHaveProperty('body')
   })
+})
+
+describe('reverseInstallmentPayment HTTP contract', () => {
+  const reverseUrl = `/api/organizations/${organizationId}/finance/payment-plans/${paymentPlanId}/installments/${installmentId}/reverse-payment`
+
+  it.each<PaymentReversalReason>([
+    'registeredByMistake',
+    'wrongInstallment',
+    'paymentNotCompleted',
+    'other',
+  ])('PostsExactPathWithCsrfJsonBodyAndNoStore(%s)', async (reason) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockResolvedValueOnce(response(204))
+    vi.stubGlobal('fetch', fetchMock)
+    const signal = new AbortController().signal
+
+    await expect(
+      reverseInstallmentPayment(
+        organizationId,
+        paymentPlanId,
+        installmentId,
+        reason,
+        vi.fn(),
+        signal,
+      ),
+    ).resolves.toBeUndefined()
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/auth/csrf', expect.anything())
+    expect(fetchMock).toHaveBeenNthCalledWith(2, reverseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': 'csrf-token' },
+      body: JSON.stringify({ reason }),
+      cache: 'no-store',
+      signal,
+      credentials: 'same-origin',
+    })
+    expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toEqual({ reason })
+  })
+
+  it.each([
+    [400, 'bad-request'],
+    [403, 'forbidden'],
+    [404, 'not-found'],
+    [409, 'unexpected'],
+    [500, 'unexpected'],
+  ] as const)('Status%s_MapsTo_%s', async (status, failure) => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+        .mockResolvedValueOnce(response(status, { detail: 'private server detail' })),
+    )
+
+    const error = await reverseInstallmentPayment(
+      organizationId,
+      paymentPlanId,
+      installmentId,
+      'other',
+      vi.fn(),
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(FinanceRequestError)
+    expect(error).toMatchObject({ failure })
+    expect((error as Error).message).not.toContain('private server detail')
+  })
+
+  it('BadRequest_ClearsTheCachedCsrfTokenSoTheNextCallFetchesANewOne', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, { requestToken: 'stale-token' }))
+      .mockResolvedValueOnce(response(400))
+      .mockResolvedValueOnce(response(200, { requestToken: 'fresh-token' }))
+      .mockResolvedValueOnce(response(204))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      reverseInstallmentPayment(organizationId, paymentPlanId, installmentId, 'other', vi.fn()),
+    ).rejects.toMatchObject({ failure: 'bad-request' })
+    await reverseInstallmentPayment(organizationId, paymentPlanId, installmentId, 'other', vi.fn())
+
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(fetchMock.mock.calls[3]?.[1]?.headers).toEqual({
+      'Content-Type': 'application/json',
+      'X-CSRF-TOKEN': 'fresh-token',
+    })
+  })
+
+  it('Forbidden_KeepsTheCachedCsrfToken', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+      .mockResolvedValueOnce(response(403))
+      .mockResolvedValueOnce(response(204))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      reverseInstallmentPayment(organizationId, paymentPlanId, installmentId, 'other', vi.fn()),
+    ).rejects.toMatchObject({ failure: 'forbidden' })
+    await reverseInstallmentPayment(organizationId, paymentPlanId, installmentId, 'other', vi.fn())
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('Unauthorized_DelegatesToTheSessionHandler', async () => {
+    const onUnauthorized = vi.fn()
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+        .mockResolvedValueOnce(response(401)),
+    )
+
+    await expect(
+      reverseInstallmentPayment(organizationId, paymentPlanId, installmentId, 'other', onUnauthorized),
+    ).rejects.toMatchObject({ failure: 'unauthorized' })
+    expect(onUnauthorized).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['', 'Other', 'RegisteredByMistake', 'refund'])(
+    'UnknownReason_IsRejectedBeforeAnyRequest(%s)',
+    async (reason) => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+
+      await expect(
+        reverseInstallmentPayment(
+          organizationId,
+          paymentPlanId,
+          installmentId,
+          reason as PaymentReversalReason,
+          vi.fn(),
+        ),
+      ).rejects.toMatchObject({ failure: 'bad-request' })
+      expect(fetchMock).not.toHaveBeenCalled()
+    },
+  )
 })

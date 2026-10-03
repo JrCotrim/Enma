@@ -90,6 +90,15 @@ export interface CreatePaymentPlanResponse {
   readonly paymentPlanId: string
 }
 
+export const paymentReversalReasons = [
+  'registeredByMistake',
+  'wrongInstallment',
+  'paymentNotCompleted',
+  'other',
+] as const
+
+export type PaymentReversalReason = (typeof paymentReversalReasons)[number]
+
 const financeMoneyPattern = /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/
 
 export function isFinanceMoney(value: unknown): value is FinanceMoney {

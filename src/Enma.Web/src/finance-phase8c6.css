@@ -293,3 +293,75 @@ body:has(.organization-workspace)
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Phase 9E.2b — "Desfazer pagamento" reason field.
+ * Scoped to the inline installment confirmation; reuses the Finance tokens.
+ */
+
+.finance-installment-reason-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+}
+
+.finance-installment-reason-field label {
+  color: var(--finance-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.finance-installment-reason-field select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.25rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--finance-border-strong);
+  border-radius: var(--enma-ui-radius-control);
+  color: var(--finance-text);
+  background: var(--finance-panel);
+  box-shadow: none;
+  color-scheme: dark;
+  font: inherit;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+}
+
+.finance-installment-reason-field select:hover:not(:disabled) {
+  border-color: rgba(210, 166, 235, 0.38);
+}
+
+.finance-installment-reason-field select:focus-visible {
+  border-color: var(--finance-accent);
+  background: var(--finance-panel-raised);
+  outline: 3px solid #a45bd6;
+  outline-offset: 2px;
+}
+
+.finance-installment-reason-field select[aria-invalid='true'] {
+  border-color: rgba(222, 112, 132, 0.64);
+}
+
+.finance-installment-reason-field select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.finance-installment-reason-field select option {
+  color: #f1eaf4;
+  background: #211a26;
+}
+
+.finance-installment-reason-field .form-error {
+  margin: 0;
+  color: var(--finance-status-overdue-text);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 40rem) {
+  .finance-installment-reason-field select {
+    min-height: 2.75rem;
+  }
+}

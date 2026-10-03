@@ -29,7 +29,9 @@ export const auditEventTypes = [
   'calendar_event.deleted',
   'legal_document.uploaded',
   'legal_document.deleted',
+  'payment_plan.created',
   'payment_installment.paid',
+  'payment_installment.payment_reversed',
 ] as const
 
 export type AuditEventType = (typeof auditEventTypes)[number]
@@ -43,6 +45,7 @@ export const auditEntityTypes = [
   'legal_task',
   'calendar_event',
   'legal_document',
+  'client_payment_plan',
   'payment_installment',
 ] as const
 
@@ -51,6 +54,16 @@ export type AuditEntityType = (typeof auditEntityTypes)[number]
 export const auditLegalProcessStatuses = ['InProgress', 'Suspended', 'Closed'] as const
 
 export type AuditLegalProcessStatus = (typeof auditLegalProcessStatuses)[number]
+
+export const auditPaymentReversalReasons = [
+  'RegisteredByMistake',
+  'WrongInstallment',
+  'PaymentNotCompleted',
+  'Other',
+] as const
+
+export type AuditPaymentReversalReason =
+  (typeof auditPaymentReversalReasons)[number]
 
 export type AuditLogDetails =
   | {
@@ -89,6 +102,10 @@ export type AuditLogDetails =
         | 'legal_deadline.responsible_changed'
       readonly oldResponsibleMembershipId: string | null
       readonly newResponsibleMembershipId: string | null
+    }
+  | {
+      readonly type: 'payment_installment.payment_reversed'
+      readonly reason: AuditPaymentReversalReason
     }
   | { readonly type: 'unsupported' }
 

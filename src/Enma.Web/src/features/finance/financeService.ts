@@ -7,6 +7,7 @@ import { isFinanceDate } from './financeFormatting'
 import { isValidGuid } from '../deadlines/legalDeadlineFormatting'
 import {
   isFinanceMoney,
+  paymentReversalReasons,
   type ClientFinanceSummary,
   type CreatePaymentPlanRequest,
   type CreatePaymentPlanResponse,
@@ -17,6 +18,7 @@ import {
   type PaymentInstallmentStatus,
   type PaymentPlan,
   type PaymentPlanSummary,
+  type PaymentReversalReason,
 } from './financeTypes'
 
 export type FinanceRequestFailure =
@@ -337,6 +339,35 @@ export async function markPaymentInstallmentPaid(
     {
       method: 'POST',
       headers: { 'X-CSRF-TOKEN': requestToken },
+      cache: 'no-store',
+      signal,
+    },
+    onUnauthorized,
+  )
+  if (response.status !== 204) {
+    if (response.status === 400) clearCsrfToken()
+    throwForStatus(response.status)
+  }
+}
+
+export async function reverseInstallmentPayment(
+  organizationId: string,
+  paymentPlanId: string,
+  installmentId: string,
+  reason: PaymentReversalReason,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!paymentReversalReasons.includes(reason)) {
+    throw new FinanceRequestError('bad-request')
+  }
+  const requestToken = await getCsrfToken()
+  const response = await fetchWithSession(
+    `${getPaymentPlansEndpoint(organizationId)}/${encodeURIComponent(paymentPlanId)}/installments/${encodeURIComponent(installmentId)}/reverse-payment`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': requestToken },
+      body: JSON.stringify({ reason }),
       cache: 'no-store',
       signal,
     },
