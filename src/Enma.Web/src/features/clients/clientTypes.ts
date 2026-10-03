@@ -30,6 +30,10 @@ export interface CreateClientRequest {
   readonly email: string | null
   readonly phone: string | null
   readonly cpf: string | null
+  readonly personType: ClientPersonType
+  readonly cnpj: string | null
+  readonly address: string | null
+  readonly notes: string | null
 }
 
 export interface UpdateClientRequest {

@@ -18,7 +18,7 @@
   --clients-text: var(--enma-v3-text, #eee7f1);
   --clients-muted: var(--enma-v3-muted, #b1a5b6);
   --clients-accent: #a45bd6;
-  --clients-danger: #963c37;
+  --clients-danger: var(--enma-v3-danger, #f2a0b2);
   color: var(--clients-text);
 }
 
@@ -111,6 +111,99 @@
   background: #251f2b;
   outline: 3px solid #a45bd6;
   outline-offset: 2px;
+}
+
+/* 9D.2c: notes textarea mirrors the input surface. */
+.client-create-form textarea {
+  display: block;
+  width: 100%;
+  min-height: 7rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--enma-v3-border-strong, rgba(205, 162, 229, 0.2));
+  border-radius: 0.5rem;
+  color: var(--clients-text);
+  background: #211b26;
+  box-shadow: none;
+  caret-color: #d6a8ed;
+  color-scheme: dark;
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.client-create-form textarea::placeholder {
+  color: var(--enma-v3-subtle, #8f8295);
+  opacity: 1;
+}
+
+.client-create-form textarea:hover:not(:disabled) {
+  border-color: rgba(210, 166, 235, 0.34);
+}
+
+.client-create-form textarea:focus-visible {
+  border-color: #c68ee4;
+  background: #251f2b;
+  outline: 3px solid #a45bd6;
+  outline-offset: 2px;
+}
+
+.client-create-form :is(input, textarea)[aria-invalid="true"] {
+  border-color: var(--enma-v3-danger, #f2a0b2);
+}
+
+/* Same autofill neutralization as public-auth-shell.css, scoped to Clients create/edit. */
+:is(.clients-page, .client-details-page) .client-create-form :is(input, textarea):-webkit-autofill,
+:is(.clients-page, .client-details-page) .client-create-form :is(input, textarea):-webkit-autofill:hover,
+:is(.clients-page, .client-details-page) .client-create-form :is(input, textarea):-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--clients-text);
+  box-shadow: inset 0 0 0 1000px #211b26;
+  caret-color: #d6a8ed;
+}
+
+/* 9D.2c: person type segmented selector (Tasks state filter pattern). */
+.client-person-type {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.client-person-type legend {
+  margin-bottom: 0.38rem;
+  padding: 0;
+  color: var(--clients-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.client-create-form .client-person-type .secondary-button {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  border-color: var(--enma-v3-border, rgba(164, 91, 214, 0.16));
+  color: var(--clients-muted);
+  background: #251f2b;
+  box-shadow: none;
+}
+
+.client-create-form .client-person-type .secondary-button:hover:not(:disabled) {
+  border-color: rgba(210, 166, 235, 0.34);
+  color: var(--clients-text);
+  background: rgba(164, 91, 214, 0.12);
+}
+
+.client-create-form .client-person-type .secondary-button[aria-pressed="true"] {
+  border-color: rgba(190, 123, 227, 0.34);
+  color: #f2ddff;
+  background: linear-gradient(
+    145deg,
+    rgba(164, 91, 214, 0.24),
+    rgba(164, 91, 214, 0.1)
+  );
+  box-shadow: inset 0 0 0 1px rgba(210, 164, 236, 0.05);
 }
 
 .client-form-actions {
@@ -434,16 +527,23 @@
   gap: 0.6rem;
 }
 
-/* Destructive lifecycle action is visually secondary until confirmation. */
-.client-detail-actions .secondary-button:last-child {
-  color: #7c4a43;
-  border-color: rgba(124, 74, 67, 0.18);
+/* Destructive lifecycle action is visually secondary until confirmation.
+   Reactivation keeps the regular detail-page secondary button. */
+.client-detail-actions .secondary-button.client-deactivate-button {
+  color: var(--clients-danger);
+  border-color: rgba(242, 160, 178, 0.26);
+  background: rgba(242, 160, 178, 0.06);
 }
 
-.client-detail-actions .secondary-button:last-child:hover:not(:disabled) {
-  color: #733e37;
-  border-color: rgba(124, 74, 67, 0.28);
-  background: rgba(157, 93, 78, 0.07);
+.client-detail-actions .secondary-button.client-deactivate-button:hover:not(:disabled) {
+  color: #f8c6d1;
+  border-color: rgba(242, 160, 178, 0.4);
+  background: rgba(242, 160, 178, 0.12);
+}
+
+.client-detail-actions .secondary-button.client-deactivate-button:focus-visible {
+  outline: 2px solid rgba(242, 160, 178, 0.7);
+  outline-offset: 3px;
 }
 
 .client-profile {
@@ -463,22 +563,28 @@
 
 .client-properties {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0;
   margin: 0;
   border-block: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .client-properties > div {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  column-gap: 1.5rem;
+  align-items: baseline;
   min-width: 0;
-  padding: 1rem 1.15rem;
+  padding: 0.85rem 1.15rem;
 }
 
 .client-properties > div + div {
-  border-left: 1px solid rgba(228, 211, 237, 0.08);
+  border-top: 1px solid rgba(228, 211, 237, 0.08);
 }
 
 .client-properties dt {
-  margin-bottom: 0.38rem;
+  margin: 0;
   color: var(--clients-muted);
   font-size: 0.65rem;
   font-weight: 780;
@@ -487,11 +593,22 @@
 }
 
 .client-properties dd {
+  min-width: 0;
   margin: 0;
   color: var(--clients-text);
   font-size: 0.92rem;
   font-weight: 650;
   overflow-wrap: anywhere;
+}
+
+.client-properties .client-property-document {
+  font-variant-numeric: tabular-nums;
+}
+
+.client-properties .client-property-notes {
+  font-weight: 500;
+  line-height: 1.55;
+  white-space: pre-line;
 }
 
 /* ---------- Client Finance summary ---------- */
@@ -643,15 +760,16 @@
     0 12px 30px rgba(93, 43, 39, 0.055);
 }
 
+/* Mirrors the shell v3 destructive surface text (enma-app-shell-v3.css). */
 .client-confirmation h3 {
   margin-top: 0;
-  color: #6f3834;
+  color: #f0c3cd;
   font-family: var(--enma-ui-font-display);
   font-weight: 500;
 }
 
 .client-confirmation p {
-  color: #73564f;
+  color: #f0c3cd;
 }
 
 .client-confirmation .primary-button {
@@ -697,15 +815,6 @@
 
   .client-detail-actions {
     justify-content: flex-start;
-  }
-
-  .client-properties {
-    grid-template-columns: 1fr;
-  }
-
-  .client-properties > div + div {
-    border-top: 1px solid rgba(228, 211, 237, 0.08);
-    border-left: 0;
   }
 
   .client-finance-metrics {
@@ -771,6 +880,18 @@
   .client-create-form,
   .client-confirmation {
     width: 100%;
+  }
+
+  .client-properties {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .client-properties > div {
+    display: block;
+  }
+
+  .client-properties dt {
+    margin-bottom: 0.32rem;
   }
 
   .client-finance-heading,

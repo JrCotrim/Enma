@@ -134,9 +134,9 @@ function detailPath(
   return `/organizations/${organization.id}/clients/${client.id}`
 }
 
-function openEditAndSubmit(name: string) {
+function openEditAndSubmit(name: string, nameLabel = 'Nome') {
   fireEvent.click(screen.getByRole('button', { name: 'Editar cliente' }))
-  const input = screen.getByLabelText('Nome')
+  const input = screen.getByLabelText(nameLabel)
   fireEvent.change(input, { target: { value: name } })
   const form = screen
     .getByRole('button', { name: 'Salvar alterações' })
@@ -176,7 +176,11 @@ describe('Clients D2 flow', () => {
     expect(screen.getByText('Ativo')).toBeInTheDocument()
     expect(screen.getByText(clientA.email!)).toBeInTheDocument()
     expect(screen.getByText(clientA.phone!)).toBeInTheDocument()
-    expect(screen.getByText(clientA.cpf!)).toBeInTheDocument()
+    expect(screen.getByText('529.982.247-25')).toBeInTheDocument()
+    expect(screen.queryByText(clientA.cpf!)).not.toBeInTheDocument()
+    expect(screen.getByText('Pessoa física')).toBeInTheDocument()
+    expect(screen.getByText(clientA.address!)).toBeInTheDocument()
+    expect(screen.getByText(clientA.notes!)).toBeInTheDocument()
     expect(screen.getByText(/12\/08\/2026/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Voltar para clientes' })).toHaveAttribute(
       'href',
@@ -609,7 +613,8 @@ describe('Clients D2 flow', () => {
 
     renderRoute(detailPath(organizationA, companyClient))
     await screen.findByRole('heading', { name: companyClient.name })
-    openEditAndSubmit('Empresa')
+    expect(screen.getByText('12.ABC.345/01DE-35')).toBeInTheDocument()
+    openEditAndSubmit('Empresa', 'Razão social')
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(6)
@@ -627,8 +632,11 @@ describe('Clients D2 flow', () => {
       address: 'Avenida Sintética, 200',
       notes: 'Observação da empresa',
     })
-    expect(screen.queryByText('Avenida Sintética, 200')).not.toBeInTheDocument()
-    expect(screen.queryByText('Observação da empresa')).not.toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Empresa' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Avenida Sintética, 200')).toBeInTheDocument()
+    expect(screen.getByText('Observação da empresa')).toBeInTheDocument()
   })
 
   it.each([
@@ -1061,5 +1069,295 @@ describe('Clients D2 flow', () => {
       }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: clientA.name })).not.toBeInTheDocument()
+  })
+})
+
+describe('Clients 9D person type and documents on detail and edit', () => {
+  const companyClient: ClientDetail = {
+    ...clientA,
+    name: 'Empresa Sintética Ltda',
+    cpf: null,
+    personType: 'company',
+    cnpj: '11222333000181',
+    address: 'Avenida Sintética, 200',
+    notes: 'Linha 1\nLinha 2\nLinha 3',
+  }
+
+  function editFetch(detail: ClientDetail, updateResponse: Response) {
+    return vi
+      .fn()
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(organizationResponse([organizationA]))
+      .mockResolvedValueOnce(response(200, detail))
+      .mockResolvedValueOnce(response(200, { requestToken: 'test-token' }))
+      .mockResolvedValueOnce(updateResponse)
+      .mockResolvedValueOnce(response(200, detail))
+  }
+
+  function sentBody(fetchMock: ReturnType<typeof editFetch>): unknown {
+    const [, init] = fetchMock.mock.calls[4] as [string, RequestInit]
+    return JSON.parse(init.body as string)
+  }
+
+  function submitEdit() {
+    fireEvent.submit(
+      screen
+        .getByRole('button', { name: 'Salvar alterações' })
+        .closest('form')!,
+    )
+  }
+
+  function profileValue(term: string): HTMLElement {
+    const terms = screen.getAllByRole('term')
+    const match = terms.find((element) => element.textContent === term)
+    expect(match).toBeDefined()
+    return match!.nextElementSibling as HTMLElement
+  }
+
+  it.each([
+    ['Numeric', '11222333000181', '11.222.333/0001-81'],
+    ['Alphanumeric', '12ABC34501DE35', '12.ABC.345/01DE-35'],
+  ])(
+    'ClientDetail_Company%sCnpj_RendersFormattedProfileForMember',
+    async (_case, cnpj, formatted) => {
+      const member = { ...organizationA, role: 'Member' as const }
+      const client = { ...companyClient, cnpj }
+      vi.stubGlobal(
+        'fetch',
+        authenticatedDetailFetch(member, response(200, client)),
+      )
+
+      renderRoute(detailPath(member, client))
+      await screen.findByRole('heading', { name: client.name })
+
+      expect(profileValue('Tipo de pessoa')).toHaveTextContent('Pessoa jurídica')
+      expect(profileValue('CNPJ')).toHaveTextContent(formatted)
+      expect(screen.queryByText(cnpj)).not.toBeInTheDocument()
+      expect(
+        screen.getAllByRole('term').map((element) => element.textContent),
+      ).not.toContain('CPF')
+      expect(profileValue('Endereço')).toHaveTextContent('Avenida Sintética, 200')
+      expect(profileValue('Observações').textContent).toBe(
+        'Linha 1\nLinha 2\nLinha 3',
+      )
+      expect(profileValue('Observações')).toHaveClass('client-property-notes')
+      expect(
+        screen.queryByRole('button', { name: 'Editar cliente' }),
+      ).not.toBeInTheDocument()
+      expect(document.title).not.toContain(cnpj)
+    },
+  )
+
+  it('ClientDetail_IndividualWithoutOptionalFields_RendersNotInformed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      authenticatedDetailFetch(organizationA, response(200, clientB)),
+    )
+
+    renderRoute(detailPath(organizationA, clientB))
+    await screen.findByRole('heading', { name: clientB.name })
+
+    expect(profileValue('Tipo de pessoa')).toHaveTextContent('Pessoa física')
+    expect(profileValue('CPF')).toHaveTextContent('Não informado')
+    expect(profileValue('Endereço')).toHaveTextContent('Não informado')
+    expect(profileValue('Observações')).toHaveTextContent('Não informado')
+    expect(screen.getAllByText('Não informado')).toHaveLength(5)
+  })
+
+  it('ClientEdit_IndividualToCompany_ClearsCpfAndSendsCnpjKeepingOtherFields', async () => {
+    const fetchMock = editFetch(clientA, response(204))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, clientA))
+    await screen.findByRole('heading', { name: clientA.name })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar cliente' }))
+
+    expect(screen.getByLabelText('CPF')).toHaveValue(clientA.cpf)
+    expect(screen.getByLabelText('Endereço')).toHaveValue(clientA.address)
+    expect(screen.getByLabelText('Observações')).toHaveValue(clientA.notes)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pessoa jurídica' }))
+    expect(screen.queryByLabelText('CPF')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('CNPJ')).toHaveValue('')
+    expect(screen.getByLabelText('Razão social')).toHaveValue(clientA.name)
+
+    fireEvent.change(screen.getByLabelText('CNPJ'), {
+      target: { value: '12.abc.345/01de-35' },
+    })
+    submitEdit()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(6)
+    })
+    expect(sentBody(fetchMock)).toEqual({
+      name: clientA.name,
+      email: clientA.email,
+      phone: clientA.phone,
+      cpf: null,
+      personType: 'company',
+      cnpj: '12.ABC.345/01DE-35',
+      address: clientA.address,
+      notes: clientA.notes,
+    })
+  })
+
+  it('ClientEdit_CompanyToIndividual_SendsCnpjAsNull', async () => {
+    const fetchMock = editFetch(companyClient, response(204))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, companyClient))
+    await screen.findByRole('heading', { name: companyClient.name })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar cliente' }))
+
+    expect(screen.getByLabelText('CNPJ')).toHaveValue(companyClient.cnpj)
+    fireEvent.click(screen.getByRole('button', { name: 'Pessoa física' }))
+    expect(screen.getByLabelText('CPF')).toHaveValue('')
+    submitEdit()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(6)
+    })
+    expect(sentBody(fetchMock)).toEqual({
+      name: companyClient.name,
+      email: companyClient.email,
+      phone: companyClient.phone,
+      cpf: null,
+      personType: 'individual',
+      cnpj: null,
+      address: companyClient.address,
+      notes: companyClient.notes,
+    })
+  })
+
+  it.each([
+    ['cpf', 'CPF', "Client CPF must be valid. (Parameter 'cpf')", 'CPF inválido.'],
+    [
+      'address',
+      'Endereço',
+      "Client address cannot exceed 300 characters. (Parameter 'address')",
+      'O endereço deve ter no máximo 300 caracteres.',
+    ],
+    [
+      'notes',
+      'Observações',
+      "Client notes cannot exceed 2000 characters. (Parameter 'notes')",
+      'As observações devem ter no máximo 2000 caracteres.',
+    ],
+  ] as const)(
+    'ClientEdit_BadRequest_%s_ShowsFieldMessageAndKeepsFormOpen',
+    async (_parameter, label, detail, message) => {
+      const fetchMock = editFetch(
+        clientA,
+        response(400, { title: 'Invalid request data', status: 400, detail }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderRoute(detailPath(organizationA, clientA))
+      await screen.findByRole('heading', { name: clientA.name })
+      fireEvent.click(screen.getByRole('button', { name: 'Editar cliente' }))
+      submitEdit()
+
+      const fieldMessage = await screen.findByText(message)
+      expect(screen.getByLabelText(label)).toHaveAttribute(
+        'aria-describedby',
+        fieldMessage.id,
+      )
+      expect(screen.getByLabelText(label)).toHaveAttribute('aria-invalid', 'true')
+      expect(screen.queryByText(/Parameter/)).not.toBeInTheDocument()
+      expect(
+        screen.queryByText('Não foi possível concluir a solicitação. Tente novamente.'),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Salvar alterações' }),
+      ).toBeEnabled()
+      expect(fetchMock).toHaveBeenCalledTimes(5)
+    },
+  )
+
+  it('ClientEdit_BadRequestWithoutKnownParameter_ShowsGenericMutationError', async () => {
+    const fetchMock = editFetch(
+      clientA,
+      response(400, {
+        title: 'Invalid request data',
+        status: 400,
+        detail: "Client person type must be a valid value. (Parameter 'personType')",
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, clientA))
+    await screen.findByRole('heading', { name: clientA.name })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar cliente' }))
+    submitEdit()
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Não foi possível concluir a solicitação. Tente novamente.',
+    )
+    expect(alert).not.toHaveTextContent(/Parameter|person type/)
+  })
+
+  it('ClientEdit_DuplicateCnpj_ShowsMessageOnDocumentField', async () => {
+    const fetchMock = editFetch(
+      clientA,
+      response(409, {
+        title: 'Conflict',
+        status: 409,
+        detail: 'The document is already used by another client.',
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, clientA))
+    await screen.findByRole('heading', { name: clientA.name })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar cliente' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pessoa jurídica' }))
+    fireEvent.change(screen.getByLabelText('CNPJ'), {
+      target: { value: '11222333000181' },
+    })
+    submitEdit()
+
+    const fieldMessage = await screen.findByText(
+      'Já existe um cliente com este CNPJ neste escritório.',
+    )
+    expect(screen.getByLabelText('CNPJ')).toHaveAttribute(
+      'aria-describedby',
+      fieldMessage.id,
+    )
+    expect(
+      screen.queryByText('The document is already used by another client.'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Editar cliente' })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+  })
+
+  it('ClientEdit_DuplicateCpf_ShowsMessageOnDocumentField', async () => {
+    const fetchMock = editFetch(clientA, response(409))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, clientA))
+    await screen.findByRole('heading', { name: clientA.name })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar cliente' }))
+    submitEdit()
+
+    expect(
+      await screen.findByText('Já existe um cliente com este CPF neste escritório.'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('CPF')).toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('ClientDeactivate_Conflict_StaysGenericAndNeverShowsDocumentMessage', async () => {
+    const fetchMock = editFetch(clientA, response(409))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRoute(detailPath(organizationA, clientA))
+    await screen.findByRole('heading', { name: clientA.name })
+    fireEvent.click(screen.getByRole('button', { name: 'Desativar cliente' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar desativação' }))
+
+    expect(
+      await screen.findByText('Não foi possível concluir a solicitação. Tente novamente.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Já existe um cliente/)).not.toBeInTheDocument()
   })
 })

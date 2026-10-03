@@ -11,7 +11,20 @@ import {
   useCurrentOrganization,
   useOrganizationDiscovery,
 } from '../organizations/OrganizationContext'
-import { formatClientCreatedAt } from './clientFormatting'
+import {
+  formatClientCreatedAt,
+  formatCnpj,
+  formatCpf,
+} from './clientFormatting'
+import {
+  clientFormValuesFrom,
+  getClientFieldErrors,
+  toClientRequest,
+  useClientForm,
+  validateClientName,
+  type ClientFormErrors,
+} from './clientForm'
+import { ClientFormFields } from './ClientFormFields'
 import {
   ClientRequestError,
   deactivateClient,
@@ -24,7 +37,6 @@ import { ClientFinanceSummarySection } from '../finance/ClientFinanceSummarySect
 
 const clientIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const maximumClientNameLength = 150
 const genericDetailError =
   'Não foi possível carregar o cliente. Tente novamente.'
 const unavailableMessage = 'Cliente não encontrado ou indisponível.'
@@ -44,13 +56,11 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-function normalizeOptionalClientField(value: string): string | null {
-  const trimmed = value.trim()
-  return trimmed.length === 0 ? null : trimmed
-}
-
-function formatOptionalClientField(value: string | null): string {
-  return value ?? 'Não informado'
+function formatOptionalClientField(
+  value: string | null,
+  format: (value: string) => string = (text) => text,
+): string {
+  return value === null ? 'Não informado' : format(value)
 }
 
 export function ClientDetailsPage() {
@@ -83,11 +93,7 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
   const isMutatingRef = useRef(false)
   const deactivateTriggerRef = useRef<HTMLButtonElement>(null)
   const [isEditing, setIsEditing] = useState(false)
-  const [editName, setEditName] = useState('')
-  const [editEmail, setEditEmail] = useState('')
-  const [editPhone, setEditPhone] = useState('')
-  const [editCpf, setEditCpf] = useState('')
-  const [editNameError, setEditNameError] = useState<string>()
+  const editForm = useClientForm()
   const [mutationError, setMutationError] = useState<string>()
   const [successMessage, setSuccessMessage] = useState<string>()
   const [isMutating, setIsMutating] = useState(false)
@@ -167,11 +173,7 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
       : { status: 'loading', scope: requestScope }
 
   function startEditing(client: ClientDetail) {
-    setEditName(client.name)
-    setEditEmail(client.email ?? '')
-    setEditPhone(client.phone ?? '')
-    setEditCpf(client.cpf ?? '')
-    setEditNameError(undefined)
+    editForm.reset(clientFormValuesFrom(client))
     setMutationError(undefined)
     setSuccessMessage(undefined)
     setIsEditing(true)
@@ -183,13 +185,14 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
     }
 
     setIsEditing(false)
-    setEditNameError(undefined)
+    editForm.setErrors({})
     setMutationError(undefined)
   }
 
   async function runMutation(
     operation: (signal: AbortSignal) => Promise<void>,
     success: string,
+    getFieldErrors?: (error: unknown) => ClientFormErrors | undefined,
   ) {
     if (isMutatingRef.current) {
       return
@@ -235,6 +238,13 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
         setDetailState({ status: 'not-found', scope: requestScope })
         setIsEditing(false)
         setIsDeactivateConfirmationOpen(false)
+        return
+      }
+
+      const fieldErrors = getFieldErrors?.(error)
+
+      if (fieldErrors) {
+        editForm.setErrors(fieldErrors)
       } else {
         setMutationError(
           error instanceof ClientRequestError && error.failure === 'forbidden'
@@ -265,43 +275,26 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
       return
     }
 
-    const loadedClient = currentDetailState.client
-    const trimmedName = editName.trim()
+    const submittedValues = editForm.values
+    const nameError = validateClientName(submittedValues)
 
-    if (trimmedName.length === 0) {
-      setEditNameError('Informe o nome do cliente.')
+    if (nameError) {
+      editForm.setErrors({ name: nameError })
       return
     }
 
-    if (trimmedName.length > maximumClientNameLength) {
-      setEditNameError(
-        `O nome deve ter no máximo ${maximumClientNameLength} caracteres.`,
-      )
-      return
-    }
-
-    setEditNameError(undefined)
+    editForm.setErrors({})
     void runMutation(
       (signal) =>
         updateClient(
           currentOrganization.id,
           routeClientId,
-          {
-            name: trimmedName,
-            email: normalizeOptionalClientField(editEmail),
-            phone: normalizeOptionalClientField(editPhone),
-            cpf: normalizeOptionalClientField(editCpf),
-            // The current form does not edit these fields; the full-replacement
-            // PUT resends the loaded values so they are preserved.
-            personType: loadedClient.personType,
-            cnpj: loadedClient.cnpj,
-            address: loadedClient.address,
-            notes: loadedClient.notes,
-          },
+          toClientRequest(submittedValues),
           handleUnauthorized,
           signal,
         ),
       'Cliente atualizado com sucesso.',
+      (error) => getClientFieldErrors(error, submittedValues.personType),
     )
   }
 
@@ -463,7 +456,7 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
             </button>
             <button
               ref={deactivateTriggerRef}
-              className="secondary-button"
+              className={client.isActive ? 'secondary-button client-deactivate-button' : 'secondary-button'}
               type="button"
               onClick={() => {
                 setMutationError(undefined)
@@ -501,51 +494,7 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
           aria-busy={isMutating}
         >
           <h3>Editar cliente</h3>
-          <label htmlFor="client-edit-name">Nome</label>
-          <input
-            id="client-edit-name"
-            name="name"
-            value={editName}
-            maxLength={maximumClientNameLength}
-            onChange={(event) => {
-              setEditName(event.target.value)
-              setEditNameError(undefined)
-            }}
-            aria-describedby={editNameError ? 'client-edit-name-error' : undefined}
-            aria-invalid={editNameError ? true : undefined}
-            autoFocus
-            required
-          />
-          {editNameError ? <p id="client-edit-name-error" className="form-error" role="alert">{editNameError}</p> : null}
-          <label htmlFor="client-edit-email">E-mail</label>
-          <input
-            id="client-edit-email"
-            name="email"
-            type="email"
-            value={editEmail}
-            maxLength={254}
-            autoComplete="email"
-            onChange={(event) => setEditEmail(event.target.value)}
-          />
-
-          <label htmlFor="client-edit-phone">Telefone</label>
-          <input
-            id="client-edit-phone"
-            name="phone"
-            type="tel"
-            value={editPhone}
-            autoComplete="tel"
-            onChange={(event) => setEditPhone(event.target.value)}
-          />
-
-          <label htmlFor="client-edit-cpf">CPF</label>
-          <input
-            id="client-edit-cpf"
-            name="cpf"
-            type="text"
-            value={editCpf}
-            onChange={(event) => setEditCpf(event.target.value)}
-          />
+          <ClientFormFields idPrefix="client-edit" form={editForm} />
           <div className="client-form-actions">
             <button className="secondary-button" type="button" onClick={cancelEditing} disabled={isMutating}>Cancelar</button>
             <button className="primary-button" type="submit" disabled={isMutating}>
@@ -581,6 +530,25 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
         <h3 id="client-profile-title">Contato e identificação</h3>
         <dl className="client-properties">
           <div>
+            <dt>Tipo de pessoa</dt>
+            <dd>{client.personType === 'company' ? 'Pessoa jurídica' : 'Pessoa física'}</dd>
+          </div>
+          {client.personType === 'company' ? (
+            <div>
+              <dt>CNPJ</dt>
+              <dd className="client-property-document">
+                {formatOptionalClientField(client.cnpj, formatCnpj)}
+              </dd>
+            </div>
+          ) : (
+            <div>
+              <dt>CPF</dt>
+              <dd className="client-property-document">
+                {formatOptionalClientField(client.cpf, formatCpf)}
+              </dd>
+            </div>
+          )}
+          <div>
             <dt>E-mail</dt>
             <dd>{formatOptionalClientField(client.email)}</dd>
           </div>
@@ -589,8 +557,14 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
             <dd>{formatOptionalClientField(client.phone)}</dd>
           </div>
           <div>
-            <dt>CPF</dt>
-            <dd>{formatOptionalClientField(client.cpf)}</dd>
+            <dt>Endereço</dt>
+            <dd>{formatOptionalClientField(client.address)}</dd>
+          </div>
+          <div>
+            <dt>Observações</dt>
+            <dd className="client-property-notes">
+              {formatOptionalClientField(client.notes)}
+            </dd>
           </div>
         </dl>
       </section>

@@ -19,12 +19,104 @@ export type ClientRequestFailure =
   | 'forbidden'
   | 'not-found'
   | 'bad-request'
+  | 'duplicate-document'
   | 'unexpected'
 
+export const clientRequestFields = [
+  'name',
+  'email',
+  'phone',
+  'cpf',
+  'cnpj',
+  'address',
+  'notes',
+] as const
+
+export type ClientRequestField = (typeof clientRequestFields)[number]
+
 export class ClientRequestError extends Error {
-  constructor(readonly failure: ClientRequestFailure) {
+  constructor(
+    readonly failure: ClientRequestFailure,
+    readonly field?: ClientRequestField,
+  ) {
     super('The client request failed.')
   }
+}
+
+const knownClientRequestFields = new Set<string>(clientRequestFields)
+const invalidParameterPattern = /\(Parameter '([A-Za-z]+)'\)/
+
+function isClientRequestField(value: string): value is ClientRequestField {
+  return knownClientRequestFields.has(value)
+}
+
+// Only the parameter name is read from the ProblemDetails detail; the server
+// text itself is never surfaced to the user.
+async function readInvalidField(
+  response: Response,
+): Promise<ClientRequestField | undefined> {
+  try {
+    const body: unknown = await response.json()
+
+    if (typeof body !== 'object' || body === null) {
+      return undefined
+    }
+
+    const detail = (body as Record<string, unknown>).detail
+    const parameter =
+      typeof detail === 'string'
+        ? invalidParameterPattern.exec(detail)?.[1]
+        : undefined
+
+    return parameter !== undefined && isClientRequestField(parameter)
+      ? parameter
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function throwForWriteStatus(response: Response): Promise<never> {
+  if (response.status === 400) {
+    clearCsrfToken()
+    throw new ClientRequestError('bad-request', await readInvalidField(response))
+  }
+
+  if (response.status === 409) {
+    throw new ClientRequestError('duplicate-document')
+  }
+
+  throwForStatus(response.status)
+}
+
+function toCreateClientBody(
+  request: CreateClientRequest,
+): Record<string, string | null> {
+  // An individual without the new fields keeps the original request shape.
+  const body: Record<string, string | null> = {
+    name: request.name,
+    email: request.email,
+    phone: request.phone,
+    cpf: request.cpf,
+  }
+
+  if (request.personType === 'company') {
+    body.personType = request.personType
+  }
+
+  if (request.cnpj !== null) {
+    body.cnpj = request.cnpj
+  }
+
+  if (request.address !== null) {
+    body.address = request.address
+  }
+
+  if (request.notes !== null) {
+    body.notes = request.notes
+  }
+
+  return body
 }
 
 function parseClient(value: unknown): Client | undefined {
@@ -235,7 +327,7 @@ export async function createClient(
         'Content-Type': 'application/json',
         'X-CSRF-TOKEN': requestToken,
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(toCreateClientBody(request)),
       cache: 'no-store',
       signal,
     },
@@ -243,11 +335,7 @@ export async function createClient(
   )
 
   if (response.status !== 201) {
-    if (response.status === 400) {
-      clearCsrfToken()
-    }
-
-    throwForStatus(response.status)
+    await throwForWriteStatus(response)
   }
 
   return parseCreateClientResponse(await response.json())
@@ -311,6 +399,10 @@ async function mutateClient(
   )
 
   if (response.status !== 204) {
+    if (body) {
+      await throwForWriteStatus(response)
+    }
+
     if (response.status === 400) {
       clearCsrfToken()
     }

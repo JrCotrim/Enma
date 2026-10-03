@@ -645,3 +645,348 @@ describe('Clients D1 flow', () => {
     expect(screen.queryByRole('heading', { name: 'Clientes' })).not.toBeInTheDocument()
   })
 })
+
+describe('Clients 9D person type and documents on create', () => {
+  function createFetch(postResponse: Response) {
+    return vi
+      .fn()
+      .mockResolvedValueOnce(organizationResponse([]))
+      .mockResolvedValueOnce(organizationResponse([organizationB]))
+      .mockResolvedValueOnce(clientListResponse([activeClient]))
+      .mockResolvedValueOnce(response(200, { requestToken: 'test-token' }))
+      .mockResolvedValueOnce(postResponse)
+      .mockResolvedValueOnce(clientListResponse([activeClient]))
+  }
+
+  async function openCreate(fetchMock: ReturnType<typeof createFetch>) {
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute(`/organizations/${organizationB.id}/clients`)
+    await screen.findByText(activeClient.name)
+    fireEvent.click(screen.getByRole('button', { name: 'Cadastrar cliente' }))
+  }
+
+  function submitCreate() {
+    fireEvent.submit(
+      screen.getByRole('button', { name: 'Cadastrar' }).closest('form')!,
+    )
+  }
+
+  function postedBody(fetchMock: ReturnType<typeof createFetch>): unknown {
+    const [, init] = fetchMock.mock.calls[4] as [string, RequestInit]
+    return JSON.parse(init.body as string)
+  }
+
+  function problem(detail: string) {
+    return response(400, {
+      title: 'Invalid request data',
+      status: 400,
+      detail,
+    })
+  }
+
+  it('ClientCreate_DefaultIndividual_ShowsSelectorAndKeepsOriginalBodyShape', async () => {
+    const fetchMock = createFetch(
+      response(201, { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }),
+    )
+    await openCreate(fetchMock)
+
+    expect(
+      screen.getByRole('group', { name: 'Tipo de pessoa' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Pessoa física' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen.getByRole('button', { name: 'Pessoa jurídica' }),
+    ).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('CPF')).toHaveAttribute('inputmode', 'numeric')
+    expect(screen.queryByLabelText('CNPJ')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Razão social')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Nome'), {
+      target: { value: 'Cliente PF' },
+    })
+    fireEvent.change(screen.getByLabelText('CPF'), {
+      target: { value: '529.982.247-25' },
+    })
+    submitCreate()
+
+    expect(
+      await screen.findByText('Cliente cadastrado com sucesso.'),
+    ).toBeInTheDocument()
+    const body = postedBody(fetchMock)
+    expect(body).toEqual({
+      name: 'Cliente PF',
+      email: null,
+      phone: null,
+      cpf: '529.982.247-25',
+    })
+    expect(Object.keys(body as object)).toEqual(['name', 'email', 'phone', 'cpf'])
+  })
+
+  it('ClientCreate_IndividualWithAddressAndNotes_SendsOnlyInformedNewFields', async () => {
+    const fetchMock = createFetch(
+      response(201, { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }),
+    )
+    await openCreate(fetchMock)
+
+    fireEvent.change(screen.getByLabelText('Nome'), {
+      target: { value: 'Cliente PF' },
+    })
+    fireEvent.change(screen.getByLabelText('Endereço'), {
+      target: { value: '  Rua Sintética, 10  ' },
+    })
+    fireEvent.change(screen.getByLabelText('Observações'), {
+      target: { value: '  Linha 1\nLinha 2  ' },
+    })
+    expect(screen.getByLabelText('Endereço')).toHaveAttribute('maxlength', '300')
+    expect(screen.getByLabelText('Observações')).toHaveAttribute(
+      'maxlength',
+      '2000',
+    )
+    submitCreate()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(6)
+    })
+    const body = postedBody(fetchMock)
+    expect(body).toEqual({
+      name: 'Cliente PF',
+      email: null,
+      phone: null,
+      cpf: null,
+      address: 'Rua Sintética, 10',
+      notes: 'Linha 1\nLinha 2',
+    })
+    expect(Object.keys(body as object)).not.toContain('personType')
+    expect(Object.keys(body as object)).not.toContain('cnpj')
+  })
+
+  it.each([
+    ['Numeric', '11.222.333/0001-81', '11.222.333/0001-81'],
+    ['Alphanumeric', '12.abc.345/01de-35', '12.ABC.345/01DE-35'],
+  ])(
+    'ClientCreate_Company%sCnpj_SendsPersonTypeAndUppercaseCnpj',
+    async (_case, typed, expected) => {
+      const fetchMock = createFetch(
+        response(201, { id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' }),
+      )
+      await openCreate(fetchMock)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Pessoa jurídica' }))
+      expect(
+        screen.getByRole('button', { name: 'Pessoa jurídica' }),
+      ).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.queryByLabelText('Nome')).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('CPF')).not.toBeInTheDocument()
+
+      fireEvent.change(screen.getByLabelText('Razão social'), {
+        target: { value: 'Empresa Sintética Ltda' },
+      })
+      fireEvent.change(screen.getByLabelText('CNPJ'), {
+        target: { value: typed },
+      })
+      expect(screen.getByLabelText('CNPJ')).toHaveValue(expected)
+      submitCreate()
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(6)
+      })
+      expect(postedBody(fetchMock)).toEqual({
+        name: 'Empresa Sintética Ltda',
+        email: null,
+        phone: null,
+        cpf: null,
+        personType: 'company',
+        cnpj: expected,
+      })
+    },
+  )
+
+  it('ClientCreate_SwitchingPersonType_ClearsDocumentAndChangesLabels', async () => {
+    const fetchMock = createFetch(response(500))
+    await openCreate(fetchMock)
+
+    fireEvent.change(screen.getByLabelText('Nome'), {
+      target: { value: 'Mesmo nome' },
+    })
+    fireEvent.change(screen.getByLabelText('CPF'), {
+      target: { value: '529.982.247-25' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Pessoa jurídica' }))
+
+    expect(screen.getByLabelText('Razão social')).toHaveValue('Mesmo nome')
+    expect(screen.getByLabelText('CNPJ')).toHaveValue('')
+    expect(screen.getByLabelText('CNPJ')).toHaveAttribute('inputmode', 'text')
+
+    fireEvent.change(screen.getByLabelText('CNPJ'), {
+      target: { value: '11222333000181' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Pessoa física' }))
+
+    expect(screen.getByLabelText('Nome')).toHaveValue('Mesmo nome')
+    expect(screen.getByLabelText('CPF')).toHaveValue('')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it.each([
+    [
+      'individual',
+      'cpf',
+      'CPF',
+      "Client CPF must be valid. (Parameter 'cpf')",
+      'CPF inválido.',
+    ],
+    [
+      'company',
+      'cnpj',
+      'CNPJ',
+      "Client CNPJ must be valid. (Parameter 'cnpj')",
+      'CNPJ inválido.',
+    ],
+    [
+      'individual',
+      'address',
+      'Endereço',
+      "Client address cannot exceed 300 characters. (Parameter 'address')",
+      'O endereço deve ter no máximo 300 caracteres.',
+    ],
+    [
+      'individual',
+      'notes',
+      'Observações',
+      "Client notes cannot exceed 2000 characters. (Parameter 'notes')",
+      'As observações devem ter no máximo 2000 caracteres.',
+    ],
+    [
+      'individual',
+      'email',
+      'E-mail',
+      "Client email must be a valid email address. (Parameter 'email')",
+      'E-mail inválido.',
+    ],
+    [
+      'individual',
+      'phone',
+      'Telefone',
+      "Client phone must contain between 8 and 15 digits. (Parameter 'phone')",
+      'Telefone inválido.',
+    ],
+  ] as const)(
+    'ClientCreate_BadRequest_%s_%s_ShowsFieldMessageWithoutServerText',
+    async (personType, _parameter, label, detail, message) => {
+      const fetchMock = createFetch(problem(detail))
+      await openCreate(fetchMock)
+
+      if (personType === 'company') {
+        fireEvent.click(screen.getByRole('button', { name: 'Pessoa jurídica' }))
+      }
+
+      fireEvent.change(
+        screen.getByLabelText(personType === 'company' ? 'Razão social' : 'Nome'),
+        { target: { value: 'Cliente Erro' } },
+      )
+      fireEvent.change(screen.getByLabelText(label), {
+        target: { value: 'valor sintético' },
+      })
+      submitCreate()
+
+      const fieldMessage = await screen.findByText(message)
+      const field = screen.getByLabelText(label)
+      expect(field).toHaveAttribute('aria-invalid', 'true')
+      expect(field).toHaveAttribute('aria-describedby', fieldMessage.id)
+      expect(screen.queryByText(/Parameter/)).not.toBeInTheDocument()
+      expect(
+        screen.queryByText(
+          'Não foi possível cadastrar o cliente. Verifique os dados e tente novamente.',
+        ),
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Cadastrar' })).toBeEnabled()
+      expect(fetchMock).toHaveBeenCalledTimes(5)
+
+      fireEvent.change(field, { target: { value: 'corrigido' } })
+      expect(screen.queryByText(message)).not.toBeInTheDocument()
+    },
+  )
+
+  it.each([
+    [
+      'UnrecognizedParameter',
+      () => problem("Value is invalid. (Parameter 'organizationId')"),
+    ],
+    ['NoParameter', () => problem('The antiforgery token is invalid.')],
+    ['NonJsonBody', () => new Response('bad request', { status: 400 })],
+  ])(
+    'ClientCreate_BadRequest%s_ShowsGenericMessage',
+    async (_case, badRequest) => {
+      const fetchMock = createFetch(badRequest())
+      await openCreate(fetchMock)
+
+      fireEvent.change(screen.getByLabelText('Nome'), {
+        target: { value: 'Cliente Erro' },
+      })
+      submitCreate()
+
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent(
+        'Não foi possível cadastrar o cliente. Verifique os dados e tente novamente.',
+      )
+      expect(alert).not.toHaveTextContent(/Parameter|antiforgery|bad request/)
+      expect(screen.getByLabelText('Nome')).not.toHaveAttribute('aria-invalid')
+    },
+  )
+
+  it.each([
+    [
+      'individual',
+      'CPF',
+      '529.982.247-25',
+      'Já existe um cliente com este CPF neste escritório.',
+    ],
+    [
+      'company',
+      'CNPJ',
+      '11.222.333/0001-81',
+      'Já existe um cliente com este CNPJ neste escritório.',
+    ],
+  ] as const)(
+    'ClientCreate_DuplicateDocument_%s_ShowsMessageOnDocumentField',
+    async (personType, label, document, message) => {
+      const fetchMock = createFetch(
+        response(409, {
+          title: 'Conflict',
+          status: 409,
+          detail: 'The document is already used by another client.',
+        }),
+      )
+      await openCreate(fetchMock)
+
+      if (personType === 'company') {
+        fireEvent.click(screen.getByRole('button', { name: 'Pessoa jurídica' }))
+      }
+
+      fireEvent.change(
+        screen.getByLabelText(personType === 'company' ? 'Razão social' : 'Nome'),
+        { target: { value: 'Cliente Duplicado' } },
+      )
+      fireEvent.change(screen.getByLabelText(label), {
+        target: { value: document },
+      })
+      submitCreate()
+
+      const fieldMessage = await screen.findByText(message)
+      expect(screen.getByLabelText(label)).toHaveAttribute(
+        'aria-describedby',
+        fieldMessage.id,
+      )
+      expect(screen.getByLabelText(label)).toHaveValue(document)
+      expect(
+        screen.queryByText('The document is already used by another client.'),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByText('Cliente cadastrado com sucesso.'),
+      ).not.toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledTimes(5)
+    },
+  )
+})

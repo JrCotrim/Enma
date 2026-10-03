@@ -16,11 +16,17 @@ import {
   listClients,
 } from './clientService'
 import { formatClientCreatedAt } from './clientFormatting'
+import {
+  getClientFieldErrors,
+  toClientRequest,
+  useClientForm,
+  validateClientName,
+} from './clientForm'
+import { ClientFormFields } from './ClientFormFields'
 import type { ClientListResponse } from './clientTypes'
 
 const pageSize = 20
 const maximumPageNumber = 2_147_483_647
-const maximumClientNameLength = 150
 const genericListError =
   'Não foi possível carregar os clientes. Tente novamente.'
 const genericCreateError =
@@ -59,11 +65,6 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-function normalizeOptionalClientField(value: string): string | null {
-  const trimmed = value.trim()
-  return trimmed.length === 0 ? null : trimmed
-}
-
 export function ClientsPage() {
   const { currentOrganization } = useCurrentOrganization()
   const { refreshOrganizations } = useOrganizationDiscovery()
@@ -81,11 +82,7 @@ export function ClientsPage() {
   const createControllerRef = useRef<AbortController | undefined>(undefined)
   const isSubmittingRef = useRef(false)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
-  const [cpf, setCpf] = useState('')
-  const [nameError, setNameError] = useState<string>()
+  const createForm = useClientForm()
   const [createError, setCreateError] = useState<string>()
   const [successMessage, setSuccessMessage] = useState<string>()
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -172,7 +169,7 @@ export function ClientsPage() {
 
   function openCreate() {
     setCreateError(undefined)
-    setNameError(undefined)
+    createForm.setErrors({})
     setIsCreateOpen(true)
   }
 
@@ -182,11 +179,7 @@ export function ClientsPage() {
     }
 
     setIsCreateOpen(false)
-    setName('')
-    setEmail('')
-    setPhone('')
-    setCpf('')
-    setNameError(undefined)
+    createForm.reset()
     setCreateError(undefined)
   }
 
@@ -197,23 +190,17 @@ export function ClientsPage() {
       return
     }
 
-    const trimmedName = name.trim()
+    const submittedValues = createForm.values
+    const nameError = validateClientName(submittedValues)
 
-    if (trimmedName.length === 0) {
-      setNameError('Informe o nome do cliente.')
-      return
-    }
-
-    if (trimmedName.length > maximumClientNameLength) {
-      setNameError(
-        `O nome deve ter no máximo ${maximumClientNameLength} caracteres.`,
-      )
+    if (nameError) {
+      createForm.setErrors({ name: nameError })
       return
     }
 
     isSubmittingRef.current = true
     setIsSubmitting(true)
-    setNameError(undefined)
+    createForm.setErrors({})
     setCreateError(undefined)
     setSuccessMessage(undefined)
     const controller = new AbortController()
@@ -222,24 +209,23 @@ export function ClientsPage() {
     try {
       await createClient(
         currentOrganization.id,
-        {
-          name: trimmedName,
-          email: normalizeOptionalClientField(email),
-          phone: normalizeOptionalClientField(phone),
-          cpf: normalizeOptionalClientField(cpf),
-        },
+        toClientRequest(submittedValues),
         handleUnauthorized,
         controller.signal,
       )
       setIsCreateOpen(false)
-      setName('')
-    setEmail('')
-    setPhone('')
-    setCpf('')
+      createForm.reset()
       setSuccessMessage('Cliente cadastrado com sucesso.')
       setRefreshVersion((version) => version + 1)
     } catch (error) {
-      if (
+      const fieldErrors = getClientFieldErrors(
+        error,
+        submittedValues.personType,
+      )
+
+      if (fieldErrors) {
+        createForm.setErrors(fieldErrors)
+      } else if (
         !isAbortError(error) &&
         !(
           error instanceof ClientRequestError &&
@@ -285,55 +271,7 @@ export function ClientsPage() {
       {isCreateOpen ? (
         <form className="client-create-form" onSubmit={handleCreate}>
           <h3>Novo cliente</h3>
-          <label htmlFor="client-name">Nome</label>
-          <input
-            id="client-name"
-            name="name"
-            value={name}
-            maxLength={maximumClientNameLength}
-            onChange={(event) => {
-              setName(event.target.value)
-              setNameError(undefined)
-            }}
-            aria-describedby={nameError ? 'client-name-error' : undefined}
-            aria-invalid={nameError ? true : undefined}
-            autoFocus
-            required
-          />
-          {nameError ? (
-            <p id="client-name-error" className="form-error" role="alert">
-              {nameError}
-            </p>
-          ) : null}
-          <label htmlFor="client-email">E-mail</label>
-          <input
-            id="client-email"
-            name="email"
-            type="email"
-            value={email}
-            maxLength={254}
-            autoComplete="email"
-            onChange={(event) => setEmail(event.target.value)}
-          />
-
-          <label htmlFor="client-phone">Telefone</label>
-          <input
-            id="client-phone"
-            name="phone"
-            type="tel"
-            value={phone}
-            autoComplete="tel"
-            onChange={(event) => setPhone(event.target.value)}
-          />
-
-          <label htmlFor="client-cpf">CPF</label>
-          <input
-            id="client-cpf"
-            name="cpf"
-            type="text"
-            value={cpf}
-            onChange={(event) => setCpf(event.target.value)}
-          />
+          <ClientFormFields idPrefix="client" form={createForm} />
           {createError ? (
             <div className="client-create-error">
               <p className="form-error" role="alert">
