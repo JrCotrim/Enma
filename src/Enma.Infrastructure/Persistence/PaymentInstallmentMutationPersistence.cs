@@ -177,6 +177,161 @@ public sealed class PaymentInstallmentMutationPersistence
         return PaymentInstallmentMutationPersistenceResult.Succeeded;
     }
 
+    public async Task<PaymentInstallmentMutationPersistenceResult> ReversePaymentAsync(
+        PaymentInstallmentMutationPersistenceRequest request,
+        PaymentReversalReason reason,
+        Func<
+            PaymentInstallmentMutationLockedState,
+            PaymentInstallmentMutationDecision> decide,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(decide);
+
+        var auditDetails =
+            new PaymentInstallmentPaymentReversedAuditDetails(reason);
+
+        if (request.UserId == Guid.Empty ||
+            request.OrganizationId == Guid.Empty ||
+            request.ActorMembershipId == Guid.Empty)
+        {
+            return PaymentInstallmentMutationPersistenceResult.AccessDenied;
+        }
+
+        if (request.PaymentPlanId == Guid.Empty ||
+            request.InstallmentId == Guid.Empty)
+        {
+            return PaymentInstallmentMutationPersistenceResult.NotFound;
+        }
+
+        await using var dbContext = new EnmaDbContext(_dbContextOptions);
+
+        await using IDbContextTransaction transaction =
+            await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted,
+                cancellationToken);
+
+        ClientPaymentPlan? paymentPlan = await LockPaymentPlanAsync(
+            dbContext,
+            request.OrganizationId,
+            request.PaymentPlanId,
+            cancellationToken);
+
+        if (paymentPlan is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return PaymentInstallmentMutationPersistenceResult.NotFound;
+        }
+
+        PaymentInstallment? installment = await LockInstallmentAsync(
+            dbContext,
+            request.OrganizationId,
+            request.PaymentPlanId,
+            request.InstallmentId,
+            cancellationToken);
+
+        if (installment is null)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return PaymentInstallmentMutationPersistenceResult.NotFound;
+        }
+
+        DateTimeOffset? oldPaidAt = installment.PaidAt;
+
+        OrganizationMembership? actorMembership =
+            await LockActorMembershipAsync(
+                dbContext,
+                request.OrganizationId,
+                request.ActorMembershipId,
+                cancellationToken);
+
+        User? actorUser = actorMembership is null
+            ? null
+            : await LockActorUserAsync(
+                dbContext,
+                actorMembership.UserId,
+                cancellationToken);
+
+        Organization? organization = await LockOrganizationAsync(
+            dbContext,
+            request.OrganizationId,
+            cancellationToken);
+
+        PaymentInstallmentMutationDecision decision = decide(
+            new PaymentInstallmentMutationLockedState(
+                installment,
+                organization?.IsActive == true,
+                CreateActorState(actorMembership, actorUser)));
+
+        if (decision.Status ==
+            PaymentInstallmentMutationDecisionStatus.AccessDenied)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return PaymentInstallmentMutationPersistenceResult.AccessDenied;
+        }
+
+        if (decision.Status !=
+            PaymentInstallmentMutationDecisionStatus.Persist)
+        {
+            throw new InvalidOperationException(
+                "Payment installment reversal returned an invalid decision.");
+        }
+
+        if (installment.OrganizationId != request.OrganizationId ||
+            installment.PaymentPlanId != request.PaymentPlanId ||
+            installment.Id != request.InstallmentId)
+        {
+            throw new InvalidOperationException(
+                "Payment installment reversal produced invalid state.");
+        }
+
+        if (oldPaidAt is not null && installment.PaidAt is not null)
+        {
+            throw new InvalidOperationException(
+                "Payment installment reversal decision did not reverse the payment.");
+        }
+
+        if (oldPaidAt is null && installment.PaidAt is not null)
+        {
+            throw new InvalidOperationException(
+                "An unpaid installment gained a payment timestamp during reversal.");
+        }
+
+        bool paymentReversed =
+            oldPaidAt is not null &&
+            installment.PaidAt is null;
+
+        if (!paymentReversed)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return PaymentInstallmentMutationPersistenceResult.Succeeded;
+        }
+
+        if (actorMembership is null)
+        {
+            throw new InvalidOperationException(
+                "Payment installment reversal accepted a missing actor.");
+        }
+
+        TransactionalAuditActorContext auditActor =
+            TransactionalAuditActorContext.FromValidatedMembership(
+                actorMembership);
+
+        AuditLogAppender.Append(
+            dbContext,
+            _timeProvider,
+            auditActor,
+            new AuditIntent(
+                AuditEventType.PaymentInstallmentPaymentReversed,
+                installment.Id,
+                auditDetails));
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return PaymentInstallmentMutationPersistenceResult.Succeeded;
+    }
+
     private static PaymentInstallmentMutationActorState? CreateActorState(
         OrganizationMembership? membership,
         User? user)

@@ -45,6 +45,7 @@ using Enma.Application.Finance.GetById;
 using Enma.Application.Finance.List;
 using Enma.Application.Finance.MarkPaid;
 using Enma.Application.Finance.Overview;
+using Enma.Application.Finance.ReversePayment;
 using Enma.Application.Notifications;
 using Enma.Application.Notifications.Dismiss;
 using Enma.Application.Notifications.DismissAll;
@@ -509,6 +510,7 @@ public static class DependencyInjection
         services.AddScoped<GetFinanceOverviewUseCase>();
         services.AddScoped<GetClientFinanceSummaryUseCase>();
         services.AddScoped<MarkPaymentInstallmentPaidUseCase>();
+        services.AddScoped<ReverseInstallmentPaymentUseCase>();
         services.AddScoped<CreateLegalProcessUseCase>();
         services.AddScoped<GetLegalProcessUseCase>();
         services.AddScoped<ListLegalProcessesUseCase>();

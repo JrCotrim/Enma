@@ -397,6 +397,18 @@ public sealed class MarkPaymentInstallmentPaidUseCaseTests
                     ? PaymentInstallmentMutationPersistenceResult.AccessDenied
                     : PaymentInstallmentMutationPersistenceResult.Succeeded);
         }
+
+        public Task<PaymentInstallmentMutationPersistenceResult> ReversePaymentAsync(
+            PaymentInstallmentMutationPersistenceRequest request,
+            PaymentReversalReason reason,
+            Func<
+                PaymentInstallmentMutationLockedState,
+                PaymentInstallmentMutationDecision> decide,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException(
+                "Mark-paid must never reverse a payment.");
+        }
     }
 
     private sealed class CountingTimeProvider(DateTimeOffset utcNow)

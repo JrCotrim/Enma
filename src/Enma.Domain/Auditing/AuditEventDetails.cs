@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Enma.Domain.Finance;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 
@@ -175,6 +176,9 @@ public abstract class AuditEventDetails
                     serializedDetails),
             AuditEventType.LegalDeadlineResponsibleChanged =>
                 Deserialize<LegalDeadlineResponsibleChangedAuditDetails>(
+                    serializedDetails),
+            AuditEventType.PaymentInstallmentPaymentReversed =>
+                Deserialize<PaymentInstallmentPaymentReversedAuditDetails>(
                     serializedDetails),
             _ => throw new JsonException(
                 AuditLogErrors.DetailsInvalidForEventType)
@@ -517,4 +521,22 @@ public sealed class LegalDeadlineResponsibleChangedAuditDetails : AuditEventDeta
     public Guid? OldResponsibleMembershipId { get; }
 
     public Guid? NewResponsibleMembershipId { get; }
+}
+
+public sealed class PaymentInstallmentPaymentReversedAuditDetails : AuditEventDetails
+{
+    public PaymentInstallmentPaymentReversedAuditDetails(
+        PaymentReversalReason reason)
+    {
+        if (!Enum.IsDefined(reason))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(reason),
+                AuditLogErrors.PaymentReversalReasonInvalid);
+        }
+
+        Reason = reason;
+    }
+
+    public PaymentReversalReason Reason { get; }
 }

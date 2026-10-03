@@ -55,6 +55,9 @@ public sealed record AuditLogResponse(
 [JsonDerivedType(
     typeof(LegalDeadlineResponsibleChangedAuditLogDetailsResponse),
     "legal_deadline.responsible_changed")]
+[JsonDerivedType(
+    typeof(PaymentInstallmentPaymentReversedAuditLogDetailsResponse),
+    "payment_installment.payment_reversed")]
 public abstract record AuditLogDetailsResponse;
 
 public sealed record OrganizationRenamedAuditLogDetailsResponse(
@@ -99,3 +102,6 @@ public sealed record LegalProcessResponsibleChangedAuditLogDetailsResponse(
 public sealed record LegalDeadlineResponsibleChangedAuditLogDetailsResponse(
     Guid? OldResponsibleMembershipId,
     Guid? NewResponsibleMembershipId) : AuditLogDetailsResponse;
+
+public sealed record PaymentInstallmentPaymentReversedAuditLogDetailsResponse(
+    string Reason) : AuditLogDetailsResponse;

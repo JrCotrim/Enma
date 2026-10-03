@@ -97,7 +97,8 @@ public sealed class FinanceActionAuthorization
         {
             (FinanceAction.View or
                 FinanceAction.CreatePaymentPlan or
-                FinanceAction.MarkInstallmentPaid,
+                FinanceAction.MarkInstallmentPaid or
+                FinanceAction.ReverseInstallmentPayment,
                 OrganizationRole.Owner or
                 OrganizationRole.Administrator) => true,
             _ => false

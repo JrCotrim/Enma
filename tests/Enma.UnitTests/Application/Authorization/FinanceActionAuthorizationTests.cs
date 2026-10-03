@@ -21,6 +21,9 @@ public sealed class FinanceActionAuthorizationTests
     [InlineData(FinanceAction.View, OrganizationRole.Member, false)]
     [InlineData(FinanceAction.CreatePaymentPlan, OrganizationRole.Member, false)]
     [InlineData(FinanceAction.MarkInstallmentPaid, OrganizationRole.Member, false)]
+    [InlineData(FinanceAction.ReverseInstallmentPayment, OrganizationRole.Owner, true)]
+    [InlineData(FinanceAction.ReverseInstallmentPayment, OrganizationRole.Administrator, true)]
+    [InlineData(FinanceAction.ReverseInstallmentPayment, OrganizationRole.Member, false)]
     public async Task AuthorizeAsync_WithLiveRole_AppliesExplicitActionRule(
         FinanceAction action,
         OrganizationRole role,
@@ -39,6 +42,16 @@ public sealed class FinanceActionAuthorizationTests
                 ? FinanceActionAuthorizationResult.Allowed
                 : FinanceActionAuthorizationResult.Denied,
             result);
+    }
+
+    [Fact]
+    public void FinanceAction_ValuesArePermanent()
+    {
+        Assert.Equal(0, (int)FinanceAction.View);
+        Assert.Equal(1, (int)FinanceAction.CreatePaymentPlan);
+        Assert.Equal(2, (int)FinanceAction.MarkInstallmentPaid);
+        Assert.Equal(3, (int)FinanceAction.ReverseInstallmentPayment);
+        Assert.Equal(4, Enum.GetValues<FinanceAction>().Length);
     }
 
     [Fact]

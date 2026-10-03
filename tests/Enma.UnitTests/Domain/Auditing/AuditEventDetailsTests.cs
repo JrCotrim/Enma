@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Enma.Domain.Auditing;
+using Enma.Domain.Finance;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 
@@ -301,8 +302,92 @@ public sealed class AuditEventDetailsTests
                 new LegalDeadlineResponsibleChangedAuditDetails(
                     MembershipAId,
                     null)
+            },
+            {
+                AuditEventType.PaymentInstallmentPaymentReversed,
+                new PaymentInstallmentPaymentReversedAuditDetails(
+                    PaymentReversalReason.WrongInstallment)
             }
         };
+
+    [Theory]
+    [InlineData(PaymentReversalReason.RegisteredByMistake, 1)]
+    [InlineData(PaymentReversalReason.WrongInstallment, 2)]
+    [InlineData(PaymentReversalReason.PaymentNotCompleted, 3)]
+    [InlineData(PaymentReversalReason.Other, 4)]
+    public void PaymentReversalReason_HasPermanentValueAndSerializesOnlyReason(
+        PaymentReversalReason reason,
+        int numericValue)
+    {
+        Assert.Equal(numericValue, (int)reason);
+
+        string serialized = Assert.IsType<string>(AuditEventDetails.Serialize(
+            new PaymentInstallmentPaymentReversedAuditDetails(reason)));
+
+        Assert.Equal($$"""{"reason":{{numericValue}}}""", serialized);
+    }
+
+    [Fact]
+    public void PaymentReversalReason_ValuesAreComplete()
+    {
+        Assert.Equal(
+            [1, 2, 3, 4],
+            Enum.GetValues<PaymentReversalReason>()
+                .Select(reason => (int)reason)
+                .Order());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(5)]
+    [InlineData(-1)]
+    public void PaymentInstallmentPaymentReversed_WithUndefinedReason_Throws(
+        int reason)
+    {
+        ArgumentOutOfRangeException exception =
+            Assert.Throws<ArgumentOutOfRangeException>(() =>
+                new PaymentInstallmentPaymentReversedAuditDetails(
+                    (PaymentReversalReason)reason));
+
+        Assert.Equal("reason", exception.ParamName);
+    }
+
+    [Fact]
+    public void PaymentInstallmentPaymentReversed_RequiresDetailsAndRejectsOtherTypes()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            AuditEventType.PaymentInstallmentPaymentReversed.ValidateDetails(null));
+        Assert.Throws<ArgumentException>(() =>
+            AuditEventType.PaymentInstallmentPaymentReversed.ValidateDetails(
+                new LegalDeadlineResponsibleChangedAuditDetails(
+                    null,
+                    MembershipAId)));
+        Assert.Throws<ArgumentException>(() =>
+            AuditEventType.PaymentInstallmentPaid.ValidateDetails(
+                new PaymentInstallmentPaymentReversedAuditDetails(
+                    PaymentReversalReason.Other)));
+    }
+
+    [Fact]
+    public void PaymentInstallmentPaymentReversed_DeserializationRejectsUndefinedReason()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AuditEventDetails.Deserialize(
+                AuditEventType.PaymentInstallmentPaymentReversed,
+                """{"reason":99}"""));
+    }
+
+    [Theory]
+    [InlineData("""{"reason":2,"amount":"100.00"}""")]
+    [InlineData("""{"reason":2,"paidAt":"2026-10-03T12:00:00Z"}""")]
+    [InlineData("""{"reason":2,"note":"free text"}""")]
+    public void PaymentInstallmentPaymentReversed_DeserializationRejectsExtraData(
+        string json)
+    {
+        Assert.Throws<JsonException>(() => AuditEventDetails.Deserialize(
+            AuditEventType.PaymentInstallmentPaymentReversed,
+            json));
+    }
 
     [Fact]
     public void LegalProcessStatusChanged_WithInvalidChange_Throws()

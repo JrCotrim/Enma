@@ -46,4 +46,7 @@ public static class FinanceErrors
 
     public const string PaymentBeforeCreation =
         "Installment payment date cannot predate its creation date.";
+
+    public const string InstallmentNotPaid =
+        "Only a paid installment can have its payment reversed.";
 }

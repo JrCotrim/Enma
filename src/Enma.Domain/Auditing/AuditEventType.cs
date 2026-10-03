@@ -57,7 +57,8 @@ public enum AuditEventType
     LegalProcessDetailsChanged = 33,
     LegalProcessStatusChanged = 34,
     LegalProcessResponsibleChanged = 35,
-    LegalDeadlineResponsibleChanged = 36
+    LegalDeadlineResponsibleChanged = 36,
+    PaymentInstallmentPaymentReversed = 37
 }
 
 public static class AuditEventTypeExtensions
@@ -118,6 +119,8 @@ public static class AuditEventTypeExtensions
                 "legal_process.responsible_changed",
             AuditEventType.LegalDeadlineResponsibleChanged =>
                 "legal_deadline.responsible_changed",
+            AuditEventType.PaymentInstallmentPaymentReversed =>
+                "payment_installment.payment_reversed",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -169,7 +172,8 @@ public static class AuditEventTypeExtensions
                 AuditEntityType.OrganizationInvitation,
             AuditEventType.PaymentPlanCreated =>
                 AuditEntityType.ClientPaymentPlan,
-            AuditEventType.PaymentInstallmentPaid =>
+            AuditEventType.PaymentInstallmentPaid or
+                AuditEventType.PaymentInstallmentPaymentReversed =>
                 AuditEntityType.PaymentInstallment,
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
@@ -207,6 +211,8 @@ public static class AuditEventTypeExtensions
                 typeof(LegalProcessResponsibleChangedAuditDetails),
             AuditEventType.LegalDeadlineResponsibleChanged =>
                 typeof(LegalDeadlineResponsibleChangedAuditDetails),
+            AuditEventType.PaymentInstallmentPaymentReversed =>
+                typeof(PaymentInstallmentPaymentReversedAuditDetails),
             AuditEventType.OrganizationMembershipDeactivated or
                 AuditEventType.OrganizationMembershipReactivated or
                 AuditEventType.ClientCreated or

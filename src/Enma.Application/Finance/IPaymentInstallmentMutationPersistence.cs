@@ -11,6 +11,20 @@ public interface IPaymentInstallmentMutationPersistence
             PaymentInstallmentMutationLockedState,
             PaymentInstallmentMutationDecision> decide,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Locks the payment plan, the installment (scoped to that plan), the actor
+    /// membership, its user and the organization, in that order, and runs the
+    /// decision against the locked state. A paid-to-unpaid transition appends
+    /// the reversal audit with the reason in the same transaction.
+    /// </summary>
+    Task<PaymentInstallmentMutationPersistenceResult> ReversePaymentAsync(
+        PaymentInstallmentMutationPersistenceRequest request,
+        PaymentReversalReason reason,
+        Func<
+            PaymentInstallmentMutationLockedState,
+            PaymentInstallmentMutationDecision> decide,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record PaymentInstallmentMutationPersistenceRequest(

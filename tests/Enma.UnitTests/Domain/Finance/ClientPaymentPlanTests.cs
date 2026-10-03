@@ -372,6 +372,60 @@ public sealed class ClientPaymentPlanTests
         Assert.Equal(CreatedAt, installment.PaidAt);
     }
 
+    [Fact]
+    public void ReversePayment_PaidInstallment_ClearsPaymentAndPreservesSchedule()
+    {
+        PaymentInstallment installment = CreateInstallment();
+        decimal amount = installment.Amount;
+        DateOnly dueDate = installment.DueDate;
+        installment.MarkPaid(CreatedAt.AddDays(1));
+
+        installment.ReversePayment();
+
+        Assert.Null(installment.PaidAt);
+        Assert.Equal(amount, installment.Amount);
+        Assert.Equal(dueDate, installment.DueDate);
+        Assert.Equal(CreatedAt, installment.CreatedAt);
+    }
+
+    [Fact]
+    public void ReversePayment_UnpaidInstallment_Rejects()
+    {
+        PaymentInstallment installment = CreateInstallment();
+
+        InvalidOperationException exception =
+            Assert.Throws<InvalidOperationException>(
+                installment.ReversePayment);
+
+        Assert.Equal(FinanceErrors.InstallmentNotPaid, exception.Message);
+        Assert.Null(installment.PaidAt);
+    }
+
+    [Fact]
+    public void ReversePayment_Twice_RejectsSecondReversal()
+    {
+        PaymentInstallment installment = CreateInstallment();
+        installment.MarkPaid(CreatedAt.AddDays(1));
+        installment.ReversePayment();
+
+        Assert.Throws<InvalidOperationException>(installment.ReversePayment);
+        Assert.Null(installment.PaidAt);
+    }
+
+    [Fact]
+    public void MarkPaid_AfterReversal_RecordsNewPaymentTimestamp()
+    {
+        PaymentInstallment installment = CreateInstallment();
+        DateTimeOffset firstPaidAt = CreatedAt.AddDays(1);
+        DateTimeOffset secondPaidAt = CreatedAt.AddDays(3);
+        installment.MarkPaid(firstPaidAt);
+        installment.ReversePayment();
+
+        installment.MarkPaid(secondPaidAt);
+
+        Assert.Equal(secondPaidAt, installment.PaidAt);
+    }
+
     private static PaymentInstallment CreateInstallment()
     {
         var plan = new ClientPaymentPlan(

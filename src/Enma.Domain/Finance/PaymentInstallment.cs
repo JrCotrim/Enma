@@ -99,4 +99,15 @@ public sealed class PaymentInstallment
 
         PaidAt ??= paidAt;
     }
+
+    public void ReversePayment()
+    {
+        if (PaidAt is null)
+        {
+            throw new InvalidOperationException(
+                FinanceErrors.InstallmentNotPaid);
+        }
+
+        PaidAt = null;
+    }
 }

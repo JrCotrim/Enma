@@ -856,6 +856,72 @@ public sealed class NotificationGenerationPersistenceTests(
     }
 
     [Fact]
+    public async Task PaymentInstallmentGeneration_ReversedPaymentDueToday_IsNotifiedOnce()
+    {
+        TenantGraph tenant = CreateTenant("finance-reversed");
+        Person owner = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        PaymentInstallment installment = CreatePaymentPlan(
+            tenant,
+            SchedulerDate).Installments.Single();
+        installment.MarkPaid(GeneratedAt.AddHours(-1));
+        await SeedAsync(tenant.Entities);
+
+        NotificationGenerationSourceResult whilePaid =
+            await GeneratePaymentInstallmentsAsync();
+        Assert.Empty(await ReadNotificationsAsync());
+
+        await ReversePaymentAsync(installment.Id);
+
+        NotificationGenerationSourceResult afterReversal =
+            await GeneratePaymentInstallmentsAsync();
+        NotificationGenerationSourceResult repeated =
+            await GeneratePaymentInstallmentsAsync();
+        Notification notification = Assert.Single(await ReadNotificationsAsync());
+
+        Assert.Equal(new NotificationGenerationSourceResult(0, 1), whilePaid);
+        Assert.Equal(new NotificationGenerationSourceResult(1, 1), afterReversal);
+        Assert.Equal(new NotificationGenerationSourceResult(0, 1), repeated);
+        Assert.Equal(installment.Id, notification.PaymentInstallmentId);
+        Assert.Equal(owner.User.Id, notification.RecipientUserId);
+        Assert.Equal(SchedulerDate, notification.OccurrenceDate);
+    }
+
+    [Fact]
+    public async Task PaymentInstallmentGeneration_PaidThenReversed_KeepsExistingDeduplication()
+    {
+        TenantGraph tenant = CreateTenant("finance-reversed-dedupe");
+        Person owner = AddPerson(tenant, "owner", OrganizationRole.Owner);
+        PaymentInstallment installment = CreatePaymentPlan(
+            tenant,
+            SchedulerDate).Installments.Single();
+        await SeedAsync(tenant.Entities);
+
+        NotificationGenerationSourceResult first =
+            await GeneratePaymentInstallmentsAsync();
+        Notification original = Assert.Single(await ReadNotificationsAsync());
+
+        await using (EnmaDbContext updateContext = fixture.CreateDbContext())
+        {
+            PaymentInstallment persistedInstallment =
+                await updateContext.PaymentInstallments.SingleAsync(
+                    candidate => candidate.Id == installment.Id);
+            persistedInstallment.MarkPaid(GeneratedAt.AddMinutes(1));
+            await updateContext.SaveChangesAsync();
+        }
+
+        await ReversePaymentAsync(installment.Id);
+
+        NotificationGenerationSourceResult afterReversal =
+            await GeneratePaymentInstallmentsAsync();
+        Notification deduplicated = Assert.Single(await ReadNotificationsAsync());
+
+        Assert.Equal(new NotificationGenerationSourceResult(1, 1), first);
+        Assert.Equal(new NotificationGenerationSourceResult(0, 1), afterReversal);
+        Assert.Equal(original.Id, deduplicated.Id);
+        Assert.Equal(owner.User.Id, deduplicated.RecipientUserId);
+    }
+
+    [Fact]
     public async Task ConcurrentPaymentInstallmentGeneration_DoesNotDuplicate()
     {
         TenantGraph tenant = CreateTenant("finance-concurrent");
@@ -1275,6 +1341,16 @@ public sealed class NotificationGenerationPersistenceTests(
             SchedulerDate,
             GeneratedAt,
             CancellationToken.None);
+    }
+
+    private async Task ReversePaymentAsync(Guid installmentId)
+    {
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        PaymentInstallment installment =
+            await dbContext.PaymentInstallments.SingleAsync(
+                candidate => candidate.Id == installmentId);
+        installment.ReversePayment();
+        await dbContext.SaveChangesAsync();
     }
 
     private async Task SeedAsync(IEnumerable<object> entities)

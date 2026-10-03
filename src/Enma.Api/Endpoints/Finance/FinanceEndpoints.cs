@@ -11,6 +11,7 @@ using Enma.Application.Finance.GetById;
 using Enma.Application.Finance.List;
 using Enma.Application.Finance.MarkPaid;
 using Enma.Application.Finance.Overview;
+using Enma.Application.Finance.ReversePayment;
 
 namespace Enma.Api.Endpoints.Finance;
 
@@ -86,6 +87,20 @@ public static class FinanceEndpoints
                 MarkInstallmentPaidAsync)
             .WithName("MarkPaymentInstallmentPaid")
             .WithSummary("Marks a payment installment as paid.")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireEnmaAntiforgery();
+
+        group.MapPost(
+                "{paymentPlanId:guid}/installments/{installmentId:guid}/reverse-payment",
+                ReverseInstallmentPaymentAsync)
+            .WithName("ReversePaymentInstallmentPayment")
+            .WithSummary("Reverses the payment of a payment installment.")
+            .Accepts<ReverseInstallmentPaymentRequest>("application/json")
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
@@ -307,6 +322,42 @@ public static class FinanceEndpoints
                 TypedResults.NoContent(),
             _ => throw new InvalidOperationException(
                 "Payment installment mark-paid returned an unknown result.")
+        };
+    }
+
+    private static async Task<IResult> ReverseInstallmentPaymentAsync(
+        Guid organizationId,
+        Guid paymentPlanId,
+        Guid installmentId,
+        ReverseInstallmentPaymentRequest request,
+        ClaimsPrincipal principal,
+        ReverseInstallmentPaymentUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        ReverseInstallmentPaymentResult result = await useCase.ExecuteAsync(
+            new ReverseInstallmentPaymentCommand(
+                userId,
+                organizationId,
+                paymentPlanId,
+                installmentId,
+                request.Reason),
+            cancellationToken);
+
+        return result switch
+        {
+            ReverseInstallmentPaymentResult.AccessDenied =>
+                TypedResults.Forbid(),
+            ReverseInstallmentPaymentResult.NotFound =>
+                TypedResults.NotFound(),
+            ReverseInstallmentPaymentResult.Succeeded =>
+                TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "Payment installment reversal returned an unknown result.")
         };
     }
 

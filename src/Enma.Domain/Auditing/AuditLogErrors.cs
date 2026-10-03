@@ -33,5 +33,7 @@ public static class AuditLogErrors
         "Legal process status is invalid.";
     public const string ResponsibleMembershipIdInvalid =
         "Responsible membership identifier is invalid.";
+    public const string PaymentReversalReasonInvalid =
+        "Payment reversal reason is invalid.";
     public const string TraceIdInvalid = "Audit trace identifier is invalid.";
 }
