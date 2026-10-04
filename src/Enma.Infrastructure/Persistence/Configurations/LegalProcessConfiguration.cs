@@ -75,6 +75,7 @@ public sealed class LegalProcessConfiguration
             .HasColumnName("status")
             .HasColumnType("integer")
             .HasDefaultValue(LegalProcessStatus.InProgress)
+            .HasSentinel(default(LegalProcessStatus))
             .IsRequired();
 
         builder.Property(legalProcess => legalProcess.CourtOrAuthority)

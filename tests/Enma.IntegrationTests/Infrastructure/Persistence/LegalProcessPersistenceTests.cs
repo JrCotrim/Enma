@@ -5,6 +5,7 @@ using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
@@ -486,6 +487,32 @@ public sealed class LegalProcessPersistenceTests(
             membershipForeignKey.PrincipalKey.Properties
                 .Select(property => property.Name)
                 .ToArray());
+    }
+
+    [Fact]
+    public void EnmaModel_WhenBuilt_HasNoModelValidationWarnings()
+    {
+        List<string> warnings = [];
+        DbContextOptions<EnmaDbContext> options =
+            new DbContextOptionsBuilder<EnmaDbContext>()
+                .UseNpgsql(fixture.ConnectionString)
+                .EnableServiceProviderCaching(false)
+                .LogTo(
+                    eventData => warnings.Add(eventData.ToString()),
+                    (eventId, level) =>
+                        level >= LogLevel.Warning &&
+                        eventId.Name?.StartsWith(
+                            DbLoggerCategory.Model.Validation.Name,
+                            StringComparison.Ordinal) == true)
+                .Options;
+
+        using var dbContext = new EnmaDbContext(options);
+        IProperty status = dbContext.Model
+            .FindEntityType(typeof(LegalProcess))!
+            .FindProperty(nameof(LegalProcess.Status))!;
+
+        Assert.Empty(warnings);
+        Assert.Equal(default(LegalProcessStatus), status.Sentinel);
     }
 
     [Fact]
