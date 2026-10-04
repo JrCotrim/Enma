@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Application.Filtering;
 using Enma.Application.Validation;
 using Enma.Domain.Processes;
 
@@ -35,8 +36,8 @@ public sealed class ListLegalProcessesUseCase
         LegalProcessStatus? status = query.Status is null
             ? null
             : LegalProcessStatusParser.Parse(query.Status);
-        LegalProcessResponsibleFilter responsible =
-            LegalProcessResponsibleFilter.Parse(query.Responsible);
+        ResponsibleFilter responsible =
+            ResponsibleFilter.Parse(query.Responsible);
         LegalProcessListSort sort = ParseSort(query.Sort);
 
         OrganizationAccessAuthorizationResult authorization =
@@ -54,13 +55,13 @@ public sealed class ListLegalProcessesUseCase
         (LegalProcessReadResponsibleFilterKind responsibleKind,
             Guid? responsibleMembershipId) = responsible.Kind switch
         {
-            LegalProcessResponsibleFilterKind.Any =>
+            ResponsibleFilterKind.Any =>
                 (LegalProcessReadResponsibleFilterKind.Any, (Guid?)null),
-            LegalProcessResponsibleFilterKind.Self =>
+            ResponsibleFilterKind.Self =>
                 (LegalProcessReadResponsibleFilterKind.Membership, actorMembershipId),
-            LegalProcessResponsibleFilterKind.Unassigned =>
+            ResponsibleFilterKind.Unassigned =>
                 (LegalProcessReadResponsibleFilterKind.Unassigned, null),
-            LegalProcessResponsibleFilterKind.Membership =>
+            ResponsibleFilterKind.Membership =>
                 (LegalProcessReadResponsibleFilterKind.Membership,
                     responsible.MembershipId),
             _ => throw new InvalidOperationException(

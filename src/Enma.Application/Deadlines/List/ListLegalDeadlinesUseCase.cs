@@ -1,4 +1,5 @@
 using Enma.Application.Authorization;
+using Enma.Application.Filtering;
 using Enma.Application.Validation;
 
 namespace Enma.Application.Deadlines.List;
@@ -31,8 +32,8 @@ public sealed class ListLegalDeadlinesUseCase
         CancellationToken cancellationToken = default)
     {
         ValidatePagination(pageNumber, pageSize);
-        LegalDeadlineResponsibleFilter responsibleFilter =
-            LegalDeadlineResponsibleFilter.Parse(responsible);
+        ResponsibleFilter responsibleFilter =
+            ResponsibleFilter.Parse(responsible);
 
         OrganizationAccessAuthorizationResult authorization =
             await _actionAuthorization.AuthorizeActorAsync(
@@ -49,13 +50,13 @@ public sealed class ListLegalDeadlinesUseCase
         (LegalDeadlineReadResponsibleFilterKind responsibleKind,
             Guid? responsibleMembershipId) = responsibleFilter.Kind switch
         {
-            LegalDeadlineResponsibleFilterKind.Any =>
+            ResponsibleFilterKind.Any =>
                 (LegalDeadlineReadResponsibleFilterKind.Any, (Guid?)null),
-            LegalDeadlineResponsibleFilterKind.Self =>
+            ResponsibleFilterKind.Self =>
                 (LegalDeadlineReadResponsibleFilterKind.Membership, actorMembershipId),
-            LegalDeadlineResponsibleFilterKind.Unassigned =>
+            ResponsibleFilterKind.Unassigned =>
                 (LegalDeadlineReadResponsibleFilterKind.Unassigned, null),
-            LegalDeadlineResponsibleFilterKind.Membership =>
+            ResponsibleFilterKind.Membership =>
                 (LegalDeadlineReadResponsibleFilterKind.Membership,
                     responsibleFilter.MembershipId),
             _ => throw new InvalidOperationException(

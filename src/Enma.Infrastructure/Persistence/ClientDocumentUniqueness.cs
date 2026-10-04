@@ -36,10 +36,10 @@ internal static class ClientDocumentUniqueness
 
     public static bool IsUniqueViolation(Exception exception)
     {
-        return LegalProcessPersistenceConstraints.IsUniqueViolation(
+        return PostgreSqlConstraintViolations.IsUniqueViolation(
                 exception,
                 CpfConstraint) ||
-            LegalProcessPersistenceConstraints.IsUniqueViolation(
+            PostgreSqlConstraintViolations.IsUniqueViolation(
                 exception,
                 CnpjConstraint);
     }

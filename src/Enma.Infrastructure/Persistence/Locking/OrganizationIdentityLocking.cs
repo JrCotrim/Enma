@@ -2,11 +2,11 @@ using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 
-namespace Enma.Infrastructure.Persistence;
+namespace Enma.Infrastructure.Persistence.Locking;
 
-internal static class LegalTaskIdentityLocking
+internal static class OrganizationIdentityLocking
 {
-    public static async Task<LegalTaskLockedIdentities> LockAsync(
+    public static async Task<OrganizationLockedIdentities> LockAsync(
         EnmaDbContext dbContext,
         Guid organizationId,
         IEnumerable<Guid> membershipIds,
@@ -46,12 +46,12 @@ internal static class LegalTaskIdentityLocking
                     """)
                 .ToListAsync(cancellationToken);
 
-        return new LegalTaskLockedIdentities(
+        return new OrganizationLockedIdentities(
             memberships.ToDictionary(membership => membership.Id),
             users.ToDictionary(user => user.Id));
     }
 }
 
-internal sealed record LegalTaskLockedIdentities(
+internal sealed record OrganizationLockedIdentities(
     IReadOnlyDictionary<Guid, OrganizationMembership> MembershipsById,
     IReadOnlyDictionary<Guid, User> UsersById);

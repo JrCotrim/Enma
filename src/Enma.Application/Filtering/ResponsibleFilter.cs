@@ -1,21 +1,21 @@
 using Enma.Application.Validation;
 
-namespace Enma.Application.Deadlines.List;
+namespace Enma.Application.Filtering;
 
-internal sealed record LegalDeadlineResponsibleFilter(
-    LegalDeadlineResponsibleFilterKind Kind,
+internal sealed record ResponsibleFilter(
+    ResponsibleFilterKind Kind,
     Guid? MembershipId = null)
 {
-    public static LegalDeadlineResponsibleFilter Any { get; } = new(
-        LegalDeadlineResponsibleFilterKind.Any);
+    public static ResponsibleFilter Any { get; } = new(
+        ResponsibleFilterKind.Any);
 
-    public static LegalDeadlineResponsibleFilter Self { get; } = new(
-        LegalDeadlineResponsibleFilterKind.Self);
+    public static ResponsibleFilter Self { get; } = new(
+        ResponsibleFilterKind.Self);
 
-    public static LegalDeadlineResponsibleFilter Unassigned { get; } = new(
-        LegalDeadlineResponsibleFilterKind.Unassigned);
+    public static ResponsibleFilter Unassigned { get; } = new(
+        ResponsibleFilterKind.Unassigned);
 
-    public static LegalDeadlineResponsibleFilter Parse(string? value)
+    public static ResponsibleFilter Parse(string? value)
     {
         if (value is null ||
             string.Equals(value, "any", StringComparison.OrdinalIgnoreCase))
@@ -36,8 +36,8 @@ internal sealed record LegalDeadlineResponsibleFilter(
         if (Guid.TryParseExact(value, "D", out Guid membershipId) &&
             membershipId != Guid.Empty)
         {
-            return new LegalDeadlineResponsibleFilter(
-                LegalDeadlineResponsibleFilterKind.Membership,
+            return new ResponsibleFilter(
+                ResponsibleFilterKind.Membership,
                 membershipId);
         }
 
@@ -46,7 +46,7 @@ internal sealed record LegalDeadlineResponsibleFilter(
     }
 }
 
-internal enum LegalDeadlineResponsibleFilterKind
+internal enum ResponsibleFilterKind
 {
     Any = 0,
     Self = 1,

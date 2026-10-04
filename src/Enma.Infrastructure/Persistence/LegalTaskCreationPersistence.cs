@@ -5,6 +5,7 @@ using Enma.Domain.Auditing;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 using Enma.Domain.Users;
+using Enma.Infrastructure.Persistence.Locking;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -55,7 +56,7 @@ public sealed class LegalTaskCreationPersistence : ILegalTaskCreationPersistence
                 LegalTaskCreationDecisionStatus.RelatedProcessUnavailable);
         }
 
-        LegalTaskLockedIdentities identities = await LegalTaskIdentityLocking.LockAsync(
+        OrganizationLockedIdentities identities = await OrganizationIdentityLocking.LockAsync(
             dbContext,
             request.OrganizationId,
             GetMembershipIds(request),

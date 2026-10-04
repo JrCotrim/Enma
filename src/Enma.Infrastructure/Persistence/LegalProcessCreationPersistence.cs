@@ -6,6 +6,7 @@ using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Processes;
 using Enma.Domain.Users;
+using Enma.Infrastructure.Persistence.Locking;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -66,7 +67,7 @@ public sealed class LegalProcessCreationPersistence
             request.ResponsibleMembershipId is Guid responsibleId
                 ? [request.ActorMembershipId, responsibleId]
                 : [request.ActorMembershipId];
-        LegalTaskLockedIdentities identities = await LegalTaskIdentityLocking.LockAsync(
+        OrganizationLockedIdentities identities = await OrganizationIdentityLocking.LockAsync(
             dbContext,
             request.OrganizationId,
             membershipIds,
@@ -118,7 +119,7 @@ public sealed class LegalProcessCreationPersistence
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException exception) when (
-            LegalProcessPersistenceConstraints.IsUniqueViolation(
+            PostgreSqlConstraintViolations.IsUniqueViolation(
                 exception,
                 LegalProcessPersistenceConstraints.NormalizedProcessNumber))
         {
@@ -134,7 +135,7 @@ public sealed class LegalProcessCreationPersistence
 
     private static LegalProcessLockedActorState? CreateMemberState(
         Guid membershipId,
-        LegalTaskLockedIdentities identities)
+        OrganizationLockedIdentities identities)
     {
         if (!identities.MembershipsById.TryGetValue(
                 membershipId,

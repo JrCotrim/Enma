@@ -84,9 +84,7 @@ public sealed class LegalProcess
             return null;
         }
 
-        string digits = string.Concat(searchTerm.Where(character =>
-            character is not ('.' or '-' or '/') &&
-            !char.IsWhiteSpace(character)));
+        string digits = RemoveProcessNumberSeparators(searchTerm);
 
         return digits.Length > 0 &&
             digits.All(character => character is >= '0' and <= '9')
@@ -229,9 +227,7 @@ public sealed class LegalProcess
                 LegalProcessErrors.ProcessNumberTooLong);
         }
 
-        string cnjCandidate = string.Concat(display.Where(character =>
-            character is not ('.' or '-' or '/') &&
-            !char.IsWhiteSpace(character)));
+        string cnjCandidate = RemoveProcessNumberSeparators(display);
         string normalized = cnjCandidate.Length == 20 &&
             cnjCandidate.All(character => character is >= '0' and <= '9')
                 ? cnjCandidate
@@ -243,6 +239,13 @@ public sealed class LegalProcess
                     .ToUpperInvariant();
 
         return (display, normalized);
+    }
+
+    private static string RemoveProcessNumberSeparators(string value)
+    {
+        return string.Concat(value.Where(character =>
+            character is not ('.' or '-' or '/') &&
+            !char.IsWhiteSpace(character)));
     }
 
     private static string? NormalizeCourtOrAuthority(string? courtOrAuthority)

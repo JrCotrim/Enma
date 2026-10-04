@@ -5,6 +5,7 @@ using Enma.Domain.Auditing;
 using Enma.Domain.Deadlines;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
+using Enma.Infrastructure.Persistence.Locking;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -174,7 +175,7 @@ public sealed class LegalDeadlineMutationPersistence
         IEnumerable<Guid> membershipIds = relatedMembershipId is Guid relatedId
             ? [request.ActorMembershipId, relatedId]
             : [request.ActorMembershipId];
-        LegalTaskLockedIdentities identities = await LegalTaskIdentityLocking.LockAsync(
+        OrganizationLockedIdentities identities = await OrganizationIdentityLocking.LockAsync(
             dbContext,
             request.OrganizationId,
             membershipIds,
@@ -374,7 +375,7 @@ public sealed class LegalDeadlineMutationPersistence
 
     private static LegalDeadlineLockedActorState? CreateMemberState(
         Guid membershipId,
-        LegalTaskLockedIdentities identities)
+        OrganizationLockedIdentities identities)
     {
         if (!identities.MembershipsById.TryGetValue(
                 membershipId,

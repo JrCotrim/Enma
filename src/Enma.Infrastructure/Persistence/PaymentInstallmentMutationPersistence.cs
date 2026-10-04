@@ -57,57 +57,27 @@ public sealed class PaymentInstallmentMutationPersistence
                 IsolationLevel.ReadCommitted,
                 cancellationToken);
 
-        ClientPaymentPlan? paymentPlan = await LockPaymentPlanAsync(
-            dbContext,
-            request.OrganizationId,
-            request.PaymentPlanId,
-            cancellationToken);
+        LockedInstallmentContext? lockedContext =
+            await LockInstallmentContextAsync(
+                dbContext,
+                request,
+                cancellationToken);
 
-        if (paymentPlan is null)
+        if (lockedContext is null)
         {
             await transaction.RollbackAsync(cancellationToken);
             return PaymentInstallmentMutationPersistenceResult.NotFound;
         }
 
-        PaymentInstallment? installment = await LockInstallmentAsync(
-            dbContext,
-            request.OrganizationId,
-            request.PaymentPlanId,
-            request.InstallmentId,
-            cancellationToken);
-
-        if (installment is null)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return PaymentInstallmentMutationPersistenceResult.NotFound;
-        }
-
-        DateTimeOffset? oldPaidAt = installment.PaidAt;
-
-        OrganizationMembership? actorMembership =
-            await LockActorMembershipAsync(
-                dbContext,
-                request.OrganizationId,
-                request.ActorMembershipId,
-                cancellationToken);
-
-        User? actorUser = actorMembership is null
-            ? null
-            : await LockActorUserAsync(
-                dbContext,
-                actorMembership.UserId,
-                cancellationToken);
-
-        Organization? organization = await LockOrganizationAsync(
-            dbContext,
-            request.OrganizationId,
-            cancellationToken);
+        PaymentInstallment installment = lockedContext.Installment;
+        DateTimeOffset? oldPaidAt = lockedContext.OldPaidAt;
+        OrganizationMembership? actorMembership = lockedContext.ActorMembership;
 
         PaymentInstallmentMutationDecision decision = decide(
             new PaymentInstallmentMutationLockedState(
                 installment,
-                organization?.IsActive == true,
-                CreateActorState(actorMembership, actorUser)));
+                lockedContext.Organization?.IsActive == true,
+                CreateActorState(actorMembership, lockedContext.ActorUser)));
 
         if (decision.Status ==
             PaymentInstallmentMutationDecisionStatus.AccessDenied)
@@ -211,57 +181,27 @@ public sealed class PaymentInstallmentMutationPersistence
                 IsolationLevel.ReadCommitted,
                 cancellationToken);
 
-        ClientPaymentPlan? paymentPlan = await LockPaymentPlanAsync(
-            dbContext,
-            request.OrganizationId,
-            request.PaymentPlanId,
-            cancellationToken);
+        LockedInstallmentContext? lockedContext =
+            await LockInstallmentContextAsync(
+                dbContext,
+                request,
+                cancellationToken);
 
-        if (paymentPlan is null)
+        if (lockedContext is null)
         {
             await transaction.RollbackAsync(cancellationToken);
             return PaymentInstallmentMutationPersistenceResult.NotFound;
         }
 
-        PaymentInstallment? installment = await LockInstallmentAsync(
-            dbContext,
-            request.OrganizationId,
-            request.PaymentPlanId,
-            request.InstallmentId,
-            cancellationToken);
-
-        if (installment is null)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            return PaymentInstallmentMutationPersistenceResult.NotFound;
-        }
-
-        DateTimeOffset? oldPaidAt = installment.PaidAt;
-
-        OrganizationMembership? actorMembership =
-            await LockActorMembershipAsync(
-                dbContext,
-                request.OrganizationId,
-                request.ActorMembershipId,
-                cancellationToken);
-
-        User? actorUser = actorMembership is null
-            ? null
-            : await LockActorUserAsync(
-                dbContext,
-                actorMembership.UserId,
-                cancellationToken);
-
-        Organization? organization = await LockOrganizationAsync(
-            dbContext,
-            request.OrganizationId,
-            cancellationToken);
+        PaymentInstallment installment = lockedContext.Installment;
+        DateTimeOffset? oldPaidAt = lockedContext.OldPaidAt;
+        OrganizationMembership? actorMembership = lockedContext.ActorMembership;
 
         PaymentInstallmentMutationDecision decision = decide(
             new PaymentInstallmentMutationLockedState(
                 installment,
-                organization?.IsActive == true,
-                CreateActorState(actorMembership, actorUser)));
+                lockedContext.Organization?.IsActive == true,
+                CreateActorState(actorMembership, lockedContext.ActorUser)));
 
         if (decision.Status ==
             PaymentInstallmentMutationDecisionStatus.AccessDenied)
@@ -347,6 +287,66 @@ public sealed class PaymentInstallmentMutationPersistence
                 user?.Id == membership.UserId && user.IsActive);
     }
 
+    // Lock order: payment plan -> installment -> actor membership ->
+    // actor user -> organization. Returns null when the plan or the
+    // installment is not found; the caller rolls back.
+    private static async Task<LockedInstallmentContext?> LockInstallmentContextAsync(
+        EnmaDbContext dbContext,
+        PaymentInstallmentMutationPersistenceRequest request,
+        CancellationToken cancellationToken)
+    {
+        ClientPaymentPlan? paymentPlan = await LockPaymentPlanAsync(
+            dbContext,
+            request.OrganizationId,
+            request.PaymentPlanId,
+            cancellationToken);
+
+        if (paymentPlan is null)
+        {
+            return null;
+        }
+
+        PaymentInstallment? installment = await LockInstallmentAsync(
+            dbContext,
+            request.OrganizationId,
+            request.PaymentPlanId,
+            request.InstallmentId,
+            cancellationToken);
+
+        if (installment is null)
+        {
+            return null;
+        }
+
+        DateTimeOffset? oldPaidAt = installment.PaidAt;
+
+        OrganizationMembership? actorMembership =
+            await LockActorMembershipAsync(
+                dbContext,
+                request.OrganizationId,
+                request.ActorMembershipId,
+                cancellationToken);
+
+        User? actorUser = actorMembership is null
+            ? null
+            : await LockActorUserAsync(
+                dbContext,
+                actorMembership.UserId,
+                cancellationToken);
+
+        Organization? organization = await LockOrganizationAsync(
+            dbContext,
+            request.OrganizationId,
+            cancellationToken);
+
+        return new LockedInstallmentContext(
+            installment,
+            oldPaidAt,
+            actorMembership,
+            actorUser,
+            organization);
+    }
+
     private static Task<ClientPaymentPlan?> LockPaymentPlanAsync(
         EnmaDbContext dbContext,
         Guid organizationId,
@@ -429,4 +429,11 @@ public sealed class PaymentInstallmentMutationPersistence
                 """)
             .SingleOrDefaultAsync(cancellationToken);
     }
+
+    private sealed record LockedInstallmentContext(
+        PaymentInstallment Installment,
+        DateTimeOffset? OldPaidAt,
+        OrganizationMembership? ActorMembership,
+        User? ActorUser,
+        Organization? Organization);
 }
