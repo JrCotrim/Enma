@@ -1438,6 +1438,7 @@ describe('Deadlines responsible list and create (Phase 9C.2e)', () => {
         response(400, {
           title: 'Related responsible member unavailable',
           detail: 'private server reason',
+          code: 'related_responsible_unavailable',
         }),
       )
       vi.stubGlobal('fetch', fetchMock)

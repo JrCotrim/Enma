@@ -615,13 +615,14 @@ public sealed class ClientEndpointTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("not-an-email", "(11) 98765-4321", "529.982.247-25")]
-    [InlineData("changed@example.test", "123", "529.982.247-25")]
-    [InlineData("changed@example.test", "(11) 98765-4321", "111.111.111-11")]
+    [InlineData("not-an-email", "(11) 98765-4321", "529.982.247-25", "email")]
+    [InlineData("changed@example.test", "123", "529.982.247-25", "phone")]
+    [InlineData("changed@example.test", "(11) 98765-4321", "111.111.111-11", "cpf")]
     public async Task UpdateClient_InvalidProfile_ReturnsBadRequestWithoutPartialMutation(
         string email,
         string phone,
-        string cpf)
+        string cpf,
+        string expectedField)
     {
         User user = CreateUser("invalid-profile");
         Organization organization = CreateOrganization("Invalid Profile");
@@ -651,6 +652,10 @@ public sealed class ClientEndpointTests : IAsyncLifetime
             UpdateBody("Partially Changed", email, phone, cpf));
 
         await AssertProblemResponseAsync(response, HttpStatusCode.BadRequest);
+        string content = await response.Content.ReadAsStringAsync();
+        AssertFieldExtension(content, expectedField);
+        Assert.Contains($"(Parameter '{expectedField}')", content, StringComparison.Ordinal);
+        Assert.DoesNotContain(email, content, StringComparison.Ordinal);
         ClientEntity persisted = await GetPersistedClientAsync(existingClient.Id);
         Assert.Equal("Original Profile", persisted.Name);
         Assert.Equal("original@example.test", persisted.Email);
@@ -1414,18 +1419,19 @@ public sealed class ClientEndpointTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("company", null, "12.345.678/0001-00", "cnpj")]
-    [InlineData("individual", null, "11.222.333/0001-81", "cnpj")]
-    [InlineData(null, null, "12.ABC.345/01DE-35", "cnpj")]
-    [InlineData("company", "529.982.247-25", null, "cpf")]
-    [InlineData("individual", "111.111.111-11", null, "cpf")]
-    [InlineData("Company", null, null, "person type")]
-    [InlineData("pj", null, null, "person type")]
+    [InlineData("company", null, "12.345.678/0001-00", "cnpj", "cnpj")]
+    [InlineData("individual", null, "11.222.333/0001-81", "cnpj", "cnpj")]
+    [InlineData(null, null, "12.ABC.345/01DE-35", "cnpj", "cnpj")]
+    [InlineData("company", "529.982.247-25", null, "cpf", "cpf")]
+    [InlineData("individual", "111.111.111-11", null, "cpf", "cpf")]
+    [InlineData("Company", null, null, "person type", null)]
+    [InlineData("pj", null, null, "person type", null)]
     public async Task CreateClient_InvalidOrMismatchedDocument_ReturnsBadRequestWithoutEchoingValue(
         string? personType,
         string? cpf,
         string? cnpj,
-        string expectedField)
+        string expectedField,
+        string? expectedFieldExtension)
     {
         User user = CreateUser("invalid-document");
         Organization organization = CreateOrganization("Invalid Document");
@@ -1458,6 +1464,7 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         await AssertProblemResponseAsync(response, HttpStatusCode.BadRequest);
         string content = await response.Content.ReadAsStringAsync();
         Assert.Contains(expectedField, content, StringComparison.Ordinal);
+        AssertFieldExtension(content, expectedFieldExtension);
         AssertDoesNotContainDocument(content, cpf);
         AssertDoesNotContainDocument(content, cnpj);
         Assert.DoesNotContain("Synthetic address", content);
@@ -2119,6 +2126,20 @@ public sealed class ClientEndpointTests : IAsyncLifetime
         Assert.True(response.Headers.CacheControl?.NoStore);
         Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
         Assert.Null(response.Headers.Location);
+    }
+
+    private static void AssertFieldExtension(string content, string? expectedField)
+    {
+        using JsonDocument problem = JsonDocument.Parse(content);
+        Assert.Equal("Invalid request data", problem.RootElement.GetProperty("title").GetString());
+
+        if (expectedField is null)
+        {
+            Assert.False(problem.RootElement.TryGetProperty("field", out _));
+            return;
+        }
+
+        Assert.Equal(expectedField, problem.RootElement.GetProperty("field").GetString());
     }
 
     private static async Task AssertProblemResponseAsync(

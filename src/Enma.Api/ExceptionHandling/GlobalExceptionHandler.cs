@@ -88,6 +88,22 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
         problemDetails.Extensions["traceId"] =
             Activity.Current?.Id ?? httpContext.TraceIdentifier;
 
+        if (exception is LegalDocumentUploadOutcomeUnknownException)
+        {
+            problemDetails.Extensions["code"] =
+                ProblemCodes.DocumentUploadOutcomeUnknown;
+        }
+
+        // Only the parameter name already embedded in the detail as
+        // "(Parameter '...')" is exposed, never the submitted value.
+        if (exception is RequestValidationException
+            {
+                InnerException: ArgumentException { ParamName: { Length: > 0 } field }
+            })
+        {
+            problemDetails.Extensions["field"] = field;
+        }
+
         return problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
             HttpContext = httpContext,

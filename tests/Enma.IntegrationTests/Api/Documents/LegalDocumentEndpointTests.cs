@@ -754,6 +754,12 @@ public sealed class LegalDocumentEndpointTests : IAsyncLifetime
         string body = await response.Content.ReadAsStringAsync();
         Assert.Contains("Document upload outcome unknown", body);
         Assert.Contains("may have succeeded", body);
+        using (JsonDocument problem = JsonDocument.Parse(body))
+        {
+            Assert.Equal(
+                "document_upload_outcome_unknown",
+                problem.RootElement.GetProperty("code").GetString());
+        }
         Assert.Contains("Do not retry automatically", body);
         Assert.DoesNotContain("bucket", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("object key", body, StringComparison.OrdinalIgnoreCase);

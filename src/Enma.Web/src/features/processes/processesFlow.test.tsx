@@ -1534,7 +1534,10 @@ describe('Processes operational list and create (Phase 9B.2D-b)', () => {
       lookupResponse([lookupClient]),
       memberLookupResponse([responsibleMember]),
       response(200, { requestToken: 'test-token' }),
-      response(400, { title: 'Related responsible member unavailable' }),
+      response(400, {
+        title: 'Related responsible member unavailable',
+        code: 'related_responsible_unavailable',
+      }),
     )
     vi.stubGlobal('fetch', fetchMock)
 

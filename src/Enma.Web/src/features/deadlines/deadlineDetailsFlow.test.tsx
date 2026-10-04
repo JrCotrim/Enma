@@ -1120,6 +1120,7 @@ describe('Deadlines responsible detail (Phase 9C.2e)', () => {
       response(400, {
         title: 'Related responsible member unavailable',
         detail: 'private server reason',
+        code: 'related_responsible_unavailable',
       }),
       response(200, deadlineA),
       memberLookupResponse([]),

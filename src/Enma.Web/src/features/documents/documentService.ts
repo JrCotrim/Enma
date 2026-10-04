@@ -127,14 +127,14 @@ function parseUploadResponse(value: unknown): UploadLegalDocumentResponse {
   return { id }
 }
 
-async function hasOutcomeUnknownTitle(response: Response): Promise<boolean> {
+async function hasOutcomeUnknownCode(response: Response): Promise<boolean> {
   try {
     const value = (await response.json()) as unknown
     return (
       typeof value === 'object' &&
       value !== null &&
-      (value as Record<string, unknown>).title ===
-        'Document upload outcome unknown'
+      (value as Record<string, unknown>).code ===
+        'document_upload_outcome_unknown'
     )
   } catch {
     return false
@@ -274,7 +274,7 @@ export async function uploadDocument(
   if (response.status === 404) throw new DocumentRequestError('not-found')
   if (response.status === 413) throw new DocumentRequestError('too-large')
   if (response.status === 503) throw new DocumentRequestError('unavailable')
-  if (response.status === 500 && await hasOutcomeUnknownTitle(response)) {
+  if (response.status === 500 && await hasOutcomeUnknownCode(response)) {
     throw new DocumentRequestError('outcome-unknown')
   }
 

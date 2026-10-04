@@ -35,6 +35,7 @@ public sealed class LegalDeadlineResponsibleEndpointTests : IAsyncLifetime
     private const string UnavailableTitle = "Related responsible member unavailable";
     private const string UnavailableDetail =
         "The requested responsible member is unavailable.";
+    private const string UnavailableCode = "related_responsible_unavailable";
 
     private static readonly DateTimeOffset Now = new(
         2026,
@@ -165,6 +166,7 @@ public sealed class LegalDeadlineResponsibleEndpointTests : IAsyncLifetime
             ProblemDetails problem = await AssertSafeBadRequestAsync(response);
             Assert.Equal(UnavailableTitle, problem.Title);
             Assert.Equal(UnavailableDetail, problem.Detail);
+            Assert.Equal(UnavailableCode, GetProblemExtension(problem, "code"));
             Assert.DoesNotContain(
                 membershipId.ToString("D"),
                 await response.Content.ReadAsStringAsync(),
@@ -283,6 +285,7 @@ public sealed class LegalDeadlineResponsibleEndpointTests : IAsyncLifetime
             ProblemDetails problem = await AssertSafeBadRequestAsync(response);
             Assert.Equal(UnavailableTitle, problem.Title);
             Assert.Equal(UnavailableDetail, problem.Detail);
+            Assert.Equal(UnavailableCode, GetProblemExtension(problem, "code"));
         }
 
         Assert.Null(
@@ -1232,6 +1235,12 @@ public sealed class LegalDeadlineResponsibleEndpointTests : IAsyncLifetime
             responseContent,
             JsonSerializerOptions.Web);
         return Assert.IsType<ProblemDetails>(problemDetails);
+    }
+
+    private static string? GetProblemExtension(ProblemDetails problem, string name)
+    {
+        Assert.True(problem.Extensions.TryGetValue(name, out object? value));
+        return Assert.IsType<JsonElement>(value).GetString();
     }
 
     private static async Task<ProblemDetails> AssertConflictProblemAsync(

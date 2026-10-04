@@ -177,15 +177,24 @@ describe('createLegalDeadline responsible', () => {
     })
   })
 
-  it('Status400_WithRelatedResponsibleTitle_MapsToSpecificFailure', async () => {
+  it.each([
+    [
+      { title: 'Related responsible member unavailable', code: 'related_responsible_unavailable' },
+      'related-responsible-unavailable' as const,
+    ],
+    [
+      { title: 'Changed title', detail: 'Changed detail', code: 'related_responsible_unavailable' },
+      'related-responsible-unavailable' as const,
+    ],
+    [{ title: 'Related responsible member unavailable' }, 'bad-request' as const],
+    [{ code: 'other_code' }, 'bad-request' as const],
+  ])('Status400_DecidesByCodeNotTitle_%#', async (problem, failure) => {
     vi.stubGlobal(
       'fetch',
       vi
         .fn()
         .mockResolvedValueOnce(csrfResponse())
-        .mockResolvedValueOnce(
-          response(400, { title: 'Related responsible member unavailable' }),
-        ),
+        .mockResolvedValueOnce(response(400, problem)),
     )
 
     await expectFailure(
@@ -198,7 +207,7 @@ describe('createLegalDeadline responsible', () => {
         undefined,
         { responsibleMembershipId: membershipId },
       ),
-      'related-responsible-unavailable',
+      failure,
     )
   })
 })
@@ -249,20 +258,24 @@ describe('changeLegalDeadlineResponsible', () => {
     )
   })
 
-  it('Status400_WithRelatedResponsibleTitle_MapsToSpecificFailure', async () => {
+  it.each([
+    [
+      { title: 'Changed title', detail: 'Changed detail', code: 'related_responsible_unavailable' },
+      'related-responsible-unavailable' as const,
+    ],
+    [{ title: 'Related responsible member unavailable' }, 'bad-request' as const],
+  ])('Status400_DecidesByCodeNotTitle_%#', async (problem, failure) => {
     vi.stubGlobal(
       'fetch',
       vi
         .fn()
         .mockResolvedValueOnce(csrfResponse())
-        .mockResolvedValueOnce(
-          response(400, { title: 'Related responsible member unavailable' }),
-        ),
+        .mockResolvedValueOnce(response(400, problem)),
     )
 
     await expectFailure(
       changeLegalDeadlineResponsible(organizationId, deadlineId, membershipId, vi.fn()),
-      'related-responsible-unavailable',
+      failure,
     )
   })
 })

@@ -236,7 +236,7 @@ async function sendLegalTaskMutation(
     clearCsrfToken()
     try {
       const problem = (await response.json()) as Record<string, unknown>
-      if (problem.title === 'Related assignee unavailable') {
+      if (problem.code === 'related_assignee_unavailable') {
         throw new LegalTaskRequestError('related-assignee-unavailable')
       }
     } catch (error) {
@@ -312,7 +312,7 @@ export async function createLegalTask(
       clearCsrfToken()
       try {
         const problem = (await response.json()) as Record<string, unknown>
-        if (problem.title === 'Related assignee unavailable') {
+        if (problem.code === 'related_assignee_unavailable') {
           throw new LegalTaskRequestError('related-assignee-unavailable')
         }
       } catch (error) {

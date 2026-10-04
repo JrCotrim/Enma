@@ -1014,8 +1014,8 @@ public sealed class LegalTaskEndpointTests : IAsyncLifetime
         }
         Assert.Equal(processStatuses[0], processStatuses[1]);
 
-        (string? Title, string? Detail)[] assigneeResponses =
-            new (string?, string?)[4];
+        (string? Title, string? Detail, string? Code)[] assigneeResponses =
+            new (string?, string?, string?)[5];
         Guid[] assigneeIds =
         [
             Guid.NewGuid(),
@@ -1036,11 +1036,29 @@ public sealed class LegalTaskEndpointTests : IAsyncLifetime
                 await response.Content.ReadAsStringAsync());
             assigneeResponses[index] = (
                 responseDocument.RootElement.GetProperty("title").GetString(),
-                responseDocument.RootElement.GetProperty("detail").GetString());
+                responseDocument.RootElement.GetProperty("detail").GetString(),
+                responseDocument.RootElement.GetProperty("code").GetString());
+        }
+        using (HttpResponseMessage createResponse = await SendMutationAsync(
+            HttpMethod.Post,
+            GetTasksPath(organization.Id),
+            rawHandle,
+            csrf,
+            new { title = "Unavailable assignee", assigneeMembershipId = Guid.NewGuid() }))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+            using JsonDocument responseDocument = JsonDocument.Parse(
+                await createResponse.Content.ReadAsStringAsync());
+            assigneeResponses[4] = (
+                responseDocument.RootElement.GetProperty("title").GetString(),
+                responseDocument.RootElement.GetProperty("detail").GetString(),
+                responseDocument.RootElement.GetProperty("code").GetString());
         }
         Assert.All(
             assigneeResponses,
             response => Assert.Equal(assigneeResponses[0], response));
+        Assert.Equal("Related assignee unavailable", assigneeResponses[0].Title);
+        Assert.Equal("related_assignee_unavailable", assigneeResponses[0].Code);
         Assert.DoesNotContain(
             "inactive",
             assigneeResponses[0].Detail,

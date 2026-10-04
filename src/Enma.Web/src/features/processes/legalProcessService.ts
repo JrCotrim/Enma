@@ -166,7 +166,7 @@ async function throwForRelatedResponsibleUnavailable(
 ): Promise<void> {
   try {
     const problem = (await response.json()) as Record<string, unknown>
-    if (problem.title === 'Related responsible member unavailable') {
+    if (problem.code === 'related_responsible_unavailable') {
       throw new LegalProcessRequestError('related-responsible-unavailable')
     }
   } catch (error) {

@@ -384,7 +384,9 @@ describe('Tasks D2 detail flow', () => {
   })
 
   it.each([
-    [400, { title: 'Related assignee unavailable', detail: 'private' }, 'O responsável selecionado não está mais disponível.'],
+    [400, { title: 'Related assignee unavailable', detail: 'private', code: 'related_assignee_unavailable' }, 'O responsável selecionado não está mais disponível.'],
+    [400, { title: 'Changed title', detail: 'private changed', code: 'related_assignee_unavailable' }, 'O responsável selecionado não está mais disponível.'],
+    [400, { title: 'Related assignee unavailable', detail: 'private' }, 'Não foi possível validar a solicitação. Verifique os dados e tente novamente.'],
     [409, { detail: 'private' }, 'A tarefa foi alterada e não pode mais ser editada nesse estado.'],
     [403, { detail: 'private' }, 'Você não tem permissão para alterar esta tarefa.'],
   ] as const)('TaskAssignment_Status%s_ShowsSafeFeedbackAndRefetches', async (status, problem, message) => {

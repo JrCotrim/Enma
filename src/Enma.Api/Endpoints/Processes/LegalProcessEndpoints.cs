@@ -4,6 +4,7 @@ using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Contracts.Processes;
 using Enma.Api.Endpoints;
+using Enma.Api.ExceptionHandling;
 using Enma.Application.Processes;
 using Enma.Application.Processes.Create;
 using Enma.Application.Processes.Details;
@@ -447,7 +448,11 @@ public static class LegalProcessEndpoints
         return TypedResults.Problem(
             title: "Related responsible member unavailable",
             detail: "The requested responsible member is unavailable.",
-            statusCode: StatusCodes.Status400BadRequest);
+            statusCode: StatusCodes.Status400BadRequest,
+            extensions: new Dictionary<string, object?>
+            {
+                ["code"] = ProblemCodes.RelatedResponsibleUnavailable
+            });
     }
 
     private static IResult CreateConflictProblem(string detail)

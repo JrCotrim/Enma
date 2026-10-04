@@ -1406,6 +1406,9 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         ProblemDetails foreignProblem = await AssertSafeBadRequestAsync(
             assignForeignResponse);
         Assert.Equal("Related responsible member unavailable", foreignProblem.Title);
+        Assert.Equal(
+            "related_responsible_unavailable",
+            GetProblemExtension(foreignProblem, "code"));
         await AssertEmptyResponseAsync(assignLocalResponse, HttpStatusCode.NoContent);
         await AssertEmptyResponseAsync(crossContextGet, HttpStatusCode.NotFound);
         string listBJson = await listB.Content.ReadAsStringAsync();
@@ -1609,6 +1612,9 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         Assert.Equal("Resource conflict", reopenProblem.Title);
         Assert.Contains("responsible", reopenProblem.Detail, StringComparison.Ordinal);
         Assert.Equal("Related responsible member unavailable", unavailableProblem.Title);
+        Assert.Equal(
+            "related_responsible_unavailable",
+            GetProblemExtension(unavailableProblem, "code"));
 
         LegalProcess persistedFirst = await GetPersistedProcessAsync(firstProcess.Id);
         LegalProcess persistedSecond = await GetPersistedProcessAsync(secondProcess.Id);
@@ -2004,6 +2010,9 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
             Assert.Equal(
                 "The requested responsible member is unavailable.",
                 problem.Detail);
+            Assert.Equal(
+                "related_responsible_unavailable",
+                GetProblemExtension(problem, "code"));
             Assert.Null(response.Headers.Location);
         }
 
@@ -2696,6 +2705,12 @@ public sealed class LegalProcessEndpointTests : IAsyncLifetime
         Assert.True(response.Headers.CacheControl?.NoStore);
         Assert.Equal(string.Empty, await response.Content.ReadAsStringAsync());
         Assert.Null(response.Headers.Location);
+    }
+
+    private static string? GetProblemExtension(ProblemDetails problem, string name)
+    {
+        Assert.True(problem.Extensions.TryGetValue(name, out object? value));
+        return Assert.IsType<JsonElement>(value).GetString();
     }
 
     private static async Task<ProblemDetails> AssertSafeBadRequestAsync(

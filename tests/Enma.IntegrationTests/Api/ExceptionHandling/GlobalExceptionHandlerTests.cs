@@ -65,7 +65,48 @@ public sealed class GlobalExceptionHandlerTests
         Assert.Equal(StatusCodes.Status400BadRequest, result.ProblemDetails.Status);
         Assert.Equal("Invalid request data", result.ProblemDetails.Title);
         Assert.Equal(PublicMessage, result.ProblemDetails.Detail);
+        Assert.False(result.ProblemDetails.Extensions.ContainsKey("field"));
+        Assert.False(result.ProblemDetails.Extensions.ContainsKey("code"));
         Assert.Empty(result.Logger.Entries);
+    }
+
+    [Fact]
+    public async Task TryHandleAsync_WithWrappedArgumentException_AddsFieldNameWithoutChangingDetail()
+    {
+        var argumentException = new ArgumentException("Client CPF must be valid.", "cpf");
+        var exception = new RequestValidationException(
+            argumentException.Message,
+            argumentException);
+
+        HandlerResult result = await HandleAsync(exception);
+
+        Assert.True(result.Handled);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.ResponseStatusCode);
+        Assert.Equal("Invalid request data", result.ProblemDetails.Title);
+        Assert.Equal(
+            "Client CPF must be valid. (Parameter 'cpf')",
+            result.ProblemDetails.Detail);
+        Assert.True(result.ProblemDetails.Extensions.TryGetValue("field", out object? field));
+        Assert.Equal("cpf", Assert.IsType<JsonElement>(field).GetString());
+        Assert.Equal(
+            ["field", "traceId"],
+            result.ProblemDetails.Extensions.Keys.Order(StringComparer.Ordinal));
+        Assert.Empty(result.Logger.Entries);
+    }
+
+    [Fact]
+    public async Task TryHandleAsync_WithWrappedArgumentExceptionWithoutParameter_OmitsField()
+    {
+        var argumentException = new ArgumentException("Client value is invalid.");
+        var exception = new RequestValidationException(
+            argumentException.Message,
+            argumentException);
+
+        HandlerResult result = await HandleAsync(exception);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, result.ResponseStatusCode);
+        Assert.Equal("Client value is invalid.", result.ProblemDetails.Detail);
+        Assert.False(result.ProblemDetails.Extensions.ContainsKey("field"));
     }
 
     [Theory]
@@ -118,6 +159,17 @@ public sealed class GlobalExceptionHandlerTests
         Assert.Equal(expectedStatusCode, result.ProblemDetails.Status);
         Assert.Equal(expectedTitle, result.ProblemDetails.Title);
         Assert.Equal(expectedDetail, result.ProblemDetails.Detail);
+        if (exception is LegalDocumentUploadOutcomeUnknownException)
+        {
+            Assert.True(result.ProblemDetails.Extensions.TryGetValue("code", out object? code));
+            Assert.Equal(
+                "document_upload_outcome_unknown",
+                Assert.IsType<JsonElement>(code).GetString());
+        }
+        else
+        {
+            Assert.False(result.ProblemDetails.Extensions.ContainsKey("code"));
+        }
         Assert.DoesNotContain(
             "bucket",
             JsonSerializer.Serialize(result.ProblemDetails),

@@ -4,6 +4,7 @@ using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Contracts.Deadlines;
 using Enma.Api.Endpoints;
+using Enma.Api.ExceptionHandling;
 using Enma.Application.Deadlines;
 using Enma.Application.Deadlines.Complete;
 using Enma.Application.Deadlines.Create;
@@ -372,7 +373,11 @@ public static class LegalDeadlineEndpoints
         return TypedResults.Problem(
             title: "Related responsible member unavailable",
             detail: "The requested responsible member is unavailable.",
-            statusCode: StatusCodes.Status400BadRequest);
+            statusCode: StatusCodes.Status400BadRequest,
+            extensions: new Dictionary<string, object?>
+            {
+                ["code"] = ProblemCodes.RelatedResponsibleUnavailable
+            });
     }
 
     private static LegalDeadlineListItemResponse MapListItem(

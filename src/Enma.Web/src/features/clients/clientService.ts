@@ -44,14 +44,13 @@ export class ClientRequestError extends Error {
 }
 
 const knownClientRequestFields = new Set<string>(clientRequestFields)
-const invalidParameterPattern = /\(Parameter '([A-Za-z]+)'\)/
 
 function isClientRequestField(value: string): value is ClientRequestField {
   return knownClientRequestFields.has(value)
 }
 
-// Only the parameter name is read from the ProblemDetails detail; the server
-// text itself is never surfaced to the user.
+// Only the ProblemDetails "field" extension (a parameter name) is read; the
+// server text itself is never surfaced to the user.
 async function readInvalidField(
   response: Response,
 ): Promise<ClientRequestField | undefined> {
@@ -62,14 +61,10 @@ async function readInvalidField(
       return undefined
     }
 
-    const detail = (body as Record<string, unknown>).detail
-    const parameter =
-      typeof detail === 'string'
-        ? invalidParameterPattern.exec(detail)?.[1]
-        : undefined
+    const field = (body as Record<string, unknown>).field
 
-    return parameter !== undefined && isClientRequestField(parameter)
-      ? parameter
+    return typeof field === 'string' && isClientRequestField(field)
+      ? field
       : undefined
   } catch {
     return undefined

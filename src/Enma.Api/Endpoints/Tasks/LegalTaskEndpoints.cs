@@ -4,6 +4,7 @@ using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Contracts.Tasks;
 using Enma.Api.Endpoints;
+using Enma.Api.ExceptionHandling;
 using Enma.Application.Tasks;
 using Enma.Application.Tasks.Assignment;
 using Enma.Application.Tasks.Complete;
@@ -475,7 +476,11 @@ public static class LegalTaskEndpoints
         return TypedResults.Problem(
             title: "Related assignee unavailable",
             detail: "The requested assignee is unavailable.",
-            statusCode: StatusCodes.Status400BadRequest);
+            statusCode: StatusCodes.Status400BadRequest,
+            extensions: new Dictionary<string, object?>
+            {
+                ["code"] = ProblemCodes.RelatedAssigneeUnavailable
+            });
     }
 
     private static IResult CreateTaskConflictProblem()

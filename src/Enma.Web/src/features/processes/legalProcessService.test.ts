@@ -277,9 +277,19 @@ describe('createLegalProcess', () => {
     ],
     [
       400,
-      { title: 'Related responsible member unavailable' },
+      {
+        title: 'Related responsible member unavailable',
+        code: 'related_responsible_unavailable',
+      },
       'related-responsible-unavailable' as const,
     ],
+    [
+      400,
+      { title: 'Changed title', detail: 'Changed detail', code: 'related_responsible_unavailable' },
+      'related-responsible-unavailable' as const,
+    ],
+    [400, { title: 'Related responsible member unavailable' }, 'bad-request' as const],
+    [400, { title: 'Related responsible member unavailable', code: 'other_code' }, 'bad-request' as const],
     [400, { title: 'One or more validation errors occurred.' }, 'bad-request' as const],
     [400, undefined, 'bad-request' as const],
   ])('Status%s_MapsToFailure', async (status, body, failure) => {
@@ -379,18 +389,26 @@ describe.each(operationalChanges)('$name', ({ path, body, send }) => {
     await expectFailure(send(), failure)
   })
 
-  it('Status400_WithRelatedResponsibleTitle_MapsToSpecificFailure', async () => {
+  it.each([
+    [
+      { title: 'Related responsible member unavailable', code: 'related_responsible_unavailable' },
+      'related-responsible-unavailable' as const,
+    ],
+    [
+      { title: 'Changed title', detail: 'Changed detail', code: 'related_responsible_unavailable' },
+      'related-responsible-unavailable' as const,
+    ],
+    [{ title: 'Related responsible member unavailable' }, 'bad-request' as const],
+  ])('Status400_DecidesByCodeNotTitle_%#', async (problem, failure) => {
     vi.stubGlobal(
       'fetch',
       vi
         .fn()
         .mockResolvedValueOnce(csrfResponse())
-        .mockResolvedValueOnce(
-          response(400, { title: 'Related responsible member unavailable' }),
-        ),
+        .mockResolvedValueOnce(response(400, problem)),
     )
 
-    await expectFailure(send(), 'related-responsible-unavailable')
+    await expectFailure(send(), failure)
   })
 
   it('Status400_ClearsCsrfTokenBeforeNextRequest', async () => {

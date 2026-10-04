@@ -148,4 +148,29 @@ describe('Agenda API client', () => {
     expect(fetchMock.mock.calls[3]?.[1]?.method).toBe('PUT')
     expect(fetchMock.mock.calls[4]?.[1]?.method).toBe('DELETE')
   })
+
+  it.each([
+    [
+      { title: 'Related assignee unavailable', code: 'related_assignee_unavailable' },
+      'related-assignee-unavailable',
+    ],
+    [
+      { title: 'Changed title', detail: 'Changed detail', code: 'related_assignee_unavailable' },
+      'related-assignee-unavailable',
+    ],
+    [{ title: 'Related assignee unavailable' }, 'bad-request'],
+    [{ title: 'Related assignee unavailable', code: 'other_code' }, 'bad-request'],
+  ] as const)('CreateCalendarEvent_Status400_DecidesByCodeNotTitle_%#', async (problem, failure) => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+        .mockResolvedValueOnce(response(400, problem)),
+    )
+
+    await expect(createCalendarEvent(organizationId, request, vi.fn())).rejects.toMatchObject({
+      failure,
+    })
+  })
 })

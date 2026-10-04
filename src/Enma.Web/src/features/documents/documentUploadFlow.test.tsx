@@ -367,6 +367,7 @@ describe('Documents D2 upload flow', () => {
             title: 'Document upload outcome unknown',
             detail: 'The upload may have succeeded. Do not retry automatically.',
             traceId: 'safe-synthetic-trace',
+            code: 'document_upload_outcome_unknown',
           })
         : undefined,
     )
@@ -391,6 +392,42 @@ describe('Documents D2 upload flow', () => {
     })
     expect(screen.getByText(/resultado é incerto/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Enviar documento' })).toBeDisabled()
+  })
+
+  it.each([
+    [
+      { title: 'Changed title', detail: 'Changed detail', code: 'document_upload_outcome_unknown' },
+      true,
+    ],
+    [
+      {
+        title: 'Document upload outcome unknown',
+        detail: 'The upload may have succeeded. Do not retry automatically.',
+      },
+      false,
+    ],
+    [{ title: 'Document upload outcome unknown', code: 'other_code' }, false],
+  ])('UploadError_Status500_DecidesOutcomeUnknownByCodeNotTitle_%#', async (problem, isOutcomeUnknown) => {
+    const fetchMock = createFetch((url, init) =>
+      url.pathname.endsWith('/documents') && init?.method === 'POST'
+        ? response(500, problem)
+        : undefined,
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    renderDocuments()
+    await openUploadAndSelect()
+    fireEvent.submit(screen.getByRole('button', { name: 'Enviar documento' }).closest('form')!)
+
+    if (isOutcomeUnknown) {
+      expect(await screen.findByText(/resultado é incerto/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Enviar documento' })).toBeDisabled()
+    } else {
+      expect(
+        await screen.findByText('Não foi possível enviar o documento. Tente novamente mais tarde.'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/resultado é incerto/)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Enviar documento' })).toBeEnabled()
+    }
   })
 
   it('DeleteDocument_OwnerConfirmsWithCsrfAndRefreshesList', async () => {

@@ -1231,6 +1231,7 @@ describe('Clients 9D person type and documents on detail and edit', () => {
 
   it.each([
     ['cpf', 'CPF', "Client CPF must be valid. (Parameter 'cpf')", 'CPF inválido.'],
+    ['cpf', 'CPF', 'Changed server text.', 'CPF inválido.'],
     [
       'address',
       'Endereço',
@@ -1245,10 +1246,10 @@ describe('Clients 9D person type and documents on detail and edit', () => {
     ],
   ] as const)(
     'ClientEdit_BadRequest_%s_ShowsFieldMessageAndKeepsFormOpen',
-    async (_parameter, label, detail, message) => {
+    async (parameter, label, detail, message) => {
       const fetchMock = editFetch(
         clientA,
-        response(400, { title: 'Invalid request data', status: 400, detail }),
+        response(400, { title: 'Invalid request data', status: 400, detail, field: parameter }),
       )
       vi.stubGlobal('fetch', fetchMock)
 
@@ -1274,13 +1275,20 @@ describe('Clients 9D person type and documents on detail and edit', () => {
     },
   )
 
-  it('ClientEdit_BadRequestWithoutKnownParameter_ShowsGenericMutationError', async () => {
+  it.each([
+    [
+      "Client person type must be a valid value. (Parameter 'personType')",
+      'personType',
+    ],
+    ["Client CPF must be valid. (Parameter 'cpf')", undefined],
+  ])('ClientEdit_BadRequestWithoutKnownField_ShowsGenericMutationError_%#', async (detail, field) => {
     const fetchMock = editFetch(
       clientA,
       response(400, {
         title: 'Invalid request data',
         status: 400,
-        detail: "Client person type must be a valid value. (Parameter 'personType')",
+        detail,
+        ...(field === undefined ? {} : { field }),
       }),
     )
     vi.stubGlobal('fetch', fetchMock)
@@ -1294,7 +1302,7 @@ describe('Clients 9D person type and documents on detail and edit', () => {
     expect(alert).toHaveTextContent(
       'Não foi possível concluir a solicitação. Tente novamente.',
     )
-    expect(alert).not.toHaveTextContent(/Parameter|person type/)
+    expect(alert).not.toHaveTextContent(/Parameter|person type|CPF must/)
   })
 
   it('ClientEdit_DuplicateCnpj_ShowsMessageOnDocumentField', async () => {

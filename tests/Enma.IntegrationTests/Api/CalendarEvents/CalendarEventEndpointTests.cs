@@ -757,7 +757,8 @@ public sealed class CalendarEventEndpointTests : IAsyncLifetime
             missingAssigneeCreate,
             foreignAssigneeCreate,
             HttpStatusCode.BadRequest,
-            "Related assignee unavailable");
+            "Related assignee unavailable",
+            "related_assignee_unavailable");
 
         string updatePath = GetEventPath(graph.Organization.Id, ownEvent.Id);
         await AssertRelatedNotFoundPairAsync(
@@ -795,7 +796,8 @@ public sealed class CalendarEventEndpointTests : IAsyncLifetime
             missingAssignee,
             foreignAssignee,
             HttpStatusCode.BadRequest,
-            "Related assignee unavailable");
+            "Related assignee unavailable",
+            "related_assignee_unavailable");
 
         CalendarEvent persisted = await GetPersistedEventAsync(ownEvent.Id);
         Assert.Equal("Related unchanged", persisted.Title);
@@ -834,7 +836,8 @@ public sealed class CalendarEventEndpointTests : IAsyncLifetime
         HttpResponseMessage first,
         HttpResponseMessage second,
         HttpStatusCode expectedStatusCode,
-        string expectedTitle)
+        string expectedTitle,
+        string expectedCode)
     {
         Assert.Equal(expectedStatusCode, first.StatusCode);
         Assert.Equal(expectedStatusCode, second.StatusCode);
@@ -847,6 +850,10 @@ public sealed class CalendarEventEndpointTests : IAsyncLifetime
         Assert.Equal(expectedTitle, firstProblem.Title);
         Assert.Equal(firstProblem.Title, secondProblem.Title);
         Assert.Equal(firstProblem.Detail, secondProblem.Detail);
+        Assert.True(firstProblem.Extensions.TryGetValue("code", out object? firstCode));
+        Assert.True(secondProblem.Extensions.TryGetValue("code", out object? secondCode));
+        Assert.Equal(expectedCode, Assert.IsType<JsonElement>(firstCode).GetString());
+        Assert.Equal(expectedCode, Assert.IsType<JsonElement>(secondCode).GetString());
     }
 
     private static string[] GetPropertyNames<T>()

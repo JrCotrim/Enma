@@ -676,11 +676,12 @@ describe('Clients 9D person type and documents on create', () => {
     return JSON.parse(init.body as string)
   }
 
-  function problem(detail: string) {
+  function problem(detail: string, field?: string) {
     return response(400, {
       title: 'Invalid request data',
       status: 400,
       detail,
+      ...(field === undefined ? {} : { field }),
     })
   }
 
@@ -874,8 +875,8 @@ describe('Clients 9D person type and documents on create', () => {
     ],
   ] as const)(
     'ClientCreate_BadRequest_%s_%s_ShowsFieldMessageWithoutServerText',
-    async (personType, _parameter, label, detail, message) => {
-      const fetchMock = createFetch(problem(detail))
+    async (personType, parameter, label, detail, message) => {
+      const fetchMock = createFetch(problem(detail, parameter))
       await openCreate(fetchMock)
 
       if (personType === 'company') {
@@ -909,10 +910,31 @@ describe('Clients 9D person type and documents on create', () => {
     },
   )
 
+  it('ClientCreate_BadRequest_FieldWithChangedDetail_ShowsFieldMessage', async () => {
+    const fetchMock = createFetch(problem('Changed server text.', 'cpf'))
+    await openCreate(fetchMock)
+
+    fireEvent.change(screen.getByLabelText('Nome'), {
+      target: { value: 'Cliente Erro' },
+    })
+    fireEvent.change(screen.getByLabelText('CPF'), {
+      target: { value: 'valor sintético' },
+    })
+    submitCreate()
+
+    const fieldMessage = await screen.findByText('CPF inválido.')
+    expect(screen.getByLabelText('CPF')).toHaveAttribute('aria-describedby', fieldMessage.id)
+    expect(screen.queryByText('Changed server text.')).not.toBeInTheDocument()
+  })
+
   it.each([
     [
       'UnrecognizedParameter',
-      () => problem("Value is invalid. (Parameter 'organizationId')"),
+      () => problem("Value is invalid. (Parameter 'organizationId')", 'organizationId'),
+    ],
+    [
+      'ParameterTextWithoutField',
+      () => problem("Client CPF must be valid. (Parameter 'cpf')"),
     ],
     ['NoParameter', () => problem('The antiforgery token is invalid.')],
     ['NonJsonBody', () => new Response('bad request', { status: 400 })],

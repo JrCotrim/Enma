@@ -229,7 +229,7 @@ export async function createCalendarEvent(
       clearCsrfToken()
       try {
         const problem = (await response.json()) as Record<string, unknown>
-        if (problem.title === 'Related assignee unavailable') {
+        if (problem.code === 'related_assignee_unavailable') {
           throw new AgendaRequestError('related-assignee-unavailable')
         }
       } catch (error) {

@@ -758,7 +758,11 @@ describe('Tasks D1 flow', () => {
       taskListResponse([]),
       memberLookupResponse([otherMember]),
       response(200, { requestToken: 'csrf-token' }),
-      response(400, { title: 'Related assignee unavailable', detail: 'private' }),
+      response(400, {
+        title: 'Changed title',
+        detail: 'private',
+        code: 'related_assignee_unavailable',
+      }),
     )
     vi.stubGlobal('fetch', fetchMock)
     renderRoute(`/organizations/${organizationA.id}/tasks`)
@@ -773,6 +777,29 @@ describe('Tasks D1 flow', () => {
       'O responsável selecionado não está mais disponível.',
     )
     expect(screen.getByRole('combobox', { name: 'Responsável da tarefa' })).toHaveValue('unassigned')
+  })
+
+  it('TaskCreate_RelatedAssigneeTitleWithoutCode_ShowsGenericValidation', async () => {
+    const fetchMock = authenticatedFetch(
+      [organizationA],
+      taskListResponse([]),
+      memberLookupResponse([otherMember]),
+      response(200, { requestToken: 'csrf-token' }),
+      response(400, { title: 'Related assignee unavailable', detail: 'private' }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    renderRoute(`/organizations/${organizationA.id}/tasks`)
+    await screen.findByText('Não há tarefas pendentes.')
+    fireEvent.click(screen.getByRole('button', { name: 'Nova tarefa' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Responsável da tarefa' }), {
+      target: { value: 'other' },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: otherMember.displayName }))
+    submitTask()
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Verifique os dados da tarefa e tente novamente.',
+    )
+    expect(screen.getByRole('combobox', { name: 'Responsável da tarefa' })).toHaveValue('other')
   })
 
   it('TaskCreate_LateCompletionAfterOrganizationSwitch_DoesNotAffectNewFormOrList', async () => {

@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Contracts.CalendarEvents;
+using Enma.Api.ExceptionHandling;
 using Enma.Application.CalendarEvents;
 using Enma.Application.CalendarEvents.Assignment;
 using Enma.Application.CalendarEvents.Create;
@@ -309,6 +310,10 @@ public static class CalendarEventEndpoints
         return TypedResults.Problem(
             title: "Related assignee unavailable",
             detail: "The requested assignee is unavailable.",
-            statusCode: StatusCodes.Status400BadRequest);
+            statusCode: StatusCodes.Status400BadRequest,
+            extensions: new Dictionary<string, object?>
+            {
+                ["code"] = ProblemCodes.RelatedAssigneeUnavailable
+            });
     }
 }

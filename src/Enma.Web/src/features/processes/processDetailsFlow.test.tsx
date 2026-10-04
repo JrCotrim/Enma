@@ -1461,6 +1461,7 @@ describe('Process detail operations (Phase 9B.2D-c)', () => {
       response(400, {
         title: 'Related responsible member unavailable',
         detail: 'private membership detail',
+        code: 'related_responsible_unavailable',
       }),
       response(200, processA),
       memberLookupResponse([]),
