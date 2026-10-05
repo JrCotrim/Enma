@@ -23,7 +23,11 @@ import {
   isUsableGuid,
   listAuditLogs,
 } from './auditLogService'
-import type { AuditLogDetails, AuditLogPageResponse } from './auditLogTypes'
+import type {
+  AuditLogDetails,
+  AuditLogItem,
+  AuditLogPageResponse,
+} from './auditLogTypes'
 
 const pageSize = 20
 const maximumPageNumber = Math.floor(2_147_483_647 / pageSize) + 1
@@ -64,6 +68,22 @@ function MembershipValue({
   )
 }
 
+function AuditActor({ item }: { readonly item: AuditLogItem }) {
+  return (
+    <>
+      <span className="audit-actor-name">
+        {item.actorDisplayName ?? 'Membro desconhecido'}
+        {item.actorMembershipActive === false ? (
+          <span className="audit-actor-status"> (inativo)</span>
+        ) : null}
+      </span>
+      <span className="audit-actor-role">
+        {getAuditRoleLabel(item.actorRoleAtOccurrence)}
+      </span>
+    </>
+  )
+}
+
 function AuditDetails({ details }: { readonly details: AuditLogDetails | null }) {
   if (details === null) return <span>Sem detalhes adicionais.</span>
 
@@ -80,6 +100,12 @@ function AuditDetails({ details }: { readonly details: AuditLogDetails | null })
         <dl className="audit-details-list">
           <div><dt>Papel anterior</dt><dd>{getAuditRoleLabel(details.oldRole)}</dd></div>
           <div><dt>Novo papel</dt><dd>{getAuditRoleLabel(details.newRole)}</dd></div>
+        </dl>
+      )
+    case 'organization_invitation.created':
+      return (
+        <dl className="audit-details-list">
+          <div><dt>Papel do convite</dt><dd>{getAuditRoleLabel(details.role)}</dd></div>
         </dl>
       )
     case 'legal_deadline.details_changed':
@@ -437,7 +463,7 @@ function OrganizationAuditLogPage() {
                         <th scope="col">Evento</th>
                         <th scope="col">Entidade</th>
                         <th scope="col">Data e hora</th>
-                        <th scope="col">Papel do ator</th>
+                        <th scope="col">Ator</th>
                         <th scope="col">Detalhes</th>
                       </tr>
                     </thead>
@@ -458,10 +484,8 @@ function OrganizationAuditLogPage() {
                           <td className="audit-time-cell" data-label="Data e hora">
                             <time dateTime={item.occurredAt}>{formatAuditTimestamp(item.occurredAt)}</time>
                           </td>
-                          <td data-label="Papel do ator">
-                            <span className="audit-actor-role">
-                              {getAuditRoleLabel(item.actorRoleAtOccurrence)}
-                            </span>
+                          <td className="audit-actor-cell" data-label="Ator">
+                            <AuditActor item={item} />
                           </td>
                           <td className="audit-details-cell" data-label="Detalhes">
                             <AuditDetails details={item.details} />

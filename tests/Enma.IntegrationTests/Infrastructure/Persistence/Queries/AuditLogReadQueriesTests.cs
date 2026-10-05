@@ -5,6 +5,7 @@ using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Persistence.Queries;
+using Microsoft.EntityFrameworkCore;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence.Queries;
 
@@ -213,6 +214,158 @@ public sealed class AuditLogReadQueriesTests(PostgreSqlFixture fixture)
         Assert.Empty(dbContext.ChangeTracker.Entries());
     }
 
+    [Fact]
+    public async Task ListAsync_ResolvesActorCurrentNameAndMembershipState()
+    {
+        TestActor owner = CreateActor("Name Owner", OrganizationRole.Owner);
+        TestActor inactive = CreateActorInOrganization(
+            owner.Organization,
+            "Name Inactive",
+            OrganizationRole.Administrator);
+        TestActor renamed = CreateActorInOrganization(
+            owner.Organization,
+            "Name Renamed",
+            OrganizationRole.Member);
+        AuditLog ownerLog = CreateAuditLog(
+            owner,
+            Guid.Parse("50000000-0000-0000-0000-000000000001"),
+            AuditEventType.ClientCreated,
+            Guid.NewGuid());
+        AuditLog inactiveLog = CreateAuditLog(
+            inactive,
+            Guid.Parse("50000000-0000-0000-0000-000000000002"),
+            AuditEventType.ClientCreated,
+            Guid.NewGuid());
+        AuditLog renamedLog = CreateAuditLog(
+            renamed,
+            Guid.Parse("50000000-0000-0000-0000-000000000003"),
+            AuditEventType.ClientCreated,
+            Guid.NewGuid());
+        await SeedAsync(
+            [owner, inactive, renamed],
+            [ownerLog, inactiveLog, renamedLog],
+            [owner.Organization]);
+        await using (EnmaDbContext mutationContext = fixture.CreateDbContext())
+        {
+            OrganizationMembership membership = await mutationContext
+                .OrganizationMemberships
+                .SingleAsync(value => value.Id == inactive.Membership.Id);
+            User user = await mutationContext.Users
+                .SingleAsync(value => value.Id == renamed.User.Id);
+            membership.Deactivate();
+            user.Rename("Name Renamed Current");
+            await mutationContext.SaveChangesAsync();
+        }
+
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var queries = new AuditLogReadQueries(dbContext);
+
+        AuditLogReadPage page = await queries.ListAsync(CreateQuery(
+            owner.Organization.Id));
+
+        AuditLogReadModel ownerItem = Assert.Single(
+            page.Items,
+            item => item.Id == ownerLog.Id);
+        AuditLogReadModel inactiveItem = Assert.Single(
+            page.Items,
+            item => item.Id == inactiveLog.Id);
+        AuditLogReadModel renamedItem = Assert.Single(
+            page.Items,
+            item => item.Id == renamedLog.Id);
+        Assert.Equal("Name Owner Actor", ownerItem.ActorDisplayName);
+        Assert.True(ownerItem.ActorMembershipActive);
+        Assert.Equal(OrganizationRole.Owner, ownerItem.ActorRoleAtOccurrence);
+        Assert.Equal("Name Inactive Actor", inactiveItem.ActorDisplayName);
+        Assert.False(inactiveItem.ActorMembershipActive);
+        Assert.Equal("Name Renamed Current", renamedItem.ActorDisplayName);
+        Assert.True(renamedItem.ActorMembershipActive);
+        Assert.Equal(3, page.TotalCount);
+        Assert.Empty(dbContext.ChangeTracker.Entries());
+    }
+
+    [Fact]
+    public async Task ListAsync_UserInTwoOrganizations_ResolvesActorPerTenantPair()
+    {
+        TestActor sharedInFirst = CreateActor("Pair First", OrganizationRole.Owner);
+        Organization secondOrganization = CreateOrganization("Pair Second");
+        var sharedInSecondMembership = new OrganizationMembership(
+            secondOrganization.Id,
+            sharedInFirst.User.Id,
+            OrganizationRole.Member,
+            OccurredAt.AddHours(-1));
+        sharedInSecondMembership.Deactivate();
+        var sharedInSecond = new TestActor(
+            secondOrganization,
+            sharedInFirst.User,
+            sharedInSecondMembership);
+        TestActor firstOnly = CreateActorInOrganization(
+            sharedInFirst.Organization,
+            "Pair First Only",
+            OrganizationRole.Administrator);
+        TestActor secondOnly = CreateActorInOrganization(
+            secondOrganization,
+            "Pair Second Only",
+            OrganizationRole.Owner);
+        AuditLog firstSharedLog = CreateAuditLog(
+            sharedInFirst,
+            Guid.Parse("51000000-0000-0000-0000-000000000001"),
+            AuditEventType.ClientCreated,
+            Guid.NewGuid());
+        AuditLog firstOnlyLog = CreateAuditLog(
+            firstOnly,
+            Guid.Parse("51000000-0000-0000-0000-000000000002"),
+            AuditEventType.ClientCreated,
+            Guid.NewGuid());
+        AuditLog secondSharedLog = CreateAuditLog(
+            sharedInSecond,
+            Guid.Parse("51000000-0000-0000-0000-000000000003"),
+            AuditEventType.ClientCreated,
+            Guid.NewGuid());
+        AuditLog secondOnlyLog = CreateAuditLog(
+            secondOnly,
+            Guid.Parse("51000000-0000-0000-0000-000000000004"),
+            AuditEventType.ClientCreated,
+            Guid.NewGuid());
+        await SeedAsync(
+            [sharedInFirst, sharedInSecond, firstOnly, secondOnly],
+            [firstSharedLog, firstOnlyLog, secondSharedLog, secondOnlyLog],
+            [sharedInFirst.Organization, secondOrganization],
+            [sharedInFirst.User, firstOnly.User, secondOnly.User]);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        var queries = new AuditLogReadQueries(dbContext);
+
+        AuditLogReadPage first = await queries.ListAsync(CreateQuery(
+            sharedInFirst.Organization.Id));
+        AuditLogReadPage second = await queries.ListAsync(CreateQuery(
+            secondOrganization.Id));
+
+        Assert.Equal(
+            new[] { firstSharedLog.Id, firstOnlyLog.Id }.Order(),
+            first.Items.Select(item => item.Id).Order());
+        Assert.Equal(
+            new[] { secondSharedLog.Id, secondOnlyLog.Id }.Order(),
+            second.Items.Select(item => item.Id).Order());
+        Assert.Equal(
+            ["Pair First Actor", "Pair First Only Actor"],
+            first.Items.Select(item => item.ActorDisplayName).Order());
+        Assert.Equal(
+            ["Pair First Actor", "Pair Second Only Actor"],
+            second.Items.Select(item => item.ActorDisplayName).Order());
+        AuditLogReadModel firstShared = Assert.Single(
+            first.Items,
+            item => item.Id == firstSharedLog.Id);
+        AuditLogReadModel secondShared = Assert.Single(
+            second.Items,
+            item => item.Id == secondSharedLog.Id);
+        Assert.Equal(sharedInFirst.Membership.Id, firstShared.ActorMembershipId);
+        Assert.True(firstShared.ActorMembershipActive);
+        Assert.Equal(OrganizationRole.Owner, firstShared.ActorRoleAtOccurrence);
+        Assert.Equal(sharedInSecondMembership.Id, secondShared.ActorMembershipId);
+        Assert.False(secondShared.ActorMembershipActive);
+        Assert.Equal(OrganizationRole.Member, secondShared.ActorRoleAtOccurrence);
+        Assert.Empty(dbContext.ChangeTracker.Entries());
+    }
+
     private static AuditLogReadQuery CreateQuery(
         Guid organizationId,
         AuditEventType? eventType = null,
@@ -232,11 +385,14 @@ public sealed class AuditLogReadQueriesTests(PostgreSqlFixture fixture)
 
     private async Task SeedAsync(
         IReadOnlyCollection<TestActor> actors,
-        IReadOnlyCollection<AuditLog> auditLogs)
+        IReadOnlyCollection<AuditLog> auditLogs,
+        IReadOnlyCollection<Organization>? organizations = null,
+        IReadOnlyCollection<User>? users = null)
     {
         await using EnmaDbContext dbContext = fixture.CreateDbContext();
-        dbContext.Organizations.AddRange(actors.Select(actor => actor.Organization));
-        dbContext.Users.AddRange(actors.Select(actor => actor.User));
+        dbContext.Organizations.AddRange(
+            organizations ?? actors.Select(actor => actor.Organization));
+        dbContext.Users.AddRange(users ?? actors.Select(actor => actor.User));
         dbContext.OrganizationMemberships.AddRange(
             actors.Select(actor => actor.Membership));
         dbContext.AuditLogs.AddRange(auditLogs);
@@ -245,13 +401,25 @@ public sealed class AuditLogReadQueriesTests(PostgreSqlFixture fixture)
 
     private static TestActor CreateActor(string marker, OrganizationRole role)
     {
-        var organization = new Organization(
+        return CreateActorInOrganization(CreateOrganization(marker), marker, role);
+    }
+
+    private static Organization CreateOrganization(string marker)
+    {
+        return new Organization(
             $"{marker} Legal",
-            $"{marker.ToLowerInvariant()}-{Guid.NewGuid():N}",
+            $"{marker.ToLowerInvariant().Replace(' ', '-')}-{Guid.NewGuid():N}",
             OccurredAt.AddHours(-2));
+    }
+
+    private static TestActor CreateActorInOrganization(
+        Organization organization,
+        string marker,
+        OrganizationRole role)
+    {
         var user = new User(
             $"{marker} Actor",
-            $"{marker.ToLowerInvariant()}-{Guid.NewGuid():N}@example.test",
+            $"{marker.ToLowerInvariant().Replace(' ', '-')}-{Guid.NewGuid():N}@example.test",
             OccurredAt.AddHours(-2));
         var membership = new OrganizationMembership(
             organization.Id,

@@ -39,6 +39,8 @@ function auditItem(overrides: Record<string, unknown> = {}) {
     id: '33333333-3333-4333-8333-333333333333',
     actorMembershipId,
     actorRoleAtOccurrence: 'Owner',
+    actorDisplayName: 'Ana Souza',
+    actorMembershipActive: true,
     eventType: 'client.created',
     entityType: 'client',
     entityId,
@@ -677,16 +679,201 @@ describe('Audit G flow', () => {
         organizationId: 'private-organization',
         actorUserId: 'private-user',
         traceId: 'private-trace',
+        actorEmail: 'ator.privado@example.test',
+        email: 'outro.privado@example.test',
       }),
     ])))
 
     renderRoute()
 
     await screen.findByRole('cell', { name: 'Cliente cadastrado' })
+    expect(screen.getByText('Ana Souza')).toBeInTheDocument()
     expect(screen.queryByText(internalActorId)).not.toBeInTheDocument()
     expect(screen.queryByText('private-organization')).not.toBeInTheDocument()
     expect(screen.queryByText('private-user')).not.toBeInTheDocument()
     expect(screen.queryByText('private-trace')).not.toBeInTheDocument()
+    expect(screen.queryByText(/ator\.privado@example\.test/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/outro\.privado@example\.test/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument()
+  })
+
+  it('ActorCell_RendersNameWithRoleAtOccurrenceInactiveMarkerAndFallback', async () => {
+    const longName =
+      'Maria Aparecida dos Santos Albuquerque de Oliveira Vasconcelos Cavalcanti'
+    vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([
+      auditItem({ actorDisplayName: 'Ana Souza', actorMembershipActive: true }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333360',
+        actorRoleAtOccurrence: 'Administrator',
+        actorDisplayName: 'Bruno Lima',
+        actorMembershipActive: false,
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333361',
+        actorRoleAtOccurrence: 'Member',
+        actorDisplayName: null,
+        actorMembershipActive: null,
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333362',
+        actorDisplayName: longName,
+      }),
+    ])))
+
+    renderRoute()
+
+    expect(await screen.findByRole('columnheader', { name: 'Ator' })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Papel do ator' })).not.toBeInTheDocument()
+    const actorCells = Array.from(
+      document.querySelectorAll<HTMLElement>('td[data-label="Ator"]'),
+    )
+    expect(actorCells).toHaveLength(4)
+    expect(document.querySelector('[data-label="Papel do ator"]')).toBeNull()
+
+    const [activeCell, inactiveCell, unknownCell, longCell] = actorCells
+    expect(within(activeCell!).getByText('Ana Souza')).toHaveClass('audit-actor-name')
+    expect(within(activeCell!).getByText('Proprietário')).toHaveClass('audit-actor-role')
+    expect(within(activeCell!).queryByText(/inativo/)).not.toBeInTheDocument()
+
+    const inactiveName = within(inactiveCell!).getByText('Bruno Lima')
+    expect(inactiveName).toHaveClass('audit-actor-name')
+    expect(inactiveName).toHaveTextContent(/^Bruno Lima \(inativo\)$/)
+    expect(within(inactiveCell!).getByText('Administrador')).toHaveClass('audit-actor-role')
+
+    expect(within(unknownCell!).getByText('Membro desconhecido')).toHaveClass('audit-actor-name')
+    expect(within(unknownCell!).getByText('Membro')).toHaveClass('audit-actor-role')
+    expect(within(unknownCell!).queryByText(/inativo/)).not.toBeInTheDocument()
+
+    expect(within(longCell!).getByText(longName)).toHaveClass('audit-actor-name')
+  })
+
+  it.each([
+    ['actorDisplayName ausente', { actorDisplayName: undefined }],
+    ['actorDisplayName numérico', { actorDisplayName: 42 }],
+    ['actorMembershipActive ausente', { actorMembershipActive: undefined }],
+    ['actorMembershipActive textual', { actorMembershipActive: 'false' }],
+  ])('rejeita contrato de ator inválido (%s) com erro seguro', async (_case, overrides) => {
+    vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([auditItem(overrides)])))
+
+    renderRoute()
+
+    expect(
+      await screen.findByRole('heading', { name: 'Não foi possível carregar a auditoria' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Ana Souza')).not.toBeInTheDocument()
+  })
+
+  it('OrganizationInvitationEvents_RenderLabelsEntityRoleDetailsAndFilterOptions', async () => {
+    const invitationId = '44444444-4444-4444-8444-444444444444'
+    vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([
+      auditItem({
+        eventType: 'organization_invitation.created',
+        entityType: 'organization_invitation',
+        entityId: invitationId,
+        details: { type: 'organization_invitation.created', role: 'Administrator' },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333370',
+        eventType: 'organization_invitation.created',
+        entityType: 'organization_invitation',
+        entityId: invitationId,
+        details: { type: 'organization_invitation.created', role: 'Member' },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333371',
+        eventType: 'organization_invitation.revoked',
+        entityType: 'organization_invitation',
+        entityId: invitationId,
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333372',
+        actorRoleAtOccurrence: 'Member',
+        actorDisplayName: 'Convidada Recém-chegada',
+        eventType: 'organization_invitation.accepted',
+        entityType: 'organization_invitation',
+        entityId: invitationId,
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333373',
+        eventType: 'organization_invitation.resent',
+        entityType: 'organization_invitation',
+        entityId: invitationId,
+      }),
+    ])))
+
+    renderRoute()
+
+    const created = await screen.findAllByRole('cell', { name: 'Convite criado' })
+    expect(created).toHaveLength(2)
+    expect(screen.getByRole('cell', { name: 'Convite revogado' })).toBeInTheDocument()
+    const accepted = screen.getByRole('cell', { name: 'Convite aceito' })
+    expect(
+      within(accepted.closest('tr')!).getByText('Convidada Recém-chegada'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: 'Convite reenviado' })).toBeInTheDocument()
+    expect(document.querySelectorAll('.audit-entity-type')).toHaveLength(5)
+    for (const entityLabel of document.querySelectorAll('.audit-entity-type')) {
+      expect(entityLabel).toHaveTextContent(/^Convite$/)
+    }
+    expect(screen.getAllByText('Papel do convite')).toHaveLength(2)
+    const createdDetails = created.map((cell) =>
+      cell.closest('tr')!.querySelector<HTMLElement>('.audit-details-cell')!,
+    )
+    expect(within(createdDetails[0]!).getByText('Administrador')).toBeInTheDocument()
+    expect(within(createdDetails[1]!).getByText('Membro')).toBeInTheDocument()
+    expect(screen.getAllByText('Sem detalhes adicionais.')).toHaveLength(3)
+
+    const eventSelect = screen.getByLabelText('Tipo de evento')
+    for (const [value, label] of [
+      ['organization_invitation.created', 'Convite criado'],
+      ['organization_invitation.revoked', 'Convite revogado'],
+      ['organization_invitation.accepted', 'Convite aceito'],
+      ['organization_invitation.resent', 'Convite reenviado'],
+    ] as const) {
+      expect(within(eventSelect).getByRole('option', { name: label })).toHaveValue(value)
+    }
+    expect(
+      within(screen.getByLabelText('Tipo de entidade')).getByRole('option', {
+        name: 'Convite',
+      }),
+    ).toHaveValue('organization_invitation')
+  })
+
+  it('OrganizationInvitationCreated_DegradesUnknownRoleWithoutExposingValue', async () => {
+    vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([
+      auditItem({
+        eventType: 'organization_invitation.created',
+        entityType: 'organization_invitation',
+        details: { type: 'organization_invitation.created', role: 'Owner' },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333380',
+        eventType: 'organization_invitation.created',
+        entityType: 'organization_invitation',
+        details: {
+          type: 'organization_invitation.created',
+          role: 'segredo-em-papel-de-convite',
+          email: 'convidado@example.test',
+        },
+      }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333381',
+        eventType: 'organization_invitation.created',
+        entityType: 'organization_invitation',
+        details: { type: 'organization_invitation.created', role: 'member' },
+      }),
+    ])))
+
+    renderRoute()
+
+    expect(await screen.findAllByRole('cell', { name: 'Convite criado' })).toHaveLength(3)
+    expect(
+      screen.getAllByText('Detalhes indisponíveis para este tipo de evento.'),
+    ).toHaveLength(3)
+    expect(screen.queryByText('Papel do convite')).not.toBeInTheDocument()
+    expect(screen.queryByText(/segredo-em-papel-de-convite/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/convidado@example\.test/)).not.toBeInTheDocument()
+    expect(screen.queryByText('member')).not.toBeInTheDocument()
   })
 
   it('usa fallback seguro sem expor details de contrato desconhecido', async () => {

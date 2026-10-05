@@ -261,6 +261,21 @@ body:has(.organization-workspace)
   font-weight: 650;
 }
 
+.audit-actor-name {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--audit-text);
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.audit-actor-status {
+  color: var(--audit-subtle);
+  font-weight: 500;
+}
+
 .audit-details-cell {
   color: var(--audit-muted);
   font-size: 0.8rem;

@@ -16,6 +16,10 @@ export const auditEventOptions: readonly {
   { value: 'organization_membership.role_changed', label: 'Papel de membro alterado' },
   { value: 'organization_membership.deactivated', label: 'Membro desativado' },
   { value: 'organization_membership.reactivated', label: 'Membro reativado' },
+  { value: 'organization_invitation.created', label: 'Convite criado' },
+  { value: 'organization_invitation.revoked', label: 'Convite revogado' },
+  { value: 'organization_invitation.accepted', label: 'Convite aceito' },
+  { value: 'organization_invitation.resent', label: 'Convite reenviado' },
   { value: 'client.created', label: 'Cliente cadastrado' },
   { value: 'client.renamed', label: 'Cliente renomeado' },
   { value: 'client.profile_updated', label: 'Perfil do cliente atualizado' },
@@ -56,6 +60,7 @@ export const auditEntityOptions: readonly {
 }[] = [
   { value: 'organization', label: 'Organização' },
   { value: 'organization_membership', label: 'Membro da organização' },
+  { value: 'organization_invitation', label: 'Convite' },
   { value: 'client', label: 'Cliente' },
   { value: 'legal_process', label: 'Processo' },
   { value: 'legal_deadline', label: 'Prazo' },

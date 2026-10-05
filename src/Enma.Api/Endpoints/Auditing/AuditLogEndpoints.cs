@@ -83,6 +83,8 @@ public static class AuditLogEndpoints
             item.Id,
             item.ActorMembershipId,
             MapRole(item.ActorRoleAtOccurrence),
+            item.ActorDisplayName,
+            item.ActorMembershipActive,
             item.EventType.ToCode(),
             item.EntityType.ToCode(),
             item.EntityId,

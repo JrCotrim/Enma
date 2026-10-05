@@ -3,6 +3,10 @@ export const auditEventTypes = [
   'organization_membership.role_changed',
   'organization_membership.deactivated',
   'organization_membership.reactivated',
+  'organization_invitation.created',
+  'organization_invitation.revoked',
+  'organization_invitation.accepted',
+  'organization_invitation.resent',
   'client.created',
   'client.renamed',
   'client.profile_updated',
@@ -39,6 +43,7 @@ export type AuditEventType = (typeof auditEventTypes)[number]
 export const auditEntityTypes = [
   'organization',
   'organization_membership',
+  'organization_invitation',
   'client',
   'legal_process',
   'legal_deadline',
@@ -65,6 +70,10 @@ export const auditPaymentReversalReasons = [
 export type AuditPaymentReversalReason =
   (typeof auditPaymentReversalReasons)[number]
 
+export const auditInvitationRoles = ['Administrator', 'Member'] as const
+
+export type AuditInvitationRole = (typeof auditInvitationRoles)[number]
+
 export type AuditLogDetails =
   | {
       readonly type: 'organization.renamed'
@@ -75,6 +84,10 @@ export type AuditLogDetails =
       readonly type: 'organization_membership.role_changed'
       readonly oldRole: string
       readonly newRole: string
+    }
+  | {
+      readonly type: 'organization_invitation.created'
+      readonly role: AuditInvitationRole
     }
   | {
       readonly type:
@@ -113,6 +126,8 @@ export interface AuditLogItem {
   readonly id: string
   readonly actorMembershipId: string
   readonly actorRoleAtOccurrence: string
+  readonly actorDisplayName: string | null
+  readonly actorMembershipActive: boolean | null
   readonly eventType: string
   readonly entityType: string
   readonly entityId: string

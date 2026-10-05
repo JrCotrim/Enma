@@ -40,23 +40,53 @@ public sealed class AuditLogReadQueries : IAuditLogReadQueries
         }
 
         int totalCount = await auditLogs.CountAsync(cancellationToken);
-        AuditLog[] page = await auditLogs
-            .OrderByDescending(auditLog => auditLog.OccurredAt)
-            .ThenByDescending(auditLog => auditLog.Id)
+
+        // The actor is resolved through the event's own organization and
+        // membership pair, never through a bare membership or user id.
+        var page = await (
+            from auditLog in auditLogs
+            join membership in _dbContext.OrganizationMemberships.AsNoTracking()
+                on new
+                {
+                    auditLog.OrganizationId,
+                    MembershipId = auditLog.ActorMembershipId
+                }
+                equals new
+                {
+                    membership.OrganizationId,
+                    MembershipId = membership.Id
+                }
+                into actorMemberships
+            from actorMembership in actorMemberships.DefaultIfEmpty()
+            join user in _dbContext.Users.AsNoTracking()
+                on actorMembership!.UserId equals user.Id
+                into actorUsers
+            from actorUser in actorUsers.DefaultIfEmpty()
+            orderby auditLog.OccurredAt descending, auditLog.Id descending
+            select new
+            {
+                AuditLog = auditLog,
+                ActorDisplayName = actorUser == null ? null : actorUser.Name,
+                ActorMembershipActive = actorMembership == null
+                    ? (bool?)null
+                    : actorMembership.IsActive
+            })
             .Skip(skippedItems)
             .Take(query.PageSize)
             .ToArrayAsync(cancellationToken);
 
         AuditLogReadModel[] items = page
-            .Select(auditLog => new AuditLogReadModel(
-                auditLog.Id,
-                auditLog.ActorMembershipId,
-                auditLog.ActorRoleAtOccurrence,
-                auditLog.EventType,
-                auditLog.EntityType,
-                auditLog.EntityId,
-                auditLog.OccurredAt,
-                auditLog.Details))
+            .Select(row => new AuditLogReadModel(
+                row.AuditLog.Id,
+                row.AuditLog.ActorMembershipId,
+                row.AuditLog.ActorRoleAtOccurrence,
+                row.ActorDisplayName,
+                row.ActorMembershipActive,
+                row.AuditLog.EventType,
+                row.AuditLog.EntityType,
+                row.AuditLog.EntityId,
+                row.AuditLog.OccurredAt,
+                row.AuditLog.Details))
             .ToArray();
 
         return new AuditLogReadPage(items, totalCount);

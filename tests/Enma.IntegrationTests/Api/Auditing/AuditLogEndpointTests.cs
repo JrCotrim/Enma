@@ -185,6 +185,8 @@ public sealed class AuditLogEndpointTests : IAsyncLifetime
                     "id",
                     "actorMembershipId",
                     "actorRoleAtOccurrence",
+                    "actorDisplayName",
+                    "actorMembershipActive",
                     "eventType",
                     "entityType",
                     "entityId",
@@ -244,6 +246,80 @@ public sealed class AuditLogEndpointTests : IAsyncLifetime
         Assert.DoesNotContain("stackTrace", json, StringComparison.Ordinal);
         Assert.DoesNotContain("filename", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("objectKey", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task List_ExposesActorCurrentNameAndMembershipStateWithoutEmail()
+    {
+        TestActor caller = CreateActor("Actor Caller", OrganizationRole.Owner);
+        var inactiveUser = new User(
+            "Actor Former Administrator",
+            $"actor-former-{Guid.NewGuid():N}@example.test",
+            Now.AddHours(-2));
+        var inactiveMembership = new OrganizationMembership(
+            caller.Organization.Id,
+            inactiveUser.Id,
+            OrganizationRole.Administrator,
+            Now.AddHours(-1));
+        var inactive = new TestActor(
+            caller.Organization,
+            inactiveUser,
+            inactiveMembership);
+        AuditLog callerLog = CreateAuditLog(
+            caller,
+            Guid.Parse("41050000-0000-0000-0000-000000000001"),
+            AuditEventType.ClientCreated,
+            Guid.NewGuid());
+        AuditLog inactiveLog = CreateAuditLog(
+            inactive,
+            Guid.Parse("41050000-0000-0000-0000-000000000002"),
+            AuditEventType.ClientCreated,
+            Guid.NewGuid());
+        inactiveMembership.Deactivate();
+        string rawHandle = await SeedAuthenticatedCallerAsync(
+            caller,
+            [caller.Organization],
+            [caller.User, inactiveUser],
+            [caller.Membership, inactiveMembership],
+            [callerLog, inactiveLog]);
+
+        using HttpResponseMessage response = await SendAsync(
+            GetPath(caller.Organization.Id),
+            rawHandle);
+        string json = await response.Content.ReadAsStringAsync();
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement[] items = document.RootElement
+            .GetProperty("items")
+            .EnumerateArray()
+            .ToArray();
+        JsonElement callerItem = Assert.Single(
+            items,
+            item => item.GetProperty("id").GetGuid() == callerLog.Id);
+        JsonElement inactiveItem = Assert.Single(
+            items,
+            item => item.GetProperty("id").GetGuid() == inactiveLog.Id);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            "Actor Caller Actor",
+            callerItem.GetProperty("actorDisplayName").GetString());
+        Assert.True(callerItem.GetProperty("actorMembershipActive").GetBoolean());
+        Assert.Equal(
+            "Owner",
+            callerItem.GetProperty("actorRoleAtOccurrence").GetString());
+        Assert.Equal(
+            "Actor Former Administrator",
+            inactiveItem.GetProperty("actorDisplayName").GetString());
+        Assert.False(inactiveItem.GetProperty("actorMembershipActive").GetBoolean());
+        Assert.Equal(
+            "Administrator",
+            inactiveItem.GetProperty("actorRoleAtOccurrence").GetString());
+        Assert.DoesNotContain(caller.User.Email, json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(inactiveUser.Email, json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("@", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("email", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("actorUserId", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("organizationId", json, StringComparison.Ordinal);
     }
 
     [Theory]

@@ -6,10 +6,12 @@ import { isValidGuid } from '../deadlines/legalDeadlineFormatting'
 import {
   auditEntityTypes,
   auditEventTypes,
+  auditInvitationRoles,
   auditLegalProcessStatuses,
   auditPaymentReversalReasons,
   type AuditEntityType,
   type AuditEventType,
+  type AuditInvitationRole,
   type AuditLegalProcessStatus,
   type AuditLogDetails,
   type AuditLogFilters,
@@ -55,6 +57,7 @@ const knownChangedFields = {
 } as const
 const knownLegalProcessStatuses = new Set<unknown>(auditLegalProcessStatuses)
 const knownPaymentReversalReasons = new Set<unknown>(auditPaymentReversalReasons)
+const knownInvitationRoles = new Set<unknown>(auditInvitationRoles)
 
 function isAuditLegalProcessStatus(value: unknown): value is AuditLegalProcessStatus {
   return knownLegalProcessStatuses.has(value)
@@ -76,6 +79,10 @@ function isAuditPaymentReversalReason(
   value: unknown,
 ): value is AuditPaymentReversalReason {
   return knownPaymentReversalReasons.has(value)
+}
+
+function isAuditInvitationRole(value: unknown): value is AuditInvitationRole {
+  return knownInvitationRoles.has(value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -133,6 +140,11 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
         knownOrganizationRoles.has(value.newRole)
       ) {
         return { type: value.type, oldRole: value.oldRole, newRole: value.newRole }
+      }
+      return { type: 'unsupported' }
+    case 'organization_invitation.created':
+      if (isAuditInvitationRole(value.role)) {
+        return { type: value.type, role: value.role }
       }
       return { type: 'unsupported' }
     case 'legal_deadline.details_changed':
@@ -198,8 +210,18 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
   throw new AuditLogRequestError('unexpected')
 }
 
+function parseNullableString(value: unknown): string | null | undefined {
+  return value === null || typeof value === 'string' ? value : undefined
+}
+
+function parseNullableBoolean(value: unknown): boolean | null | undefined {
+  return value === null || typeof value === 'boolean' ? value : undefined
+}
+
 function parseItem(value: unknown): AuditLogItem | undefined {
   if (!isRecord(value)) return undefined
+  const actorDisplayName = parseNullableString(value.actorDisplayName)
+  const actorMembershipActive = parseNullableBoolean(value.actorMembershipActive)
 
   if (
     typeof value.id !== 'string' ||
@@ -207,6 +229,8 @@ function parseItem(value: unknown): AuditLogItem | undefined {
     typeof value.actorMembershipId !== 'string' ||
     !isUsableGuid(value.actorMembershipId) ||
     typeof value.actorRoleAtOccurrence !== 'string' ||
+    actorDisplayName === undefined ||
+    actorMembershipActive === undefined ||
     typeof value.eventType !== 'string' ||
     typeof value.entityType !== 'string' ||
     typeof value.entityId !== 'string' ||
@@ -221,6 +245,8 @@ function parseItem(value: unknown): AuditLogItem | undefined {
     id: value.id,
     actorMembershipId: value.actorMembershipId,
     actorRoleAtOccurrence: value.actorRoleAtOccurrence,
+    actorDisplayName,
+    actorMembershipActive,
     eventType: value.eventType,
     entityType: value.entityType,
     entityId: value.entityId,

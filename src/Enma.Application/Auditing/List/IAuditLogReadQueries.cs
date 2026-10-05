@@ -26,6 +26,8 @@ public sealed record AuditLogReadModel(
     Guid Id,
     Guid ActorMembershipId,
     OrganizationRole ActorRoleAtOccurrence,
+    string? ActorDisplayName,
+    bool? ActorMembershipActive,
     AuditEventType EventType,
     AuditEntityType EntityType,
     Guid EntityId,

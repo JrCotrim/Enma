@@ -12,6 +12,8 @@ public sealed record AuditLogResponse(
     Guid Id,
     Guid ActorMembershipId,
     string ActorRoleAtOccurrence,
+    string? ActorDisplayName,
+    bool? ActorMembershipActive,
     string EventType,
     string EntityType,
     Guid EntityId,
