@@ -1893,7 +1893,7 @@ describe('Payment plan detail · Reverse payment', () => {
         'Pagamento desfeito. A parcela voltou a ficar em aberto.',
       )
       expect(success).toHaveAttribute('role', 'status')
-      expect(success).toHaveFocus()
+      await waitFor(() => expect(success).toHaveFocus())
       const posts = fetchMock.mock.calls.filter(isReversePost)
       expect(posts).toHaveLength(1)
       expect(posts[0]![0]).toBe(

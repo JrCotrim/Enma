@@ -31,7 +31,7 @@ public sealed class LegalProcessMigrationTests(
 
     public Task DisposeAsync()
     {
-        return Task.CompletedTask;
+        return fixture.RestoreLatestSchemaAsync();
     }
 
     [Fact]

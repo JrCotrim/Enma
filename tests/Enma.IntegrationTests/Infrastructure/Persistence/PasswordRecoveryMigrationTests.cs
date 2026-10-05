@@ -18,7 +18,7 @@ public sealed class PasswordRecoveryMigrationTests(
         new(2026, 9, 15, 8, 0, 0, TimeSpan.Zero);
 
     public Task InitializeAsync() => fixture.ResetDatabaseAsync();
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() => fixture.RestoreLatestSchemaAsync();
 
     [Fact]
     public async Task MigrationFromPreviousSchemaPreservesCredentialsAndCreatesOnlyRecoveryTable()

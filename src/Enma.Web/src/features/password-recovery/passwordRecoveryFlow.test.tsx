@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAppRoutes } from '../../app/router'
@@ -214,7 +214,7 @@ describe('password recovery flow', () => {
     expect(error).toHaveTextContent(
       'Essa senha já foi identificada como comprometida. Escolha uma senha diferente.',
     )
-    expect(password).toHaveFocus()
+    await waitFor(() => expect(password).toHaveFocus())
     expect(password).toHaveAttribute('aria-invalid', 'true')
     expect(password.getAttribute('aria-describedby')).toContain(error.id)
   })
@@ -233,7 +233,7 @@ describe('password recovery flow', () => {
     expect(error).toHaveTextContent(
       'A nova senha deve ser diferente da senha atual.',
     )
-    expect(password).toHaveFocus()
+    await waitFor(() => expect(password).toHaveFocus())
     expect(password).toHaveAttribute('aria-invalid', 'true')
   })
 

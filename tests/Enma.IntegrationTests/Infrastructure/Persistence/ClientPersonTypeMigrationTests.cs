@@ -37,8 +37,14 @@ public sealed class ClientPersonTypeMigrationTests(
     // shared database below the latest migration.
     public async Task DisposeAsync()
     {
-        await DeleteAllClientsAsync();
-        await MigrateAsync();
+        try
+        {
+            await DeleteAllClientsAsync();
+        }
+        finally
+        {
+            await fixture.RestoreLatestSchemaAsync();
+        }
     }
 
     [Fact]

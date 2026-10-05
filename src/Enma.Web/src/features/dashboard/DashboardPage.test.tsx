@@ -723,7 +723,7 @@ describe('DashboardPage', () => {
       const finance = await screen.findByRole('region', { name: 'Financeiro' })
       const financeContent = within(finance)
 
-      expect(getFinanceOverview).toHaveBeenCalledOnce()
+      await waitFor(() => expect(getFinanceOverview).toHaveBeenCalledOnce())
       expect(getFinanceOverview).toHaveBeenCalledWith(
         ownerOrganization.id,
         authValue.handleUnauthorized,
@@ -771,7 +771,7 @@ describe('DashboardPage', () => {
       expect(
         await screen.findByRole('region', { name: 'Financeiro' }),
       ).toBeInTheDocument()
-      expect(getFinanceOverview).toHaveBeenCalledOnce()
+      await waitFor(() => expect(getFinanceOverview).toHaveBeenCalledOnce())
       expect(getFinanceOverview).toHaveBeenCalledWith(
         administratorOrganization.id,
         authValue.handleUnauthorized,

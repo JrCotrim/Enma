@@ -17,7 +17,7 @@ public sealed class GoogleAuthenticationMigrationTests(
         new(2026, 9, 18, 12, 0, 0, TimeSpan.Zero);
 
     public Task InitializeAsync() => fixture.ResetDatabaseAsync();
-    public Task DisposeAsync() => MigrateAsync();
+    public Task DisposeAsync() => fixture.RestoreLatestSchemaAsync();
 
     [Fact]
     public async Task MigrateAsync_UpAndDown_PreservesLocalCredentialsAndSchema()

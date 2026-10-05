@@ -243,6 +243,7 @@ describe('Processes D2 flow', () => {
     await screen.findByRole('heading', { name: processA.title })
     expect(screen.getByText('Carregando documentos vinculados...')).toBeInTheDocument()
 
+    await waitFor(() => expect(listDocumentsMock).toHaveBeenCalledOnce())
     await act(async () => rejectDocuments?.(new Error('private network detail')))
     const alert = await screen.findByRole('alert')
     expect(alert).not.toHaveTextContent('private network detail')

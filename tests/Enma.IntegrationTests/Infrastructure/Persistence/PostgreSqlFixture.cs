@@ -121,6 +121,36 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         }
     }
 
+    // Migration tests move the shared database to older schemas. Every one of
+    // them restores the latest schema on dispose, including after a failure,
+    // so the following classes of the collection do not fail in cascade. If
+    // the upgrade itself fails, the schema is rebuilt from scratch and the
+    // original error is still reported for the test that left it behind.
+    public async Task RestoreLatestSchemaAsync()
+    {
+        try
+        {
+            await using EnmaDbContext dbContext = CreateDbContext();
+            await dbContext.Database.MigrateAsync();
+        }
+        catch
+        {
+            await RecreateLatestSchemaAsync();
+            throw;
+        }
+    }
+
+    private async Task RecreateLatestSchemaAsync()
+    {
+        await using EnmaDbContext dbContext = CreateDbContext();
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            DROP SCHEMA "public" CASCADE;
+            CREATE SCHEMA "public";
+            """);
+        await dbContext.Database.MigrateAsync();
+    }
+
     public async Task ResetDatabaseAsync(
         CancellationToken cancellationToken = default)
     {

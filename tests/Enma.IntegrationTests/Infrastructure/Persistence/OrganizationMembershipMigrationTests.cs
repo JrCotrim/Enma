@@ -34,7 +34,7 @@ public sealed class OrganizationMembershipMigrationTests(
 
     public Task DisposeAsync()
     {
-        return Task.CompletedTask;
+        return fixture.RestoreLatestSchemaAsync();
     }
 
     [Fact]

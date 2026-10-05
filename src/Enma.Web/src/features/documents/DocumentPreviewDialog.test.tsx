@@ -154,7 +154,11 @@ describe('DocumentPreviewDialog', () => {
     render(<Harness document={pdfDocument} />)
     const trigger = screen.getByRole('button', { name: 'Visualizar' })
 
-    fireEvent.click(trigger)
+    // The frame keydown listener is attached in a passive effect; resolving
+    // the preview inside act flushes that effect before Escape is dispatched.
+    await act(async () => {
+      fireEvent.click(trigger)
+    })
     const pdfFrame = await screen.findByTitle(
       `Conteúdo de ${pdfDocument.originalFileName}`,
     ) as HTMLIFrameElement

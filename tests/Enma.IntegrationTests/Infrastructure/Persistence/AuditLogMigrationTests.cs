@@ -25,7 +25,7 @@ public sealed class AuditLogMigrationTests(
 
     public Task InitializeAsync() => fixture.ResetDatabaseAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync() => fixture.RestoreLatestSchemaAsync();
 
     [Fact]
     public async Task MigrateAsync_FromPreviousSchema_PreservesDataAndCreatesAuditSchema()

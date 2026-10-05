@@ -37,7 +37,7 @@ public sealed class CalendarEventMigrationTests(
 
     public Task DisposeAsync()
     {
-        return Task.CompletedTask;
+        return fixture.RestoreLatestSchemaAsync();
     }
 
     [Fact]

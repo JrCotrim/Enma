@@ -28,7 +28,7 @@ public sealed class AuditLogFinanceTaxonomyMigrationTests(
 
     public Task InitializeAsync() => fixture.ResetDatabaseAsync();
 
-    public Task DisposeAsync() => MigrateAsync();
+    public Task DisposeAsync() => fixture.RestoreLatestSchemaAsync();
 
     [Fact]
     public async Task MigrateAsync_DownAndUp_PreservesAllLegacyTaxonomyRows()
