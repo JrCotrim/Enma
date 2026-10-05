@@ -175,7 +175,8 @@ describe('Clients D2 flow', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Ativo')).toBeInTheDocument()
     expect(screen.getByText(clientA.email!)).toBeInTheDocument()
-    expect(screen.getByText(clientA.phone!)).toBeInTheDocument()
+    expect(screen.getByText('(22) 99999-8888')).toBeInTheDocument()
+    expect(screen.queryByText(clientA.phone!)).not.toBeInTheDocument()
     expect(screen.getByText('529.982.247-25')).toBeInTheDocument()
     expect(screen.queryByText(clientA.cpf!)).not.toBeInTheDocument()
     expect(screen.getByText('Pessoa física')).toBeInTheDocument()
@@ -1159,6 +1160,7 @@ describe('Clients 9D person type and documents on detail and edit', () => {
 
     expect(profileValue('Tipo de pessoa')).toHaveTextContent('Pessoa física')
     expect(profileValue('CPF')).toHaveTextContent('Não informado')
+    expect(profileValue('Telefone')).toHaveTextContent('Não informado')
     expect(profileValue('Endereço')).toHaveTextContent('Não informado')
     expect(profileValue('Observações')).toHaveTextContent('Não informado')
     expect(screen.getAllByText('Não informado')).toHaveLength(5)

@@ -37,6 +37,7 @@ import './team-phase8c4.css'
 import './invitations-phase8c5.css'
 import './finance-phase8c6.css'
 import './audit-phase8c7.css'
+import './enma-consolidation.css'
 
 const rootElement = document.getElementById('root')
 

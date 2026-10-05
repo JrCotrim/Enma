@@ -15,6 +15,7 @@ import {
   formatClientCreatedAt,
   formatCnpj,
   formatCpf,
+  formatPhone,
 } from './clientFormatting'
 import {
   clientFormValuesFrom,
@@ -554,7 +555,7 @@ function ClientDetailsContent({ clientId }: { readonly clientId?: string }) {
           </div>
           <div>
             <dt>Telefone</dt>
-            <dd>{formatOptionalClientField(client.phone)}</dd>
+            <dd>{formatOptionalClientField(client.phone, formatPhone)}</dd>
           </div>
           <div>
             <dt>Endereço</dt>

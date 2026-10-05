@@ -1,0 +1,141 @@
+/* ENMA — C1.C2 consolidation (color and focus only)
+ * Imported last in main.tsx so equal-specificity ties resolve here.
+ * Authenticated workspace only; public pages keep their own rules.
+ * No layout properties: only colors, outlines and custom properties.
+ * Per-screen rules that this file supersedes are intentionally kept (D5).
+ */
+
+:root {
+  --enma-focus-ring: #d6a8ed;
+}
+
+/* =========================================================
+   Focus ring — one indicator for every workspace control
+   (:root prefix keeps specificity above every per-screen
+   :focus-visible rule, including the Perfil/Notificações tabs).
+   ========================================================= */
+
+:root body:has(.organization-workspace) :is(
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: 2px solid var(--enma-focus-ring);
+  outline-offset: 3px;
+}
+
+/* =========================================================
+   Autofill — keep the dark control surface in the workspace
+   ========================================================= */
+
+:root body:has(.organization-workspace) :is(input, textarea, select):-webkit-autofill,
+:root body:has(.organization-workspace) :is(input, textarea, select):-webkit-autofill:hover,
+:root body:has(.organization-workspace) :is(input, textarea, select):-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--enma-v3-text);
+  box-shadow: inset 0 0 0 1000px #211b26;
+  caret-color: var(--enma-focus-ring);
+}
+
+/* =========================================================
+   Legacy colors → workspace tokens
+   ========================================================= */
+
+:root:has(.organization-workspace) {
+  background-color: var(--enma-v3-main);
+}
+
+/* Validation messages on Processos, Prazos and Tarefas. */
+body:has(.organization-workspace) :is(.processes-page, .process-details-page) {
+  --processes-danger: var(--enma-v3-danger);
+}
+
+body:has(.organization-workspace) :is(.deadlines-page, .deadline-details-page) {
+  --deadlines-danger: var(--enma-v3-danger);
+}
+
+body:has(.organization-workspace) :is(.tasks-page, .task-details-page) {
+  --tasks-danger: var(--enma-v3-danger);
+}
+
+/* Base .form-error only: zero-specificity wrappers keep page-specific error
+ * colors and the self-styled error variants untouched. */
+:where(body:has(.organization-workspace)) .form-error:where(
+  :not(.team-mutation-error, .invitation-mutation-error, .task-lookup-status, .audit-filter-error)
+) {
+  color: var(--enma-v3-danger);
+}
+
+/* Dashboard error state: v3 error surface (.invitation-mutation-error pattern). */
+body:has(.organization-workspace) .dashboard-error {
+  color: #f0b0aa;
+  border-color: #6d4541;
+  background: #3d2928;
+}
+
+/* Workspace v3 secondary button for the Dashboard error retry and Agenda.
+ * The month navigation keeps its own v3 rule (enma-app-shell-v3.css). */
+body:has(.organization-workspace) .dashboard-error .secondary-button,
+body:has(.organization-workspace)
+  .agenda-page
+  .secondary-button:not(.agenda-month-navigation .secondary-button) {
+  color: #d0a8e5;
+  border-color: var(--enma-v3-border-strong);
+  background: #251f2b;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+body:has(.organization-workspace) .dashboard-error .secondary-button:hover:not(:disabled),
+body:has(.organization-workspace)
+  .agenda-page
+  .secondary-button:not(.agenda-month-navigation .secondary-button):hover:not(:disabled) {
+  color: #ead9f2;
+  border-color: rgba(210, 166, 235, 0.34);
+  background: var(--enma-v3-surface-hover);
+}
+
+/* Documents table links. */
+body:has(.organization-workspace) .documents-page .documents-table a,
+body:has(.organization-workspace) .documents-page .documents-table a:hover {
+  color: var(--enma-focus-ring);
+}
+
+/* Back links inside detail-page error states (direct-child back links are
+ * already lilac in enma-app-shell-v3.css). */
+body:has(.organization-workspace) :is(
+  .client-details-page,
+  .process-details-page,
+  .deadline-details-page,
+  .task-details-page
+) .home-link {
+  color: #b87bd9;
+}
+
+/* Small secondary text. */
+body:has(.organization-workspace) :is(
+  .clients-pagination,
+  .processes-pagination,
+  .deadlines-pagination,
+  .tasks-pagination,
+  .documents-pagination,
+  .team-pagination,
+  .invitations-pagination,
+  .audit-log-pagination
+),
+body:has(.organization-workspace) .agenda-compact-weekdays span,
+body:has(.organization-workspace) .agenda-compact-panel-eyebrow,
+body:has(.organization-workspace) .audit-filter-control small,
+body:has(.organization-workspace) .notification-kind {
+  color: var(--enma-v3-muted);
+}
+
+/* Audit IDs use `color: var(--enma-ui-text-muted) !important`
+ * (enma-data-primitives.css); retarget the token instead of the color. */
+body:has(.organization-workspace) :is(.audit-entity-id, .audit-membership-id) {
+  --enma-ui-text-muted: var(--enma-v3-muted);
+}

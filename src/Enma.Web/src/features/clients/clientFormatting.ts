@@ -18,6 +18,24 @@ export function formatCpf(cpf: string): string {
     : cpf
 }
 
+const nationalPhonePattern = /^\d{10,11}$/
+const brazilianPhonePattern = /^55\d{10,11}$/
+
+function formatNationalPhone(digits: string): string {
+  const splitAt = digits.length - 4
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, splitAt)}-${digits.slice(splitAt)}`
+}
+
+export function formatPhone(phone: string): string {
+  if (nationalPhonePattern.test(phone)) {
+    return formatNationalPhone(phone)
+  }
+
+  return brazilianPhonePattern.test(phone)
+    ? `+55 ${formatNationalPhone(phone.slice(2))}`
+    : phone
+}
+
 export function formatCnpj(cnpj: string): string {
   return normalizedCnpjPattern.test(cnpj)
     ? `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`
