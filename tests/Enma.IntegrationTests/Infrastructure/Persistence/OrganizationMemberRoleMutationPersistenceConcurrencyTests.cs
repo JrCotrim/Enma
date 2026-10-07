@@ -220,9 +220,11 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
     [Fact]
     public async Task ExecuteAsync_ActorAndTargetLockSetsUseSameOrder_NoDeadlock()
     {
+        // Reversed actor/target pairs over the same two memberships. Only one
+        // Owner can exist, so the reversed request comes from an Administrator.
         Organization organization = CreateOrganization();
         User firstUser = CreateUser("First Owner");
-        User secondUser = CreateUser("Second Owner");
+        User secondUser = CreateUser("Second Administrator");
         var firstMembership = new OrganizationMembership(
             organization.Id,
             firstUser.Id,
@@ -231,7 +233,7 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
         var secondMembership = new OrganizationMembership(
             organization.Id,
             secondUser.Id,
-            OrganizationRole.Owner,
+            OrganizationRole.Administrator,
             CreatedAt);
         await SeedAsync(
             organization,
@@ -262,13 +264,14 @@ public sealed class OrganizationMemberRoleMutationPersistenceConcurrencyTests(
                     persistence.ExecuteAsync(secondRequest, timeout.Token))
                 .WaitAsync(timeout.Token);
 
-        Assert.All(
-            results,
-            result => Assert.Equal(
-                OrganizationMemberRoleMutationPersistenceResult.TargetForbidden,
-                result));
+        Assert.Equal(
+            OrganizationMemberRoleMutationPersistenceResult.Succeeded,
+            results[0]);
+        Assert.Equal(
+            OrganizationMemberRoleMutationPersistenceResult.AccessDenied,
+            results[1]);
         Assert.Equal(OrganizationRole.Owner, await FindRoleAsync(firstMembership.Id));
-        Assert.Equal(OrganizationRole.Owner, await FindRoleAsync(secondMembership.Id));
+        Assert.Equal(OrganizationRole.Member, await FindRoleAsync(secondMembership.Id));
     }
 
     private OrganizationMemberRoleMutationPersistence CreatePersistence()

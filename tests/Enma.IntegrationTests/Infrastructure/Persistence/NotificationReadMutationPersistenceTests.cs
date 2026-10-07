@@ -332,9 +332,13 @@ public sealed class NotificationReadMutationPersistenceTests(
     public async Task ReadFeed_FinanceRequiresCurrentActiveAccess(
         FinanceAccessState state)
     {
+        // An Owner membership is always active; an Administrator also sees
+        // finance notifications, so only the inactive membership hides them.
         TenantGraph graph = CreateGraph(
             $"fin-inactive-{(int)state}",
-            OrganizationRole.Owner);
+            state == FinanceAccessState.InactiveMembership
+                ? OrganizationRole.Administrator
+                : OrganizationRole.Owner);
         if (state == FinanceAccessState.InactiveMembership)
         {
             graph.Membership.Deactivate();

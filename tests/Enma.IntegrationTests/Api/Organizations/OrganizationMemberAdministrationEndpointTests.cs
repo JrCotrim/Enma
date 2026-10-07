@@ -441,10 +441,11 @@ public sealed class OrganizationMemberAdministrationEndpointTests
         User caller = CreateUser(
             "Inactive Membership Caller",
             "inactive.membership.caller@example.test");
+        // An Owner membership is always active; every role may view the team.
         OrganizationMembership membership = CreateMembership(
             organization,
             caller,
-            OrganizationRole.Owner);
+            OrganizationRole.Administrator);
         membership.Deactivate();
         string rawHandle = await SeedAuthenticatedCallerAsync(
             caller,

@@ -82,7 +82,10 @@ public sealed class LegalTaskCreationPersistenceConcurrencyTests(
     [Fact]
     public async Task CreateAsync_WhenActorMembershipDeactivationCommitsFirst_RejectsCreation()
     {
-        TenantMembers graph = await SeedTenantMembersAsync(OrganizationRole.Owner);
+        // An Owner membership is always active; an Administrator may create
+        // tasks, so only the deactivation denies here.
+        TenantMembers graph = await SeedTenantMembersAsync(
+            OrganizationRole.Administrator);
         using var timeout = CreateTimeout();
         await using EnmaDbContext blockerContext = fixture.CreateDbContext();
         await using IDbContextTransaction blockerTransaction =
@@ -288,8 +291,9 @@ public sealed class LegalTaskCreationPersistenceConcurrencyTests(
             "organization-a",
             "actor-a@example.test",
             "target-a@example.test");
+        // The locked membership is deactivated, so it cannot be the Owner.
         TenantMembers graphB = await SeedTenantMembersAsync(
-            OrganizationRole.Owner,
+            OrganizationRole.Administrator,
             "Organization B",
             "organization-b",
             "actor-b@example.test",

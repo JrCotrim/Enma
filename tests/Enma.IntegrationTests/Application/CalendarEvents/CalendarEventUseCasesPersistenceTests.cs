@@ -266,7 +266,11 @@ public sealed class CalendarEventUseCasesPersistenceTests(
     public async Task Create_InactiveLiveActorState_Denies(
         InactiveActorState inactiveState)
     {
-        TenantGraph graph = await SeedTenantAsync(OrganizationRole.Owner);
+        // An Owner membership is always active.
+        TenantGraph graph = await SeedTenantAsync(
+            inactiveState == InactiveActorState.Membership
+                ? OrganizationRole.Administrator
+                : OrganizationRole.Owner);
 
         switch (inactiveState)
         {

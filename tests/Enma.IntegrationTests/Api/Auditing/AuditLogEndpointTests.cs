@@ -508,11 +508,16 @@ public sealed class AuditLogEndpointTests : IAsyncLifetime
         DeniedVariant variant,
         HttpStatusCode expectedStatusCode)
     {
+        // An Owner membership is always active; an Administrator may read the
+        // audit log, so only its inactive membership denies that variant.
         TestActor actor = CreateActor(
             $"Denied {variant}",
-            variant == DeniedVariant.Member
-                ? OrganizationRole.Member
-                : OrganizationRole.Owner);
+            variant switch
+            {
+                DeniedVariant.Member => OrganizationRole.Member,
+                DeniedVariant.InactiveMembership => OrganizationRole.Administrator,
+                _ => OrganizationRole.Owner
+            });
         Organization requestedOrganization = actor.Organization;
         OrganizationMembership[] memberships = [actor.Membership];
         Organization[] organizations = [actor.Organization];

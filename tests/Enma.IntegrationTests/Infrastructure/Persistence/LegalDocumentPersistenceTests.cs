@@ -591,6 +591,8 @@ public sealed class LegalDocumentPersistenceTests(
             await dbContext.OrganizationMemberships.SingleAsync();
 
         client.Deactivate();
+        // An Owner membership is always active; leave the Owner role first.
+        membership.ChangeRole(OrganizationRole.Administrator);
         membership.Deactivate();
         await dbContext.SaveChangesAsync();
 

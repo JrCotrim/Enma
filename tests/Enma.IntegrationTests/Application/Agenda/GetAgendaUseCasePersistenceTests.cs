@@ -70,7 +70,10 @@ public sealed class GetAgendaUseCasePersistenceTests(
     public async Task ExecuteAsync_InactiveLiveAccess_DeniesBeforeSourceQueries(
         InactiveState inactiveState)
     {
-        AgendaGraph graph = CreateGraph(OrganizationRole.Owner);
+        // An Owner membership is always active.
+        AgendaGraph graph = CreateGraph(inactiveState == InactiveState.Membership
+            ? OrganizationRole.Administrator
+            : OrganizationRole.Owner);
 
         switch (inactiveState)
         {

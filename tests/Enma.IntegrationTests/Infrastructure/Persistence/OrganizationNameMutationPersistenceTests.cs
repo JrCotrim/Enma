@@ -113,11 +113,14 @@ public sealed class OrganizationNameMutationPersistenceTests(
     public async Task ExecuteAsync_UnavailableLiveOwner_DeniesWithoutRename(
         ActorState actorState)
     {
+        // An Owner membership is always active, so the inactive membership case
+        // is represented by the only roles that can be inactive.
         TestGraph graph = await SeedGraphAsync(
             actorRole: actorState switch
             {
                 ActorState.Administrator => OrganizationRole.Administrator,
                 ActorState.Member => OrganizationRole.Member,
+                ActorState.InactiveMembership => OrganizationRole.Administrator,
                 _ => OrganizationRole.Owner
             },
             actorMembershipActive: actorState != ActorState.InactiveMembership,

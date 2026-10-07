@@ -967,10 +967,13 @@ public sealed class NotificationEndpointTests : IAsyncLifetime
             actorRole,
             Now.AddDays(-1));
         User otherUser = CreateUser($"{marker}-other");
+        // The other privileged member; an organization has a single Owner.
         var otherMembership = new OrganizationMembership(
             organization.Id,
             otherUser.Id,
-            OrganizationRole.Owner,
+            actorRole == OrganizationRole.Owner
+                ? OrganizationRole.Administrator
+                : OrganizationRole.Owner,
             Now.AddDays(-1));
         var clientEntity = new Client(
             organization.Id,

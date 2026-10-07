@@ -78,10 +78,13 @@ public sealed class LegalDocumentReadUseCasesPersistenceTests(
     public async Task ExecuteAsync_WithoutLiveActorState_DeniesBeforeDocumentQuery(
         AccessDenial denial)
     {
+        // An Owner membership is always active.
         AccessGraph graph = CreateGraph(
             "Denied",
             $"document-read-denied-{denial}",
-            OrganizationRole.Owner);
+            denial == AccessDenial.InactiveMembership
+                ? OrganizationRole.Administrator
+                : OrganizationRole.Owner);
 
         if (denial == AccessDenial.InactiveUser)
         {

@@ -64,6 +64,8 @@ public sealed class OrganizationAdministrationAuthorizationResult
                 OrganizationRole.Owner) => true,
             (OrganizationAdministrationAction.EditOrganization,
                 OrganizationRole.Owner) => true,
+            (OrganizationAdministrationAction.TransferOwnership,
+                OrganizationRole.Owner) => true,
             (OrganizationAdministrationAction.DeactivateMember or
                 OrganizationAdministrationAction.ReactivateMember,
                 OrganizationRole.Owner or
@@ -162,5 +164,6 @@ public enum OrganizationAdministrationAction
     ListInvitations = 8,
     CreateInvitation = 9,
     RevokeInvitation = 10,
-    ResendInvitation = 11
+    ResendInvitation = 11,
+    TransferOwnership = 12
 }

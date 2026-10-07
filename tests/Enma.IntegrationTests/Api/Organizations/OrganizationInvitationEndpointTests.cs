@@ -697,8 +697,10 @@ public sealed class OrganizationInvitationEndpointTests : IAsyncLifetime
         TestGraph demoted = await SeedGraphAsync(
             OrganizationRole.Owner,
             "demoted");
+        // An Owner membership is always active; an Administrator may invite a
+        // Member, so only its inactive membership denies here.
         TestGraph inactiveMembership = await SeedGraphAsync(
-            OrganizationRole.Owner,
+            OrganizationRole.Administrator,
             "inactive-membership");
         TestGraph inactiveOrganization = await SeedGraphAsync(
             OrganizationRole.Owner,

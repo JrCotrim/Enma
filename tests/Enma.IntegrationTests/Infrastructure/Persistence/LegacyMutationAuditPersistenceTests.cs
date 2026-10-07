@@ -485,6 +485,11 @@ public sealed class LegacyMutationAuditPersistenceTests(
             graph.Organization.Id,
             graph.ActorMembership.Id,
             graph.Client.Id);
+        // An Owner membership is always active; an Administrator may still
+        // mutate clients, so only the deactivation denies here.
+        await ChangeActorRoleAsync(
+            graph.ActorMembership.Id,
+            OrganizationRole.Administrator);
         await DeactivateMembershipAsync(graph.ActorMembership.Id);
 
         ClientMutationPersistenceResult result =

@@ -164,10 +164,11 @@ public sealed class OrganizationMemberLifecycleEndpointTests : IAsyncLifetime
     public async Task Lifecycle_OwnerTarget_ReturnsForbidden(
         LifecycleEndpoint endpoint)
     {
+        // The single, always-active Owner can only be targeted by another
+        // role; the Owner acting on itself is covered by SelfTarget.
         TestGraph graph = await SeedGraphAsync(
-            OrganizationRole.Owner,
-            OrganizationRole.Owner,
-            targetMembershipActive: endpoint == LifecycleEndpoint.Deactivate);
+            OrganizationRole.Administrator,
+            OrganizationRole.Owner);
         CsrfPair csrf = await GetCsrfPairAsync(graph.ActorHandle);
 
         using HttpResponseMessage response = await SendLifecycleAsync(
@@ -177,6 +178,7 @@ public sealed class OrganizationMemberLifecycleEndpointTests : IAsyncLifetime
             endpoint);
 
         await AssertEmptyResponseAsync(response, HttpStatusCode.Forbidden);
+        Assert.True(await FindMembershipActivityAsync(graph.TargetMembership.Id));
     }
 
     [Theory]

@@ -219,7 +219,11 @@ public sealed class LegalDocumentUploadEndToEndTests(
     public async Task ExecuteAsync_ActorBecomesInactiveAfterAuthorization_RevalidatesAndCompensatesObject(
         string inactivePart)
     {
-        SeedGraph graph = await SeedGraphAsync();
+        // An Owner membership is always active; every role may upload.
+        SeedGraph graph = await SeedGraphAsync(
+            role: inactivePart == "membership"
+                ? OrganizationRole.Administrator
+                : OrganizationRole.Owner);
         byte[] payload = CreateValidPdf();
 
         await using ServiceProvider serviceProvider = CreateServiceProvider();

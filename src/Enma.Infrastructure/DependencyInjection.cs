@@ -60,6 +60,7 @@ using Enma.Application.Organizations.Invitations;
 using Enma.Application.Organizations.Members.List;
 using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Application.Organizations.Members.Lookup;
+using Enma.Application.Organizations.Members.Ownership;
 using Enma.Application.Organizations.Members.Role;
 using Enma.Application.Organizations.UpdateName;
 using Enma.Application.Processes;
@@ -438,6 +439,9 @@ public static class DependencyInjection
             IOrganizationMemberLifecycleMutationPersistence,
             OrganizationMemberLifecycleMutationPersistence>();
         services.AddScoped<
+            IOrganizationOwnershipTransferPersistence,
+            OrganizationOwnershipTransferPersistence>();
+        services.AddScoped<
             IOrganizationInvitationMutationPersistence,
             OrganizationInvitationMutationPersistence>();
         services.AddScoped<
@@ -471,6 +475,7 @@ public static class DependencyInjection
         services.AddScoped<SearchActiveOrganizationMembersUseCase>();
         services.AddScoped<ChangeOrganizationMemberRoleUseCase>();
         services.AddScoped<OrganizationMemberLifecycleUseCase>();
+        services.AddScoped<TransferOrganizationOwnershipUseCase>();
         services.AddScoped<CreateOrganizationInvitationUseCase>();
         services.AddScoped<PreviewOrganizationInvitationUseCase>();
         services.AddScoped<AcceptOrganizationInvitationUseCase>();

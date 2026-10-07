@@ -390,8 +390,10 @@ public sealed class OrganizationInvitationMutationPersistenceTests(
         TestGraph inactiveOrganization = await SeedGraphAsync(
             OrganizationRole.Owner,
             "inactive-organization");
+        // An Owner membership is always active; an Administrator may invite a
+        // Member, so only its inactive membership denies here.
         TestGraph inactiveMembership = await SeedGraphAsync(
-            OrganizationRole.Owner,
+            OrganizationRole.Administrator,
             "inactive-membership");
         TestGraph inactiveUser = await SeedGraphAsync(
             OrganizationRole.Owner,

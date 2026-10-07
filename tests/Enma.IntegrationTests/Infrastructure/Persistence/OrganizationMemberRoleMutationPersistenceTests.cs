@@ -134,20 +134,25 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
     [Fact]
     public async Task ExecuteAsync_OwnerTarget_IsForbiddenAndNeverMutated()
     {
-        TestGraph graph = await SeedGraphAsync(targetRole: OrganizationRole.Owner);
+        // An organization has a single Owner, so the only Owner target an Owner
+        // actor can name is its own membership.
+        TestGraph graph = await SeedGraphAsync(targetRole: OrganizationRole.Member);
 
         OrganizationMemberRoleMutationPersistenceResult result =
             await CreatePersistence().ExecuteAsync(CreateRequest(
                 graph,
                 OrganizationRole.Member,
-                OrganizationRole.Administrator));
+                OrganizationRole.Administrator) with
+            {
+                TargetMembershipId = graph.ActorMembership.Id
+            });
 
         Assert.Equal(
             OrganizationMemberRoleMutationPersistenceResult.TargetForbidden,
             result);
         Assert.Equal(
             OrganizationRole.Owner,
-            await FindRoleAsync(graph.TargetMembership.Id));
+            await FindRoleAsync(graph.ActorMembership.Id));
         Assert.Equal(0, await CountAuditLogsAsync());
     }
 
@@ -190,12 +195,15 @@ public sealed class OrganizationMemberRoleMutationPersistenceTests(
     public async Task ExecuteAsync_UnavailableLiveActor_DeniesWithoutTargetWrite(
         ActorState actorState)
     {
+        // An Owner membership is always active, so the inactive membership case
+        // is represented by the only roles that can be inactive.
         TestGraph graph = await SeedGraphAsync(
             targetRole: OrganizationRole.Member,
             actorRole: actorState switch
             {
                 ActorState.Administrator => OrganizationRole.Administrator,
                 ActorState.Member => OrganizationRole.Member,
+                ActorState.InactiveMembership => OrganizationRole.Administrator,
                 _ => OrganizationRole.Owner
             },
             actorMembershipActive: actorState != ActorState.InactiveMembership,

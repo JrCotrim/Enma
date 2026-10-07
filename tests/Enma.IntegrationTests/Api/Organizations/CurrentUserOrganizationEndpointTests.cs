@@ -193,10 +193,11 @@ public sealed class CurrentUserOrganizationEndpointTests : IAsyncLifetime
             user,
             active,
             OrganizationRole.Administrator);
+        // An Owner membership is always active.
         OrganizationMembership inactiveMembership = CreateMembership(
             user,
             inactiveMembershipOrganization,
-            OrganizationRole.Owner);
+            OrganizationRole.Administrator);
         inactiveMembership.Deactivate();
         OrganizationMembership inactiveOrganizationMembership = CreateMembership(
             user,

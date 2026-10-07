@@ -307,8 +307,87 @@ public sealed class AuditEventDetailsTests
                 AuditEventType.PaymentInstallmentPaymentReversed,
                 new PaymentInstallmentPaymentReversedAuditDetails(
                     PaymentReversalReason.WrongInstallment)
+            },
+            {
+                AuditEventType.OrganizationOwnershipTransferred,
+                new OrganizationOwnershipTransferredAuditDetails(
+                    MembershipAId,
+                    MembershipBId)
             }
         };
+
+    [Fact]
+    public void OwnershipTransferred_SerializesOnlyMembershipIdentifiers()
+    {
+        string serialized = Assert.IsType<string>(AuditEventDetails.Serialize(
+            new OrganizationOwnershipTransferredAuditDetails(
+                MembershipAId,
+                MembershipBId)));
+
+        Assert.Equal(
+            $$"""{"previousOwnerMembershipId":"{{MembershipAId:D}}","newOwnerMembershipId":"{{MembershipBId:D}}"}""",
+            serialized);
+    }
+
+    [Theory]
+    [InlineData(true, false, "previousOwnerMembershipId")]
+    [InlineData(false, true, "newOwnerMembershipId")]
+    public void OwnershipTransferred_WithEmptyIdentifier_Throws(
+        bool emptyPrevious,
+        bool emptyNew,
+        string expectedParameterName)
+    {
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            new OrganizationOwnershipTransferredAuditDetails(
+                emptyPrevious ? Guid.Empty : MembershipAId,
+                emptyNew ? Guid.Empty : MembershipBId));
+
+        Assert.Equal(expectedParameterName, exception.ParamName);
+    }
+
+    [Fact]
+    public void OwnershipTransferred_WithoutChange_Throws()
+    {
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            new OrganizationOwnershipTransferredAuditDetails(
+                MembershipAId,
+                MembershipAId));
+
+        Assert.Equal("newOwnerMembershipId", exception.ParamName);
+    }
+
+    [Fact]
+    public void OwnershipTransferred_RequiresDetailsAndRejectsOtherTypes()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            AuditEventType.OrganizationOwnershipTransferred.ValidateDetails(null));
+        Assert.Throws<ArgumentException>(() =>
+            AuditEventType.OrganizationOwnershipTransferred.ValidateDetails(
+                new OrganizationRenamedAuditDetails("Old", "New")));
+        Assert.Throws<ArgumentException>(() =>
+            AuditEventType.OrganizationRenamed.ValidateDetails(
+                new OrganizationOwnershipTransferredAuditDetails(
+                    MembershipAId,
+                    MembershipBId)));
+    }
+
+    [Theory]
+    [InlineData("""{"previousOwnerMembershipId":"5d5a1b36-0ec1-4d5f-a2f1-5f0b4d5b0a11","newOwnerMembershipId":"0f3d7b55-63a2-4a39-9f6e-3d9f5b7c4e22","previousOwnerUserId":"6a9a1b36-0ec1-4d5f-a2f1-5f0b4d5b0a33"}""")]
+    [InlineData("""{"previousOwnerMembershipId":"5d5a1b36-0ec1-4d5f-a2f1-5f0b4d5b0a11","newOwnerMembershipId":"0f3d7b55-63a2-4a39-9f6e-3d9f5b7c4e22","organizationName":"Synthetic"}""")]
+    public void OwnershipTransferred_DeserializationRejectsExtraData(string json)
+    {
+        Assert.Throws<JsonException>(() => AuditEventDetails.Deserialize(
+            AuditEventType.OrganizationOwnershipTransferred,
+            json));
+    }
+
+    [Fact]
+    public void OwnershipTransferred_DeserializationRejectsEmptyIdentifier()
+    {
+        Assert.Throws<ArgumentException>(() => AuditEventDetails.Deserialize(
+            AuditEventType.OrganizationOwnershipTransferred,
+            """{"previousOwnerMembershipId":"00000000-0000-0000-0000-000000000000","newOwnerMembershipId":"0f3d7b55-63a2-4a39-9f6e-3d9f5b7c4e22"}"""));
+    }
 
     [Theory]
     [InlineData(PaymentReversalReason.RegisteredByMistake, 1)]

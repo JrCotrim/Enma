@@ -82,10 +82,13 @@ public sealed class LegalTaskReadUseCasesPersistenceTests(
     public async Task ExecuteAsync_WithoutLiveOrganizationAccess_DeniesBeforeTaskQuery(
         AccessDenial denial)
     {
+        // An Owner membership is always active.
         AccessGraph graph = CreateGraph(
             "Alpha",
             "alpha",
-            OrganizationRole.Owner);
+            denial == AccessDenial.InactiveMembership
+                ? OrganizationRole.Administrator
+                : OrganizationRole.Owner);
         if (denial == AccessDenial.InactiveMembership)
         {
             graph.Membership.Deactivate();

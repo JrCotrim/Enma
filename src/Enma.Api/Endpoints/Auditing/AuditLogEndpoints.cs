@@ -143,6 +143,10 @@ public static class AuditLogEndpoints
             PaymentInstallmentPaymentReversedAuditDetails value =>
                 new PaymentInstallmentPaymentReversedAuditLogDetailsResponse(
                     MapPaymentReversalReason(value.Reason)),
+            OrganizationOwnershipTransferredAuditDetails value =>
+                new OrganizationOwnershipTransferredAuditLogDetailsResponse(
+                    value.PreviousOwnerMembershipId,
+                    value.NewOwnerMembershipId),
             _ => throw new InvalidOperationException(
                 "The audit log contains unsupported details.")
         };

@@ -56,6 +56,34 @@ public sealed class OrganizationMembership
         Role = ValidateRole(role);
     }
 
+    /// <summary>
+    /// Ownership transfer only: the transferring Owner always becomes an Administrator.
+    /// </summary>
+    public void DemoteOwnerToAdministrator()
+    {
+        if (!IsActive || Role != OrganizationRole.Owner)
+        {
+            throw new InvalidOperationException(
+                OrganizationMembershipErrors.OwnerDemotionInvalidState);
+        }
+
+        Role = OrganizationRole.Administrator;
+    }
+
+    /// <summary>
+    /// Ownership transfer only: an active Administrator becomes the Owner.
+    /// </summary>
+    public void PromoteAdministratorToOwner()
+    {
+        if (!IsActive || Role != OrganizationRole.Administrator)
+        {
+            throw new InvalidOperationException(
+                OrganizationMembershipErrors.OwnerPromotionInvalidState);
+        }
+
+        Role = OrganizationRole.Owner;
+    }
+
     public void Activate()
     {
         IsActive = true;

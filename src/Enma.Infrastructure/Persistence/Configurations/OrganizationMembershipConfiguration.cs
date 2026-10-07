@@ -12,9 +12,15 @@ public sealed class OrganizationMembershipConfiguration
     {
         builder.ToTable(
             "organization_memberships",
-            tableBuilder => tableBuilder.HasCheckConstraint(
-                "ck_organization_memberships_role",
-                "role IN (1, 2, 3)"));
+            tableBuilder =>
+            {
+                tableBuilder.HasCheckConstraint(
+                    "ck_organization_memberships_role",
+                    "role IN (1, 2, 3)");
+                tableBuilder.HasCheckConstraint(
+                    "ck_organization_memberships_owner_active",
+                    "role <> 1 OR is_active");
+            });
 
         builder.HasKey(membership => membership.Id)
             .HasName("pk_organization_memberships");
@@ -76,6 +82,12 @@ public sealed class OrganizationMembershipConfiguration
 
         builder.HasIndex(membership => membership.UserId)
             .HasDatabaseName("ix_organization_memberships_user_id");
+
+        // At most one Owner per organization; ownership transfer demotes first.
+        builder.HasIndex(membership => membership.OrganizationId)
+            .IsUnique()
+            .HasFilter("role = 1")
+            .HasDatabaseName("ux_organization_memberships_single_owner");
 
         builder.HasOne<Organization>()
             .WithMany()

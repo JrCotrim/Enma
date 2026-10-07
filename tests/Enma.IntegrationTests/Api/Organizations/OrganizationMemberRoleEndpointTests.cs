@@ -181,21 +181,24 @@ public sealed class OrganizationMemberRoleEndpointTests : IAsyncLifetime
     [Fact]
     public async Task ChangeRole_OwnerTarget_ReturnsEmptyNoStoreForbidden()
     {
+        // An organization has a single Owner, so the only Owner target an Owner
+        // actor can name is its own membership.
         TestGraph graph = await SeedGraphAsync(
             OrganizationRole.Owner,
-            OrganizationRole.Owner);
+            OrganizationRole.Member);
         CsrfPair csrf = await GetCsrfPairAsync(graph.ActorHandle);
 
         using HttpResponseMessage response = await SendRoleAsync(
             graph,
             graph.ActorHandle,
             csrf,
-            CreateBody("Member", "Administrator"));
+            CreateBody("Member", "Administrator"),
+            graph.ActorMembership.Id);
 
         await AssertEmptyResponseAsync(response, HttpStatusCode.Forbidden);
         Assert.Equal(
             OrganizationRole.Owner,
-            await FindRoleAsync(graph.TargetMembership.Id));
+            await FindRoleAsync(graph.ActorMembership.Id));
     }
 
     [Fact]

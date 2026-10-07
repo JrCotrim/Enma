@@ -56,6 +56,9 @@ public sealed class OrganizationAdministrationAuthorizationTests
             role == OrganizationRole.Owner,
             result.Allows(OrganizationAdministrationAction.EditOrganization));
         Assert.Equal(
+            role == OrganizationRole.Owner,
+            result.Allows(OrganizationAdministrationAction.TransferOwnership));
+        Assert.Equal(
             canChangeMemberLifecycle,
             result.Allows(OrganizationAdministrationAction.DeactivateMember));
         Assert.Equal(
@@ -199,6 +202,8 @@ public sealed class OrganizationAdministrationAuthorizationTests
         Assert.False(result.Allows(
             OrganizationAdministrationAction.EditOrganization));
         Assert.False(result.Allows(
+            OrganizationAdministrationAction.TransferOwnership));
+        Assert.False(result.Allows(
             OrganizationAdministrationAction.DeactivateMember));
         Assert.False(result.Allows(
             OrganizationAdministrationAction.ReactivateMember));
@@ -250,6 +255,47 @@ public sealed class OrganizationAdministrationAuthorizationTests
             OrganizationAdministrationAuthorizationStatus.Denied,
             result.Status);
         Assert.Equal(0, lookup.CallCount);
+    }
+
+    [Fact]
+    public void Action_ExistingValuesAreUnchangedAndTransferOwnershipIsAppended()
+    {
+        Assert.Equal(
+            [
+                (OrganizationAdministrationAction.ViewTeam, 1),
+                (OrganizationAdministrationAction.ViewTeamAdministrationDetails, 2),
+                (OrganizationAdministrationAction.ChangeMemberRole, 3),
+                (OrganizationAdministrationAction.DeactivateMember, 4),
+                (OrganizationAdministrationAction.ReactivateMember, 5),
+                (OrganizationAdministrationAction.EditOrganization, 6),
+                (OrganizationAdministrationAction.ViewAuditLog, 7),
+                (OrganizationAdministrationAction.ListInvitations, 8),
+                (OrganizationAdministrationAction.CreateInvitation, 9),
+                (OrganizationAdministrationAction.RevokeInvitation, 10),
+                (OrganizationAdministrationAction.ResendInvitation, 11),
+                (OrganizationAdministrationAction.TransferOwnership, 12)
+            ],
+            Enum.GetValues<OrganizationAdministrationAction>()
+                .Select(action => (action, (int)action))
+                .ToArray());
+    }
+
+    [Fact]
+    public void Allows_WithTargetRole_NeverAuthorizesOwnershipTransfer()
+    {
+        OrganizationAdministrationAuthorizationResult result =
+            OrganizationAdministrationAuthorizationResult.Allowed(
+                UserId,
+                OrganizationId,
+                MembershipId,
+                OrganizationRole.Owner);
+
+        foreach (OrganizationRole targetRole in Enum.GetValues<OrganizationRole>())
+        {
+            Assert.False(result.Allows(
+                OrganizationAdministrationAction.TransferOwnership,
+                targetRole));
+        }
     }
 
     [Fact]

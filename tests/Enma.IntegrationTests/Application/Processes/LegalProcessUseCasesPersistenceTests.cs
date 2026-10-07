@@ -277,10 +277,12 @@ public sealed class LegalProcessUseCasesPersistenceTests(
             "Stale process actor",
             "stale-process@example.test",
             CreatedAt);
+        // An Owner membership is always active; an Administrator may create
+        // processes, so only the later deactivation denies here.
         var membership = new OrganizationMembership(
             organization.Id,
             user.Id,
-            OrganizationRole.Owner,
+            OrganizationRole.Administrator,
             CreatedAt);
         var client = new Client(organization.Id, "Stale process client", CreatedAt);
         await SeedAsync(organization, user, membership, client);

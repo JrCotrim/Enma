@@ -293,6 +293,12 @@ public sealed class AuditTaxonomyTests
                 "payment_installment.payment_reversed",
                 AuditEntityType.PaymentInstallment
             },
+            {
+                AuditEventType.OrganizationOwnershipTransferred,
+                38,
+                "organization.ownership_transferred",
+                AuditEntityType.Organization
+            },
         };
 
     public static TheoryData<AuditEntityType, int, string> ExpectedEntities =>

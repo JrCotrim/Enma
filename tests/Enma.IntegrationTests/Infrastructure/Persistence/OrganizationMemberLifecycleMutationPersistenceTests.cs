@@ -88,22 +88,23 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
         Assert.Null(auditLog.Details);
     }
 
+    // The single Owner is always active, so an Owner target is only representable
+    // as an active membership; the Owner acting on itself is covered by SelfTarget.
     [Theory]
     [InlineData(OrganizationMemberLifecycleOperation.Deactivate,
-        OrganizationRole.Administrator, OrganizationRole.Administrator)]
+        OrganizationRole.Administrator, OrganizationRole.Administrator, true)]
     [InlineData(OrganizationMemberLifecycleOperation.Reactivate,
-        OrganizationRole.Administrator, OrganizationRole.Administrator)]
+        OrganizationRole.Administrator, OrganizationRole.Administrator, false)]
     [InlineData(OrganizationMemberLifecycleOperation.Deactivate,
-        OrganizationRole.Owner, OrganizationRole.Owner)]
+        OrganizationRole.Administrator, OrganizationRole.Owner, true)]
     [InlineData(OrganizationMemberLifecycleOperation.Reactivate,
-        OrganizationRole.Owner, OrganizationRole.Owner)]
+        OrganizationRole.Administrator, OrganizationRole.Owner, true)]
     public async Task ExecuteAsync_ForbiddenTargetMatrix_DeniesWithoutWrite(
         OrganizationMemberLifecycleOperation operation,
         OrganizationRole actorRole,
-        OrganizationRole targetRole)
+        OrganizationRole targetRole,
+        bool initiallyActive)
     {
-        bool initiallyActive =
-            operation == OrganizationMemberLifecycleOperation.Deactivate;
         TestGraph graph = await SeedGraphAsync(
             actorRole,
             targetRole,
@@ -236,10 +237,15 @@ public sealed class OrganizationMemberLifecycleMutationPersistenceTests(
     public async Task ExecuteAsync_UnavailableActor_DeniesWithoutWrite(
         ActorState actorState)
     {
+        // An inactive membership cannot be the Owner; an Administrator may
+        // deactivate a Member, so only the inactive membership denies here.
         TestGraph graph = await SeedGraphAsync(
-            actorState == ActorState.MemberRole
-                ? OrganizationRole.Member
-                : OrganizationRole.Owner,
+            actorState switch
+            {
+                ActorState.MemberRole => OrganizationRole.Member,
+                ActorState.InactiveMembership => OrganizationRole.Administrator,
+                _ => OrganizationRole.Owner
+            },
             OrganizationRole.Member,
             actorMembershipActive: actorState != ActorState.InactiveMembership,
             actorUserActive: actorState != ActorState.InactiveUser,

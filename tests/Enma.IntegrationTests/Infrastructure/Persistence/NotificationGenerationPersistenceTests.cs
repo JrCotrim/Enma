@@ -50,11 +50,13 @@ public sealed class NotificationGenerationPersistenceTests(
             "inactive-administrator",
             OrganizationRole.Administrator);
         inactiveAdministrator.Membership.Deactivate();
-        Person inactiveOwnerUser = AddPerson(
+        // A single Owner per organization: the privileged account with an
+        // inactive user is an Administrator.
+        Person inactiveAdministratorUser = AddPerson(
             activeTenant,
-            "inactive-owner-user",
-            OrganizationRole.Owner);
-        inactiveOwnerUser.User.Deactivate();
+            "inactive-administrator-user",
+            OrganizationRole.Administrator);
+        inactiveAdministratorUser.User.Deactivate();
 
         LegalDeadline today = CreateDeadline(
             activeTenant,
@@ -212,7 +214,12 @@ public sealed class NotificationGenerationPersistenceTests(
     {
         TenantGraph tenant = CreateTenant("deadline-owner-responsible");
         Person owner = AddPerson(tenant, "owner", OrganizationRole.Owner);
-        _ = AddPerson(tenant, "second-owner", OrganizationRole.Owner);
+        // A single Owner per organization: the other privileged recipients
+        // are Administrators.
+        _ = AddPerson(
+            tenant,
+            "second-administrator",
+            OrganizationRole.Administrator);
         _ = AddPerson(tenant, "administrator", OrganizationRole.Administrator);
         LegalDeadline deadline = CreateDeadline(
             tenant,
@@ -719,10 +726,12 @@ public sealed class NotificationGenerationPersistenceTests(
             "inactive-membership",
             OrganizationRole.Administrator);
         inactiveMembership.Membership.Deactivate();
+        // A single Owner per organization: the privileged account with an
+        // inactive user is an Administrator.
         Person inactiveUser = AddPerson(
             activeTenant,
             "inactive-user",
-            OrganizationRole.Owner);
+            OrganizationRole.Administrator);
         inactiveUser.User.Deactivate();
 
         PaymentInstallment dueToday = CreatePaymentPlan(

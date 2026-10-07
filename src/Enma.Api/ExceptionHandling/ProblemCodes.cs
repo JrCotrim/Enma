@@ -13,4 +13,7 @@ internal static class ProblemCodes
 
     public const string DocumentUploadOutcomeUnknown =
         "document_upload_outcome_unknown";
+
+    public const string OwnershipTransferTargetUnavailable =
+        "ownership_transfer_target_unavailable";
 }

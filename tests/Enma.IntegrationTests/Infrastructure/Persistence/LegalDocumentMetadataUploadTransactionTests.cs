@@ -338,7 +338,11 @@ public sealed class LegalDocumentMetadataUploadTransactionTests(
     public async Task ExecuteAsync_WithInactiveActorState_ExposesCurrentStateAndRollsBack(
         string inactivePart)
     {
+        // An Owner membership is always active.
         SeedGraph graph = await SeedGraphAsync(
+            role: inactivePart == "membership"
+                ? OrganizationRole.Administrator
+                : OrganizationRole.Owner,
             membershipActive: inactivePart != "membership",
             userActive: inactivePart != "user",
             organizationActive: inactivePart != "organization");

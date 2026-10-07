@@ -38,7 +38,9 @@ public sealed class LegalDocumentMetadataUploadConcurrencyTests(
     [Fact]
     public async Task ExecuteAsync_WhenUploadLocksActorFirst_ConcurrentMembershipDeactivationWaits()
     {
-        SeedGraph graph = await SeedGraphAsync();
+        // An Owner membership is always active, so the deactivated actor is an
+        // Administrator, which may also upload.
+        SeedGraph graph = await SeedGraphAsync(role: OrganizationRole.Administrator);
         LegalDocumentUploadPersistenceRequest request =
             CreateRequest(graph);
 
@@ -257,7 +259,11 @@ public sealed class LegalDocumentMetadataUploadConcurrencyTests(
     public async Task ExecuteAsync_WhenConcurrentActorMutationWins_UsesCurrentLockedState(
         string mutation)
     {
-        SeedGraph graph = await SeedGraphAsync();
+        // An Owner membership is always active.
+        SeedGraph graph = await SeedGraphAsync(
+            role: mutation == "membership"
+                ? OrganizationRole.Administrator
+                : OrganizationRole.Owner);
         LegalDocumentUploadPersistenceRequest request = CreateRequest(graph);
 
         await using EnmaDbContext mutationContext = fixture.CreateDbContext();
@@ -618,7 +624,8 @@ public sealed class LegalDocumentMetadataUploadConcurrencyTests(
         bool includeClient = false,
         string organizationName = "Concurrency",
         string organizationSlug = "documents-concurrency",
-        string userEmail = "documents-concurrency@example.com")
+        string userEmail = "documents-concurrency@example.com",
+        OrganizationRole role = OrganizationRole.Owner)
     {
         var organization = new Organization(
             organizationName,
@@ -631,7 +638,7 @@ public sealed class LegalDocumentMetadataUploadConcurrencyTests(
         var membership = new OrganizationMembership(
             organization.Id,
             user.Id,
-            OrganizationRole.Owner,
+            role,
             CreatedAt);
 
         Client? client = includeClient

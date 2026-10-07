@@ -180,6 +180,9 @@ public abstract class AuditEventDetails
             AuditEventType.PaymentInstallmentPaymentReversed =>
                 Deserialize<PaymentInstallmentPaymentReversedAuditDetails>(
                     serializedDetails),
+            AuditEventType.OrganizationOwnershipTransferred =>
+                Deserialize<OrganizationOwnershipTransferredAuditDetails>(
+                    serializedDetails),
             _ => throw new JsonException(
                 AuditLogErrors.DetailsInvalidForEventType)
         };
@@ -270,6 +273,42 @@ public sealed class OrganizationMembershipRoleChangedAuditDetails : AuditEventDe
     public OrganizationRole OldRole { get; }
 
     public OrganizationRole NewRole { get; }
+}
+
+public sealed class OrganizationOwnershipTransferredAuditDetails : AuditEventDetails
+{
+    public OrganizationOwnershipTransferredAuditDetails(
+        Guid previousOwnerMembershipId,
+        Guid newOwnerMembershipId)
+    {
+        if (previousOwnerMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.OwnerMembershipIdInvalid,
+                nameof(previousOwnerMembershipId));
+        }
+
+        if (newOwnerMembershipId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.OwnerMembershipIdInvalid,
+                nameof(newOwnerMembershipId));
+        }
+
+        if (previousOwnerMembershipId == newOwnerMembershipId)
+        {
+            throw new ArgumentException(
+                AuditLogErrors.DetailsMustRepresentChange,
+                nameof(newOwnerMembershipId));
+        }
+
+        PreviousOwnerMembershipId = previousOwnerMembershipId;
+        NewOwnerMembershipId = newOwnerMembershipId;
+    }
+
+    public Guid PreviousOwnerMembershipId { get; }
+
+    public Guid NewOwnerMembershipId { get; }
 }
 
 public sealed class OrganizationInvitationCreatedAuditDetails : AuditEventDetails

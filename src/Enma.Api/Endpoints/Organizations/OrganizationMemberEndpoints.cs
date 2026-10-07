@@ -3,9 +3,11 @@ using Enma.Api.Authentication;
 using Enma.Api.Authorization;
 using Enma.Api.Contracts.Organizations;
 using Enma.Api.Endpoints;
+using Enma.Api.ExceptionHandling;
 using Enma.Application.Organizations.Members.List;
 using Enma.Application.Organizations.Members.Lifecycle;
 using Enma.Application.Organizations.Members.Lookup;
+using Enma.Application.Organizations.Members.Ownership;
 using Enma.Application.Organizations.Members.Role;
 using Enma.Domain.Organizations;
 
@@ -76,6 +78,22 @@ public static class OrganizationMemberEndpoints
         group.MapPost("{membershipId:guid}/reactivate", ReactivateAsync)
             .WithName("ReactivateOrganizationMember")
             .WithSummary("Reactivates an organization membership.")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireAuthorization(EnmaAuthorizationPolicies.OrganizationAccess)
+            .RequireEnmaAntiforgery();
+
+        group.MapPost(
+                "{membershipId:guid}/transfer-ownership",
+                TransferOwnershipAsync)
+            .WithName("TransferOrganizationOwnership")
+            .WithSummary("Transfers organization ownership to an active administrator.")
+            .Accepts<TransferOrganizationOwnershipRequest>("application/json")
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized)
@@ -209,6 +227,42 @@ public static class OrganizationMemberEndpoints
         };
     }
 
+    private static async Task<IResult> TransferOwnershipAsync(
+        Guid organizationId,
+        Guid membershipId,
+        TransferOrganizationOwnershipRequest request,
+        ClaimsPrincipal principal,
+        TransferOrganizationOwnershipUseCase useCase,
+        CancellationToken cancellationToken)
+    {
+        if (!AuthenticatedUserId.TryGet(principal, out Guid userId))
+        {
+            return TypedResults.Unauthorized();
+        }
+
+        TransferOrganizationOwnershipResult result = await useCase.ExecuteAsync(
+            new TransferOrganizationOwnershipCommand(
+                userId,
+                organizationId,
+                membershipId,
+                request.ExpectedTargetRole),
+            cancellationToken);
+
+        return result switch
+        {
+            TransferOrganizationOwnershipResult.AccessDenied =>
+                TypedResults.Forbid(),
+            TransferOrganizationOwnershipResult.NotFound =>
+                TypedResults.NotFound(),
+            TransferOrganizationOwnershipResult.TargetUnavailable =>
+                CreateOwnershipTransferTargetUnavailableProblem(),
+            TransferOrganizationOwnershipResult.Succeeded =>
+                TypedResults.NoContent(),
+            _ => throw new InvalidOperationException(
+                "The organization ownership transfer returned an unknown status.")
+        };
+    }
+
     private static Task<IResult> DeactivateAsync(
         Guid organizationId,
         Guid membershipId,
@@ -307,6 +361,18 @@ public static class OrganizationMemberEndpoints
             title: "Resource conflict",
             detail: "The membership role cannot be changed in its current state.",
             statusCode: StatusCodes.Status409Conflict);
+    }
+
+    private static IResult CreateOwnershipTransferTargetUnavailableProblem()
+    {
+        return TypedResults.Problem(
+            title: "Resource conflict",
+            detail: "The selected member cannot receive organization ownership.",
+            statusCode: StatusCodes.Status409Conflict,
+            extensions: new Dictionary<string, object?>
+            {
+                ["code"] = ProblemCodes.OwnershipTransferTargetUnavailable
+            });
     }
 
     private static IResult CreateLifecycleConflictProblem(string detail)

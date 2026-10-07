@@ -60,6 +60,9 @@ public sealed record AuditLogResponse(
 [JsonDerivedType(
     typeof(PaymentInstallmentPaymentReversedAuditLogDetailsResponse),
     "payment_installment.payment_reversed")]
+[JsonDerivedType(
+    typeof(OrganizationOwnershipTransferredAuditLogDetailsResponse),
+    "organization.ownership_transferred")]
 public abstract record AuditLogDetailsResponse;
 
 public sealed record OrganizationRenamedAuditLogDetailsResponse(
@@ -107,3 +110,7 @@ public sealed record LegalDeadlineResponsibleChangedAuditLogDetailsResponse(
 
 public sealed record PaymentInstallmentPaymentReversedAuditLogDetailsResponse(
     string Reason) : AuditLogDetailsResponse;
+
+public sealed record OrganizationOwnershipTransferredAuditLogDetailsResponse(
+    Guid PreviousOwnerMembershipId,
+    Guid NewOwnerMembershipId) : AuditLogDetailsResponse;

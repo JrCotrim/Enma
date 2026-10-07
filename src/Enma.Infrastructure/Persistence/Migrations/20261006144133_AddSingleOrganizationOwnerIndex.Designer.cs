@@ -3,6 +3,7 @@ using System;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Enma.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(EnmaDbContext))]
-    partial class EnmaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261006144133_AddSingleOrganizationOwnerIndex")]
+    partial class AddSingleOrganizationOwnerIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -95,15 +98,15 @@ namespace Enma.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_audit_logs_actor_role_at_occurrence", "actor_role_at_occurrence IN (1, 2, 3)");
 
-                            t.HasCheckConstraint("ck_audit_logs_details_contract", "(event_type IN (1, 2, 12, 16, 17, 21, 22, 25, 33, 34, 35, 36, 37, 38) AND details IS NOT NULL AND jsonb_typeof(details) = 'object') OR (event_type NOT IN (1, 2, 12, 16, 17, 21, 22, 25, 33, 34, 35, 36, 37, 38) AND details IS NULL)");
+                            t.HasCheckConstraint("ck_audit_logs_details_contract", "(event_type IN (1, 2, 12, 16, 17, 21, 22, 25, 33, 34, 35, 36, 37) AND details IS NOT NULL AND jsonb_typeof(details) = 'object') OR (event_type NOT IN (1, 2, 12, 16, 17, 21, 22, 25, 33, 34, 35, 36, 37) AND details IS NULL)");
 
                             t.HasCheckConstraint("ck_audit_logs_details_size", "details IS NULL OR octet_length(convert_to(details::text, 'UTF8')) <= 8192");
 
                             t.HasCheckConstraint("ck_audit_logs_entity_type", "entity_type IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)");
 
-                            t.HasCheckConstraint("ck_audit_logs_event_entity_type", "(event_type IN (1, 38) AND entity_type = 1) OR (event_type IN (2, 3, 4) AND entity_type = 2) OR (event_type IN (5, 6, 7, 8, 29) AND entity_type = 3) OR (event_type IN (9, 10, 33, 34, 35) AND entity_type = 4) OR (event_type IN (11, 12, 13, 14, 36) AND entity_type = 5) OR (event_type IN (15, 16, 17, 18, 19) AND entity_type = 6) OR (event_type IN (20, 21, 22, 23) AND entity_type = 7) OR (event_type IN (24, 32) AND entity_type = 8) OR (event_type IN (25, 26, 27, 28) AND entity_type = 9) OR (event_type = 30 AND entity_type = 10) OR (event_type IN (31, 37) AND entity_type = 11)");
+                            t.HasCheckConstraint("ck_audit_logs_event_entity_type", "(event_type = 1 AND entity_type = 1) OR (event_type IN (2, 3, 4) AND entity_type = 2) OR (event_type IN (5, 6, 7, 8, 29) AND entity_type = 3) OR (event_type IN (9, 10, 33, 34, 35) AND entity_type = 4) OR (event_type IN (11, 12, 13, 14, 36) AND entity_type = 5) OR (event_type IN (15, 16, 17, 18, 19) AND entity_type = 6) OR (event_type IN (20, 21, 22, 23) AND entity_type = 7) OR (event_type IN (24, 32) AND entity_type = 8) OR (event_type IN (25, 26, 27, 28) AND entity_type = 9) OR (event_type = 30 AND entity_type = 10) OR (event_type IN (31, 37) AND entity_type = 11)");
 
-                            t.HasCheckConstraint("ck_audit_logs_event_type", "event_type IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38)");
+                            t.HasCheckConstraint("ck_audit_logs_event_type", "event_type IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37)");
 
                             t.HasCheckConstraint("ck_audit_logs_trace_id", "trace_id IS NULL OR (trace_id ~ '^[0-9a-f]{32}$' AND trace_id <> repeat('0', 32))");
                         });

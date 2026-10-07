@@ -148,12 +148,86 @@ public sealed class OrganizationMembershipTests
         Assert.True(membership.IsActive);
     }
 
-    private static OrganizationMembership CreateMembership()
+    [Fact]
+    public void DemoteOwnerToAdministrator_WhenActiveOwner_BecomesAdministrator()
     {
-        return new OrganizationMembership(
+        OrganizationMembership membership = CreateMembership();
+
+        membership.DemoteOwnerToAdministrator();
+
+        Assert.Equal(OrganizationRole.Administrator, membership.Role);
+        Assert.True(membership.IsActive);
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Administrator, true)]
+    [InlineData(OrganizationRole.Member, true)]
+    [InlineData(OrganizationRole.Owner, false)]
+    [InlineData(OrganizationRole.Administrator, false)]
+    public void DemoteOwnerToAdministrator_WhenNotActiveOwner_ThrowsWithoutChange(
+        OrganizationRole role,
+        bool isActive)
+    {
+        OrganizationMembership membership = CreateMembership(role, isActive);
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            membership.DemoteOwnerToAdministrator());
+
+        Assert.Equal(
+            OrganizationMembershipErrors.OwnerDemotionInvalidState,
+            exception.Message);
+        Assert.Equal(role, membership.Role);
+        Assert.Equal(isActive, membership.IsActive);
+    }
+
+    [Fact]
+    public void PromoteAdministratorToOwner_WhenActiveAdministrator_BecomesOwner()
+    {
+        OrganizationMembership membership = CreateMembership(
+            OrganizationRole.Administrator);
+
+        membership.PromoteAdministratorToOwner();
+
+        Assert.Equal(OrganizationRole.Owner, membership.Role);
+        Assert.True(membership.IsActive);
+    }
+
+    [Theory]
+    [InlineData(OrganizationRole.Owner, true)]
+    [InlineData(OrganizationRole.Member, true)]
+    [InlineData(OrganizationRole.Administrator, false)]
+    [InlineData(OrganizationRole.Member, false)]
+    public void PromoteAdministratorToOwner_WhenNotActiveAdministrator_ThrowsWithoutChange(
+        OrganizationRole role,
+        bool isActive)
+    {
+        OrganizationMembership membership = CreateMembership(role, isActive);
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            membership.PromoteAdministratorToOwner());
+
+        Assert.Equal(
+            OrganizationMembershipErrors.OwnerPromotionInvalidState,
+            exception.Message);
+        Assert.Equal(role, membership.Role);
+        Assert.Equal(isActive, membership.IsActive);
+    }
+
+    private static OrganizationMembership CreateMembership(
+        OrganizationRole role = OrganizationRole.Owner,
+        bool isActive = true)
+    {
+        var membership = new OrganizationMembership(
             OrganizationId,
             UserId,
-            OrganizationRole.Owner,
+            role,
             CreatedAt);
+
+        if (!isActive)
+        {
+            membership.Deactivate();
+        }
+
+        return membership;
     }
 }

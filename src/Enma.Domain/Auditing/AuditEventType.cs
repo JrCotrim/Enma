@@ -58,7 +58,12 @@ public enum AuditEventType
     LegalProcessStatusChanged = 34,
     LegalProcessResponsibleChanged = 35,
     LegalDeadlineResponsibleChanged = 36,
-    PaymentInstallmentPaymentReversed = 37
+    PaymentInstallmentPaymentReversed = 37,
+    /// <summary>
+    /// The actor is the transferring Owner revalidated by the authoritative transfer
+    /// transaction, recorded with the role held before the transfer.
+    /// </summary>
+    OrganizationOwnershipTransferred = 38
 }
 
 public static class AuditEventTypeExtensions
@@ -121,6 +126,8 @@ public static class AuditEventTypeExtensions
                 "legal_deadline.responsible_changed",
             AuditEventType.PaymentInstallmentPaymentReversed =>
                 "payment_installment.payment_reversed",
+            AuditEventType.OrganizationOwnershipTransferred =>
+                "organization.ownership_transferred",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(eventType),
                 AuditLogErrors.EventTypeInvalid)
@@ -131,7 +138,9 @@ public static class AuditEventTypeExtensions
     {
         return eventType switch
         {
-            AuditEventType.OrganizationRenamed => AuditEntityType.Organization,
+            AuditEventType.OrganizationRenamed or
+                AuditEventType.OrganizationOwnershipTransferred =>
+                AuditEntityType.Organization,
             AuditEventType.OrganizationMembershipRoleChanged or
                 AuditEventType.OrganizationMembershipDeactivated or
                 AuditEventType.OrganizationMembershipReactivated =>
@@ -213,6 +222,8 @@ public static class AuditEventTypeExtensions
                 typeof(LegalDeadlineResponsibleChangedAuditDetails),
             AuditEventType.PaymentInstallmentPaymentReversed =>
                 typeof(PaymentInstallmentPaymentReversedAuditDetails),
+            AuditEventType.OrganizationOwnershipTransferred =>
+                typeof(OrganizationOwnershipTransferredAuditDetails),
             AuditEventType.OrganizationMembershipDeactivated or
                 AuditEventType.OrganizationMembershipReactivated or
                 AuditEventType.ClientCreated or
