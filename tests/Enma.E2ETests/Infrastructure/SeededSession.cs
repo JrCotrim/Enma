@@ -64,6 +64,22 @@ public sealed class SeededSession : IDisposable
         return content;
     }
 
+    // Protected POST that answers 201 with the new resource's id.
+    public async Task<Guid> CreateAsync(string path, object body)
+    {
+        string content = await SendAsync(
+            HttpMethod.Post,
+            path,
+            body,
+            HttpStatusCode.Created,
+            withCsrfToken: true);
+
+        return Guid.Parse(
+            JsonNode.Parse(content)?["id"]?.GetValue<string>()
+            ?? throw new InvalidOperationException(
+                $"POST {path} returned no id."));
+    }
+
     public async Task<T> GetFromJsonAsync<T>(string path)
     {
         return await httpClient.GetFromJsonAsync<T>(path)

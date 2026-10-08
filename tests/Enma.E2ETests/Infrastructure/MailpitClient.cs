@@ -19,8 +19,10 @@ public sealed class MailpitClient : IDisposable
         httpClient = new HttpClient { BaseAddress = apiBaseAddress };
     }
 
-    // Polls until a message for the recipient arrives and returns the first
-    // link that points at the expected application page.
+    // Polls until the recipient's newest message links to the expected
+    // application page and returns that link. An older message for the same
+    // recipient (e.g. the invitation before the verification e-mail) keeps
+    // the poll going instead of failing.
     public async Task<Uri> WaitForLinkAsync(
         string recipient,
         Uri expectedPage,
@@ -46,7 +48,10 @@ public sealed class MailpitClient : IDisposable
                         messageId,
                         deadline.Token);
 
-                    return ExtractLink(text, expectedPage);
+                    if (FindLink(text, expectedPage) is Uri link)
+                    {
+                        return link;
+                    }
                 }
 
                 await Task.Delay(PollInterval, deadline.Token);
@@ -55,7 +60,8 @@ public sealed class MailpitClient : IDisposable
         catch (OperationCanceledException) when (deadline.IsCancellationRequested)
         {
             throw new TimeoutException(
-                $"No e-mail reached Mailpit for the E2E recipient within {limit}.");
+                "No e-mail with a link to the expected page reached Mailpit " +
+                $"for the E2E recipient within {limit}.");
         }
     }
 
@@ -117,7 +123,7 @@ public sealed class MailpitClient : IDisposable
             ?? string.Empty;
     }
 
-    private static Uri ExtractLink(string text, Uri expectedPage)
+    private static Uri? FindLink(string text, Uri expectedPage)
     {
         string expectedPrefix = expectedPage.GetLeftPart(UriPartial.Path);
 
@@ -129,7 +135,6 @@ public sealed class MailpitClient : IDisposable
             }
         }
 
-        throw new InvalidOperationException(
-            "The e-mail did not contain a link to the expected page.");
+        return null;
     }
 }
