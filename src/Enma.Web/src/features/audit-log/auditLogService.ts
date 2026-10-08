@@ -203,6 +203,22 @@ function parseDetails(value: unknown, eventType: string): AuditLogDetails | null
         return { type: value.type, reason: value.reason }
       }
       return { type: 'unsupported' }
+    case 'organization.ownership_transferred':
+      if (
+        typeof value.previousOwnerMembershipId === 'string' &&
+        typeof value.newOwnerMembershipId === 'string' &&
+        isUsableGuid(value.previousOwnerMembershipId) &&
+        isUsableGuid(value.newOwnerMembershipId) &&
+        value.previousOwnerMembershipId.toLowerCase() !==
+          value.newOwnerMembershipId.toLowerCase()
+      ) {
+        return {
+          type: value.type,
+          previousOwnerMembershipId: value.previousOwnerMembershipId,
+          newOwnerMembershipId: value.newOwnerMembershipId,
+        }
+      }
+      return { type: 'unsupported' }
     default:
       return { type: 'unsupported' }
   }

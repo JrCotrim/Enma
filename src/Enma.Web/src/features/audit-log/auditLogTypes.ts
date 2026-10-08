@@ -36,6 +36,7 @@ export const auditEventTypes = [
   'payment_plan.created',
   'payment_installment.paid',
   'payment_installment.payment_reversed',
+  'organization.ownership_transferred',
 ] as const
 
 export type AuditEventType = (typeof auditEventTypes)[number]
@@ -119,6 +120,11 @@ export type AuditLogDetails =
   | {
       readonly type: 'payment_installment.payment_reversed'
       readonly reason: AuditPaymentReversalReason
+    }
+  | {
+      readonly type: 'organization.ownership_transferred'
+      readonly previousOwnerMembershipId: string
+      readonly newOwnerMembershipId: string
     }
   | { readonly type: 'unsupported' }
 

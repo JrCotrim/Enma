@@ -153,6 +153,15 @@ function throwForStatus(status: number): never {
   }
 }
 
+async function readProblemCode(response: Response): Promise<string | undefined> {
+  try {
+    const problem = (await response.json()) as { code?: unknown }
+    return typeof problem.code === 'string' ? problem.code : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function getMembersEndpoint(organizationId: string): string {
   return `/api/organizations/${encodeURIComponent(organizationId)}/members`
 }
@@ -192,6 +201,7 @@ async function mutateTeam(
   onUnauthorized: UnauthorizedHandler,
   signal?: AbortSignal,
   body?: object,
+  expectedConflictCode?: string,
 ): Promise<void> {
   const requestToken = await getCsrfToken()
   const response = await fetchWithSession(
@@ -214,6 +224,14 @@ async function mutateTeam(
   if (response.status !== 204) {
     if (response.status === 400) {
       clearCsrfToken()
+    }
+
+    if (
+      response.status === 409 &&
+      expectedConflictCode !== undefined &&
+      (await readProblemCode(response)) !== expectedConflictCode
+    ) {
+      throw new TeamRequestError('unexpected')
     }
 
     throwForStatus(response.status)
@@ -249,6 +267,22 @@ export function changeTeamMemberLifecycle(
     'POST',
     onUnauthorized,
     signal,
+  )
+}
+
+export function transferOwnership(
+  organizationId: string,
+  membershipId: string,
+  onUnauthorized: UnauthorizedHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  return mutateTeam(
+    `${getMembersEndpoint(organizationId)}/${encodeURIComponent(membershipId)}/transfer-ownership`,
+    'POST',
+    onUnauthorized,
+    signal,
+    { expectedTargetRole: 'administrator' },
+    'ownership_transfer_target_unavailable',
   )
 }
 

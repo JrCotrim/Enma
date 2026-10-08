@@ -202,6 +202,31 @@ public sealed class OrganizationMemberRoleEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ChangeRole_AdministratorTargetingOwner_ReturnsEmptyNoStoreForbiddenWithoutMutation()
+    {
+        TestGraph graph = await SeedGraphAsync(
+            OrganizationRole.Administrator,
+            OrganizationRole.Owner);
+        CsrfPair csrf = await GetCsrfPairAsync(graph.ActorHandle);
+
+        using HttpResponseMessage response = await SendRoleAsync(
+            graph,
+            graph.ActorHandle,
+            csrf,
+            CreateBody("Member", "Administrator"));
+
+        await AssertEmptyResponseAsync(response, HttpStatusCode.Forbidden);
+        Assert.Equal(
+            OrganizationRole.Owner,
+            await FindRoleAsync(graph.TargetMembership.Id));
+        Assert.Equal(
+            OrganizationRole.Administrator,
+            await FindRoleAsync(graph.ActorMembership.Id));
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(0, await dbContext.AuditLogs.CountAsync());
+    }
+
+    [Fact]
     public async Task ChangeRole_InactiveTarget_ReturnsNoStoreConflict()
     {
         TestGraph graph = await SeedGraphAsync(

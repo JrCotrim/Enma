@@ -682,11 +682,35 @@ describe('Audit G flow', () => {
         actorEmail: 'ator.privado@example.test',
         email: 'outro.privado@example.test',
       }),
+      auditItem({
+        id: '33333333-3333-4333-8333-333333333399',
+        actorMembershipId: internalActorId,
+        actorDisplayName: 'Bruno Lima',
+        eventType: 'organization.ownership_transferred',
+        entityType: 'organization',
+        entityId: organizationId,
+        details: {
+          type: 'organization.ownership_transferred',
+          previousOwnerMembershipId: 'dddddddd-dddd-4ddd-8ddd-ddddddddddd4',
+          newOwnerMembershipId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5',
+          previousOwnerEmail: 'antigo.proprietario@example.test',
+          newOwnerName: 'Nome secreto do novo proprietário',
+          newOwnerUserId: 'private-new-owner-user',
+        },
+      }),
     ])))
 
     renderRoute()
 
     await screen.findByRole('cell', { name: 'Cliente cadastrado' })
+    await screen.findByRole('cell', {
+      name: 'Propriedade do escritório transferida',
+    })
+    expect(screen.queryByText(/antigo\.proprietario@example\.test/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/Nome secreto do novo proprietário/),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('private-new-owner-user')).not.toBeInTheDocument()
     expect(screen.getByText('Ana Souza')).toBeInTheDocument()
     expect(screen.queryByText(internalActorId)).not.toBeInTheDocument()
     expect(screen.queryByText('private-organization')).not.toBeInTheDocument()
@@ -1026,6 +1050,91 @@ describe('Audit G flow', () => {
     expect(screen.queryByText('closed')).not.toBeInTheDocument()
     expect(screen.queryByText(/segredo-em-responsavel/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Nome secreto/)).not.toBeInTheDocument()
+  })
+
+  it('OwnershipTransferred_RendersLabelAndMembershipIdDetails', async () => {
+    const previousOwnerId = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd4'
+    const newOwnerId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5'
+    vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([
+      auditItem({
+        eventType: 'organization.ownership_transferred',
+        entityType: 'organization',
+        entityId: organizationId,
+        details: {
+          type: 'organization.ownership_transferred',
+          previousOwnerMembershipId: previousOwnerId,
+          newOwnerMembershipId: newOwnerId,
+        },
+      }),
+    ])))
+
+    renderRoute()
+
+    const eventCell = await screen.findByRole('cell', {
+      name: 'Propriedade do escritório transferida',
+    })
+    const row = eventCell.closest('tr')!
+    expect(within(row).getByText('Organização')).toBeInTheDocument()
+    expect(within(row).getByText('Proprietário anterior')).toBeInTheDocument()
+    expect(within(row).getByText('Novo proprietário')).toBeInTheDocument()
+    expect(within(row).getByText(previousOwnerId)).toHaveClass('audit-membership-id')
+    expect(within(row).getByText(newOwnerId)).toHaveClass('audit-membership-id')
+    expect(
+      screen.queryByText('Detalhes indisponíveis para este tipo de evento.'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Tipo de evento')).getByRole('option', {
+        name: 'Propriedade do escritório transferida',
+      }),
+    ).toHaveValue('organization.ownership_transferred')
+  })
+
+  it('OwnershipTransferred_InvalidDetailsDegradeWithoutRenderingValues', async () => {
+    const sameId = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd4'
+    const ownershipItem = (id: string, details: Record<string, unknown>) =>
+      auditItem({
+        id,
+        eventType: 'organization.ownership_transferred',
+        entityType: 'organization',
+        entityId: organizationId,
+        details: { type: 'organization.ownership_transferred', ...details },
+      })
+    vi.stubGlobal('fetch', authenticatedFetch('Owner', auditList([
+      ownershipItem('33333333-3333-4333-8333-333333333391', {
+        previousOwnerMembershipId: 'segredo-em-proprietario-anterior',
+        newOwnerMembershipId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5',
+      }),
+      ownershipItem('33333333-3333-4333-8333-333333333392', {
+        previousOwnerMembershipId: sameId,
+        newOwnerMembershipId: sameId,
+      }),
+      ownershipItem('33333333-3333-4333-8333-333333333393', {
+        previousOwnerMembershipId: '00000000-0000-0000-0000-000000000000',
+        newOwnerMembershipId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5',
+      }),
+      ownershipItem('33333333-3333-4333-8333-333333333394', {
+        previousOwnerMembershipId: sameId,
+        newOwnerMembershipId: null,
+      }),
+      ownershipItem('33333333-3333-4333-8333-333333333395', {}),
+    ])))
+
+    renderRoute()
+
+    expect(
+      await screen.findAllByRole('cell', {
+        name: 'Propriedade do escritório transferida',
+      }),
+    ).toHaveLength(5)
+    expect(
+      screen.getAllByText('Detalhes indisponíveis para este tipo de evento.'),
+    ).toHaveLength(5)
+    expect(screen.queryByText('Proprietário anterior')).not.toBeInTheDocument()
+    expect(screen.queryByText(/segredo-em-proprietario-anterior/)).not.toBeInTheDocument()
+    expect(screen.queryByText(sameId)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5'),
+    ).not.toBeInTheDocument()
   })
 
   it('trata 403 como acesso negado sem exibir detalhes da resposta', async () => {

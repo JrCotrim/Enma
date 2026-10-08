@@ -4,12 +4,17 @@ import { getOrganizationRoleLabel } from '../organizations/organizationTypes'
 import type { TeamMember } from './teamTypes'
 import { hasAdministrativeTeamDetails } from './teamTypes'
 
-export type TeamMutationKind = 'role' | 'deactivate' | 'reactivate'
+export type TeamMutationKind =
+  | 'role'
+  | 'deactivate'
+  | 'reactivate'
+  | 'ownership'
 
 interface TeamMemberRowProps {
   readonly member: TeamMember
   readonly actorRole: OrganizationRole
   readonly actorMembershipId: string
+  readonly organizationName: string
   readonly pendingMutation?: {
     readonly membershipId: string
     readonly kind: TeamMutationKind
@@ -25,25 +30,31 @@ interface TeamMemberRowProps {
     member: TeamMember,
     operation: 'deactivate' | 'reactivate',
   ): Promise<boolean>
+  transferOwnership(member: TeamMember): Promise<boolean>
 }
 
-type ConfirmationMode = 'role' | 'deactivate'
+type ConfirmationMode = 'role' | 'deactivate' | 'ownership'
 
 export function TeamMemberRow({
   member,
   actorRole,
   actorMembershipId,
+  organizationName,
   pendingMutation,
   activeActionMembershipId,
   authorizationIsStale,
   setActiveActionMembershipId,
   changeRole,
   changeLifecycle,
+  transferOwnership,
 }: TeamMemberRowProps) {
   const [confirmationMode, setConfirmationMode] =
     useState<ConfirmationMode>()
+  const [ownershipConfirmationName, setOwnershipConfirmationName] =
+    useState('')
   const roleTriggerRef = useRef<HTMLButtonElement | null>(null)
   const deactivateTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const ownershipTriggerRef = useRef<HTMLButtonElement | null>(null)
   const lastTriggerRef = useRef<ConfirmationMode | undefined>(undefined)
   const shouldRestoreFocusRef = useRef(false)
   const isAdministrativelyVisible = hasAdministrativeTeamDetails(member)
@@ -69,6 +80,17 @@ export function TeamMemberRow({
     targetIsMutable &&
     member.membershipStatus === 'Active' &&
     !authorizationIsStale
+  const canTransferOwnership =
+    isAdministrativelyVisible &&
+    actorRole === 'Owner' &&
+    member.id !== actorMembershipId &&
+    member.role === 'Administrator' &&
+    member.membershipStatus === 'Active' &&
+    member.accountStatus === 'Active' &&
+    !authorizationIsStale
+  const ownershipConfirmationMatches =
+    organizationName.trim() !== '' &&
+    ownershipConfirmationName.trim() === organizationName.trim()
   const nextRole =
     member.role === 'Member' ? 'Administrator' : 'Member'
 
@@ -78,13 +100,16 @@ export function TeamMemberRow({
       const trigger =
         lastTriggerRef.current === 'role'
           ? roleTriggerRef.current
-          : deactivateTriggerRef.current
+          : lastTriggerRef.current === 'ownership'
+            ? ownershipTriggerRef.current
+            : deactivateTriggerRef.current
       trigger?.focus()
     }
   }, [activeConfirmationMode])
 
   function openConfirmation(mode: ConfirmationMode) {
     lastTriggerRef.current = mode
+    setOwnershipConfirmationName('')
     setConfirmationMode(mode)
     setActiveActionMembershipId(member.id)
   }
@@ -106,10 +131,14 @@ export function TeamMemberRow({
       return
     }
 
-    if (event.key === 'Tab' && activeConfirmationMode === 'deactivate') {
+    if (
+      event.key === 'Tab' &&
+      (activeConfirmationMode === 'deactivate' ||
+        activeConfirmationMode === 'ownership')
+    ) {
       const buttons = Array.from(
-        event.currentTarget.querySelectorAll<HTMLButtonElement>(
-          'button:not([disabled])',
+        event.currentTarget.querySelectorAll<HTMLElement>(
+          'input:not([disabled]), button:not([disabled])',
         ),
       )
       const firstButton = buttons.at(0)
@@ -135,6 +164,18 @@ export function TeamMemberRow({
 
   async function confirmDeactivation() {
     const succeeded = await changeLifecycle(member, 'deactivate')
+    if (succeeded) {
+      setConfirmationMode(undefined)
+      setActiveActionMembershipId(undefined)
+    }
+  }
+
+  async function confirmOwnershipTransfer() {
+    if (!ownershipConfirmationMatches) {
+      return
+    }
+
+    const succeeded = await transferOwnership(member)
     if (succeeded) {
       setConfirmationMode(undefined)
       setActiveActionMembershipId(undefined)
@@ -249,6 +290,67 @@ export function TeamMemberRow({
                   </button>
                 </div>
               </div>
+            ) : activeConfirmationMode === 'ownership' ? (
+              <div
+                className="team-row-confirmation"
+                role="alertdialog"
+                aria-labelledby={`ownership-title-${member.id}`}
+                aria-describedby={`ownership-description-${member.id}`}
+                aria-busy={pendingKind === 'ownership'}
+                onKeyDown={handleConfirmationKeyDown}
+              >
+                <p id={`ownership-title-${member.id}`}>
+                  Transferir a propriedade para {member.name}?
+                </p>
+                <p
+                  id={`ownership-description-${member.id}`}
+                  className="team-confirmation-detail"
+                >
+                  Você passará a ser Administrador. {member.name} se tornará
+                  Proprietário(a) do escritório e poderá alterar o seu papel. A
+                  mudança é imediata.
+                </p>
+                <div className="team-ownership-confirmation-field">
+                  <label htmlFor={`ownership-confirmation-${member.id}`}>
+                    Digite o nome do escritório para confirmar
+                  </label>
+                  <input
+                    id={`ownership-confirmation-${member.id}`}
+                    type="text"
+                    value={ownershipConfirmationName}
+                    onChange={(event) =>
+                      setOwnershipConfirmationName(event.target.value)
+                    }
+                    disabled={anyMutationPending}
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    autoFocus
+                  />
+                </div>
+                <div className="team-row-confirmation-actions">
+                  <button
+                    className="secondary-button team-compact-button"
+                    type="button"
+                    onClick={closeConfirmation}
+                    disabled={anyMutationPending}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    className="danger-button team-compact-button"
+                    type="button"
+                    onClick={() => void confirmOwnershipTransfer()}
+                    disabled={
+                      anyMutationPending || !ownershipConfirmationMatches
+                    }
+                  >
+                    {pendingKind === 'ownership'
+                      ? 'Transferindo…'
+                      : 'Transferir propriedade'}
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="team-row-actions">
                 {canChangeRole ? (
@@ -260,6 +362,17 @@ export function TeamMemberRow({
                     disabled={anyMutationPending}
                   >
                     Alterar papel
+                  </button>
+                ) : null}
+                {canTransferOwnership ? (
+                  <button
+                    ref={ownershipTriggerRef}
+                    className="text-button"
+                    type="button"
+                    onClick={() => openConfirmation('ownership')}
+                    disabled={anyMutationPending}
+                  >
+                    Transferir propriedade
                   </button>
                 ) : null}
                 {canManageLifecycle &&

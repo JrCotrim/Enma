@@ -177,6 +177,19 @@ function AuditDetails({ details }: { readonly details: AuditLogDetails | null })
           </div>
         </dl>
       )
+    case 'organization.ownership_transferred':
+      return (
+        <dl className="audit-details-list">
+          <div>
+            <dt>Proprietário anterior</dt>
+            <dd><MembershipValue value={details.previousOwnerMembershipId} /></dd>
+          </div>
+          <div>
+            <dt>Novo proprietário</dt>
+            <dd><MembershipValue value={details.newOwnerMembershipId} /></dd>
+          </div>
+        </dl>
+      )
     case 'unsupported':
       return <span>Detalhes indisponíveis para este tipo de evento.</span>
   }

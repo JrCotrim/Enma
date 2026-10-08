@@ -12,6 +12,7 @@ import {
   changeTeamMemberRole,
   listTeamMembers,
   TeamRequestError,
+  transferOwnership,
 } from './teamService'
 import {
   TeamMemberRow,
@@ -303,6 +304,8 @@ function OrganizationTeamPage() {
           return 'Este integrante ainda possui tarefas, compromissos, prazos ou processos em aberto. Reatribua antes de desativá-lo.'
         case 'reactivate':
           return 'A conta deste usuário está inativa. Ela precisa ser reativada fora desta tela antes que o acesso à organização possa ser restaurado.'
+        case 'ownership':
+          return 'Este membro não pode mais receber a propriedade. A lista foi atualizada.'
       }
     }
 
@@ -311,7 +314,9 @@ function OrganizationTeamPage() {
     }
 
     if (error.failure === 'not-found') {
-      return 'Este integrante não está mais disponível. A equipe foi atualizada.'
+      return kind === 'ownership'
+        ? 'Este membro não está mais disponível.'
+        : 'Este integrante não está mais disponível. A equipe foi atualizada.'
     }
 
     return 'Não foi possível concluir a ação. Tente novamente.'
@@ -371,7 +376,8 @@ function OrganizationTeamPage() {
 
       if (
         requestError.failure === 'forbidden' ||
-        requestError.failure === 'not-found'
+        requestError.failure === 'not-found' ||
+        (requestError.failure === 'conflict' && kind === 'ownership')
       ) {
         setActiveActionMembershipId(undefined)
       }
@@ -436,6 +442,29 @@ function OrganizationTeamPage() {
         ? `A participação de ${member.name} foi desativada.`
         : `A participação de ${member.name} foi reativada.`,
     )
+  }
+
+  async function transferOrganizationOwnership(member: TeamMember) {
+    const succeeded = await runMembershipMutation(
+      member,
+      'ownership',
+      (signal) =>
+        transferOwnership(
+          currentOrganization.id,
+          member.id,
+          handleUnauthorized,
+          signal,
+        ),
+      `Propriedade transferida para ${member.name}. Você agora é Administrador.`,
+    )
+
+    if (succeeded) {
+      // The in-memory role is now stale; hide privileged actions until refreshed.
+      setStaleOrganization(currentOrganization)
+      refreshOrganizations()
+    }
+
+    return succeeded
   }
 
   const response =
@@ -609,12 +638,14 @@ function OrganizationTeamPage() {
                       member={member}
                       actorRole={currentOrganization.role}
                       actorMembershipId={currentOrganization.membershipId}
+                      organizationName={currentOrganization.name}
                       pendingMutation={pendingMutation}
                       activeActionMembershipId={activeActionMembershipId}
                       authorizationIsStale={authorizationIsStale}
                       setActiveActionMembershipId={setActiveActionMembershipId}
                       changeRole={changeRole}
                       changeLifecycle={changeLifecycle}
+                      transferOwnership={transferOrganizationOwnership}
                     />
                   ))}
                 </tbody>

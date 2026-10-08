@@ -347,6 +347,48 @@ body:has(.organization-workspace)
   flex-wrap: wrap;
 }
 
+.team-ownership-confirmation-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.team-ownership-confirmation-field label {
+  color: var(--team-muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.team-ownership-confirmation-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--team-border-strong);
+  border-radius: 0.5rem;
+  color: var(--team-text);
+  background: #211b26;
+  font: inherit;
+  font-size: 0.8rem;
+  caret-color: #d6a8ed;
+  color-scheme: dark;
+}
+
+.team-ownership-confirmation-field input:hover:not(:disabled) {
+  border-color: rgba(210, 166, 235, 0.38);
+}
+
+.team-ownership-confirmation-field input:focus-visible {
+  border-color: #c68ee4;
+  background: #251f2b;
+  outline: 3px solid #a45bd6;
+  outline-offset: 2px;
+}
+
+.team-ownership-confirmation-field input:disabled {
+  opacity: 0.6;
+}
+
 .team-compact-button {
   min-height: 2.75rem !important;
   padding: 0.45rem 0.72rem !important;

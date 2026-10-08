@@ -651,4 +651,367 @@ describe('team administration flow', () => {
       ).not.toBeInTheDocument()
     })
   })
+
+  describe('ownership transfer', () => {
+    const inactiveAdministrator = {
+      ...administratorMember,
+      id: 'dddddddd-dddd-4ddd-8ddd-ddddddddddd4',
+      name: 'Ingrid Inativa',
+      email: 'ingrid@example.test',
+      membershipStatus: 'Inactive',
+    }
+
+    const inactiveAccountAdministrator = {
+      ...administratorMember,
+      id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee5',
+      name: 'Caio Conta Inativa',
+      email: 'caio@example.test',
+      accountStatus: 'Inactive',
+    }
+
+    const transferEndpoint = `/api/organizations/${ownerOrganization.id}/members/${administratorMember.id}/transfer-ownership`
+    const confirmationLabel = 'Digite o nome do escritório para confirmar'
+
+    function rowOf(name: string): HTMLElement {
+      const row = screen.getByText(name).closest('tr')
+      expect(row).not.toBeNull()
+      return row!
+    }
+
+    async function openTransferConfirmation() {
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Transferir propriedade' }),
+      )
+      return screen.getByRole('alertdialog', {
+        name: `Transferir a propriedade para ${administratorMember.name}?`,
+      })
+    }
+
+    function confirmButton(dialog: HTMLElement): HTMLElement {
+      return within(dialog).getByRole('button', {
+        name: 'Transferir propriedade',
+      })
+    }
+
+    function typeOrganizationName(dialog: HTMLElement, value: string) {
+      fireEvent.change(within(dialog).getByLabelText(confirmationLabel), {
+        target: { value },
+      })
+    }
+
+    it('OwnerProjection_ShowsTransferOnlyOnActiveAdministratorRows', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve(
+            teamResponse([
+              ownerMember,
+              administratorMember,
+              regularMember,
+              inactiveAdministrator,
+              inactiveAccountAdministrator,
+            ]),
+          ),
+        ),
+      )
+
+      renderTeam()
+
+      await screen.findByText(administratorMember.name)
+      expect(
+        screen.getAllByRole('button', { name: 'Transferir propriedade' }),
+      ).toHaveLength(1)
+      expect(
+        within(rowOf(administratorMember.name)).getByRole('button', {
+          name: 'Transferir propriedade',
+        }),
+      ).toBeInTheDocument()
+      for (const name of [
+        ownerMember.name,
+        regularMember.name,
+        inactiveAdministrator.name,
+        inactiveAccountAdministrator.name,
+      ]) {
+        expect(
+          within(rowOf(name)).queryByRole('button', {
+            name: 'Transferir propriedade',
+          }),
+        ).not.toBeInTheDocument()
+      }
+    })
+
+    it('AdministratorProjection_NeverShowsTransfer', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve(
+            teamResponse([ownerMember, administratorMember, regularMember]),
+          ),
+        ),
+      )
+
+      renderTeam({ organization: administratorOrganization })
+
+      await screen.findByText(administratorMember.name)
+      expect(
+        screen.queryByRole('button', { name: 'Transferir propriedade' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('MemberProjection_NeverShowsTransfer', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() =>
+          Promise.resolve(
+            teamResponse([
+              { id: ownerMember.id, name: ownerMember.name, role: 'Owner' },
+              {
+                id: administratorMember.id,
+                name: administratorMember.name,
+                role: 'Administrator',
+              },
+            ]),
+          ),
+        ),
+      )
+
+      renderTeam({ organization: memberOrganization })
+
+      await screen.findByText(administratorMember.name)
+      expect(
+        screen.queryByRole('button', { name: 'Transferir propriedade' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('Confirmation_EnablesTransferOnlyForTheExactTrimmedOrganizationName', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(teamResponse([ownerMember, administratorMember]))
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderTeam()
+
+      const dialog = await openTransferConfirmation()
+      expect(dialog).toHaveTextContent(
+        `Você passará a ser Administrador. ${administratorMember.name} se tornará Proprietário(a) do escritório e poderá alterar o seu papel. A mudança é imediata.`,
+      )
+      expect(within(dialog).getByLabelText(confirmationLabel)).toHaveFocus()
+      expect(confirmButton(dialog)).toBeDisabled()
+
+      for (const attempt of [
+        'organização alfa',
+        'ORGANIZAÇÃO ALFA',
+        'Organização Alf',
+        'Organização Alfa.',
+        'Organizacao Alfa',
+      ]) {
+        typeOrganizationName(dialog, attempt)
+        expect(confirmButton(dialog)).toBeDisabled()
+      }
+
+      typeOrganizationName(dialog, '  Organização Alfa  ')
+      expect(confirmButton(dialog)).toBeEnabled()
+
+      typeOrganizationName(dialog, 'Organização Alfa')
+      expect(confirmButton(dialog)).toBeEnabled()
+
+      typeOrganizationName(dialog, '')
+      expect(confirmButton(dialog)).toBeDisabled()
+      fireEvent.click(confirmButton(dialog))
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('Cancel_ClosesWithoutRequestAndRestoresFocus', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(teamResponse([ownerMember, administratorMember]))
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderTeam()
+
+      const dialog = await openTransferConfirmation()
+      typeOrganizationName(dialog, ownerOrganization.name)
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }))
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Transferir propriedade' }),
+      ).toHaveFocus()
+
+      const reopened = await openTransferConfirmation()
+      expect(within(reopened).getByLabelText(confirmationLabel)).toHaveValue('')
+      fireEvent.keyDown(reopened, { key: 'Escape' })
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('Success_PostsTransferRefreshesOrganizationsAndTeam', async () => {
+      const newOwner = { ...administratorMember, role: 'Owner' }
+      const formerOwner = { ...ownerMember, role: 'Administrator' }
+      let resolveTransfer: ((value: Response) => void) | undefined
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(teamResponse([ownerMember, administratorMember]))
+        .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+        .mockReturnValueOnce(
+          new Promise<Response>((resolve) => {
+            resolveTransfer = resolve
+          }),
+        )
+        .mockResolvedValueOnce(teamResponse([formerOwner, newOwner]))
+      vi.stubGlobal('fetch', fetchMock)
+      const refreshOrganizations = vi.fn<() => void>()
+
+      renderTeam({ refreshOrganizations })
+
+      const dialog = await openTransferConfirmation()
+      typeOrganizationName(dialog, ownerOrganization.name)
+      fireEvent.click(confirmButton(dialog))
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+      expect(dialog).toHaveAttribute('aria-busy', 'true')
+      expect(
+        within(dialog).getByRole('button', { name: 'Transferindo…' }),
+      ).toBeDisabled()
+      expect(
+        within(dialog).getByRole('button', { name: 'Cancelar' }),
+      ).toBeDisabled()
+      expect(within(dialog).getByLabelText(confirmationLabel)).toBeDisabled()
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        3,
+        transferEndpoint,
+        expect.objectContaining({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': 'csrf-token',
+          },
+          body: JSON.stringify({ expectedTargetRole: 'administrator' }),
+        }),
+      )
+
+      resolveTransfer?.(response(204))
+
+      expect(
+        await screen.findByText(
+          `Propriedade transferida para ${administratorMember.name}. Você agora é Administrador.`,
+        ),
+      ).toBeInTheDocument()
+      expect(refreshOrganizations).toHaveBeenCalledOnce()
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+      expect(
+        screen.queryByRole('button', { name: 'Transferir propriedade' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('Forbidden_UsesChangedAccessPatternAndRefreshesOrganizations', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(teamResponse([ownerMember, administratorMember]))
+        .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+        .mockResolvedValueOnce(response(403, { detail: 'private policy detail' }))
+        .mockResolvedValueOnce(teamResponse([ownerMember, administratorMember]))
+      vi.stubGlobal('fetch', fetchMock)
+      const refreshOrganizations = vi.fn<() => void>()
+
+      renderTeam({ refreshOrganizations })
+
+      const dialog = await openTransferConfirmation()
+      typeOrganizationName(dialog, ownerOrganization.name)
+      fireEvent.click(confirmButton(dialog))
+
+      expect(
+        await screen.findByText(/seu acesso mudou e esta ação não foi concluída/i),
+      ).toBeInTheDocument()
+      expect(refreshOrganizations).toHaveBeenCalledOnce()
+      expect(screen.queryByText('private policy detail')).not.toBeInTheDocument()
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+      expect(
+        screen.queryByRole('button', { name: 'Transferir propriedade' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('NotFound_ExplainsUnavailableMemberAndReloadsTeam', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(teamResponse([ownerMember, administratorMember]))
+        .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+        .mockResolvedValueOnce(response(404))
+        .mockResolvedValueOnce(teamResponse([ownerMember]))
+      vi.stubGlobal('fetch', fetchMock)
+      const refreshOrganizations = vi.fn<() => void>()
+
+      renderTeam({ refreshOrganizations })
+
+      const dialog = await openTransferConfirmation()
+      typeOrganizationName(dialog, ownerOrganization.name)
+      fireEvent.click(confirmButton(dialog))
+
+      expect(
+        await screen.findByText('Este membro não está mais disponível.'),
+      ).toBeInTheDocument()
+      expect(refreshOrganizations).not.toHaveBeenCalled()
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    })
+
+    it('ConflictWithProblemCode_ExplainsUnavailableTargetAndReloadsTeam', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(teamResponse([ownerMember, administratorMember]))
+        .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+        .mockResolvedValueOnce(
+          response(409, {
+            detail: 'private target state detail',
+            code: 'ownership_transfer_target_unavailable',
+          }),
+        )
+        .mockResolvedValueOnce(teamResponse([ownerMember, administratorMember]))
+      vi.stubGlobal('fetch', fetchMock)
+      const refreshOrganizations = vi.fn<() => void>()
+
+      renderTeam({ refreshOrganizations })
+
+      const dialog = await openTransferConfirmation()
+      typeOrganizationName(dialog, ownerOrganization.name)
+      fireEvent.click(confirmButton(dialog))
+
+      expect(
+        await screen.findByText(
+          'Este membro não pode mais receber a propriedade. A lista foi atualizada.',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('private target state detail'),
+      ).not.toBeInTheDocument()
+      expect(refreshOrganizations).not.toHaveBeenCalled()
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    })
+
+    it('ConflictWithoutProblemCode_ShowsGenericFailure', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(teamResponse([ownerMember, administratorMember]))
+        .mockResolvedValueOnce(response(200, { requestToken: 'csrf-token' }))
+        .mockResolvedValueOnce(
+          response(409, { detail: 'ownership_transfer_target_unavailable' }),
+        )
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderTeam()
+
+      const dialog = await openTransferConfirmation()
+      typeOrganizationName(dialog, ownerOrganization.name)
+      fireEvent.click(confirmButton(dialog))
+
+      expect(
+        await screen.findByText(
+          'Não foi possível concluir a ação. Tente novamente.',
+        ),
+      ).toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    })
+  })
 })

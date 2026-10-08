@@ -52,6 +52,10 @@ export const auditEventOptions: readonly {
     value: 'payment_installment.payment_reversed',
     label: 'Pagamento de parcela desfeito',
   },
+  {
+    value: 'organization.ownership_transferred',
+    label: 'Propriedade do escritório transferida',
+  },
 ]
 
 export const auditEntityOptions: readonly {
