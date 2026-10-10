@@ -274,6 +274,36 @@ if ($backupInventory.Count -ne [int]$manifest.objectStorage.objectCount -or
     throw "Object backup count or byte total does not match the manifest."
 }
 
+$dataProtectionKeysVerified = $false
+$isPilotBackup = $null -ne $manifest.PSObject.Properties["environment"] -and
+    [string]$manifest.environment -ceq "Pilot"
+if ($isPilotBackup -and $null -eq $manifest.PSObject.Properties["recovery"]) {
+    throw "Pilot backup is missing required recovery metadata."
+}
+if ($null -ne $manifest.PSObject.Properties["recovery"]) {
+    if ($null -eq $manifest.recovery.PSObject.Properties["dataProtectionKeysDirectory"] -or
+        $null -eq $manifest.recovery.PSObject.Properties["dataProtectionKeys"] -or
+        $null -eq $manifest.recovery.PSObject.Properties["inventorySha256"]) {
+        throw "Backup manifest recovery metadata is incomplete."
+    }
+    $keyDirectory = Get-ContainedChildPath `
+        -Parent $backupFullPath `
+        -RelativePath ([string]$manifest.recovery.dataProtectionKeysDirectory)
+    $keyInventory = @(Get-ObjectInventory -ObjectsDirectory $keyDirectory)
+    if (-not (Test-EquivalentJson `
+        -Left @($manifest.recovery.dataProtectionKeys) `
+        -Right $keyInventory)) {
+        throw "Data Protection key inventory does not match the manifest."
+    }
+    $keyInventoryHash = Get-StringSha256 -Value (
+        $keyInventory | ConvertTo-Json -Depth 5 -Compress)
+    if ($keyInventoryHash -cne
+        ([string]$manifest.recovery.inventorySha256).ToLowerInvariant()) {
+        throw "Data Protection key inventory SHA-256 mismatch."
+    }
+    $dataProtectionKeysVerified = $true
+}
+
 $drillId = "restore-drill-{0}" -f ([Guid]::NewGuid().ToString("N").Substring(0, 12))
 if ([string]::IsNullOrWhiteSpace($PostgresContainerName)) { $PostgresContainerName = "enma-$drillId-postgres" }
 if ([string]::IsNullOrWhiteSpace($MinioContainerName)) { $MinioContainerName = "enma-$drillId-minio" }
@@ -342,6 +372,7 @@ $report = [ordered]@{
     foreignKeysValidated = $false
     objectRestore = "FAIL"
     objectCount = 0
+    dataProtectionKeysVerified = $dataProtectionKeysVerified
     missingObjects = @()
     orphanObjects = @()
     hashMismatches = @()

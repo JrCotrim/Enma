@@ -123,6 +123,15 @@ try {
         -ExpectedMessage "Object backup is missing"
 
     New-Item -ItemType Directory -Path (Join-Path $fixture "objects") | Out-Null
+    $baseManifest | Add-Member -NotePropertyName environment -NotePropertyValue "Pilot"
+    Write-JsonFile -Value $baseManifest -Path (Join-Path $fixture "manifest.json")
+    Assert-ScriptFails `
+        -Name "pilot restore recovery metadata required" `
+        -ScriptPath $restoreScript `
+        -Arguments @("-BackupPath", $fixture) `
+        -ExpectedMessage "Pilot backup is missing required recovery metadata"
+
+    $baseManifest.PSObject.Properties.Remove("environment")
     Write-JsonFile -Value $baseManifest -Path (Join-Path $fixture "manifest.json")
     Assert-ScriptFails `
         -Name "restore original target rejected" `
