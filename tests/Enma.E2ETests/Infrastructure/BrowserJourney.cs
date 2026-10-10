@@ -5,36 +5,31 @@ namespace Enma.E2ETests.Infrastructure;
 
 // Runs a journey in a fresh browser context. Tracing always records, but the
 // trace and a screenshot are kept only when the journey fails, under
-// artifacts/e2e/<test name>/.
+// artifacts/e2e/<class>.<method>/. The class is taken from the calling file,
+// which follows the one-class-per-file convention of Journeys/.
 public static class BrowserJourney
 {
     public static async Task RunAsync(
-        E2EStack stack,
+        E2EHost host,
         Func<IPage, Task> journey,
         BrowserNewContextOptions? contextOptions = null,
-        [CallerMemberName] string testName = "")
+        [CallerMemberName] string testName = "",
+        [CallerFilePath] string testFile = "")
     {
-        ArgumentNullException.ThrowIfNull(stack);
+        ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(journey);
 
         string artifactsDirectory = Path.Combine(
-            stack.RepositoryRoot,
+            host.RepositoryRoot,
             "artifacts",
             "e2e",
-            testName);
+            $"{Path.GetFileNameWithoutExtension(testFile)}.{testName}");
         if (Directory.Exists(artifactsDirectory))
         {
             Directory.Delete(artifactsDirectory, recursive: true);
         }
 
-        BrowserNewContextOptions options = contextOptions ?? new();
-        options.BaseURL = stack.BaseAddress.AbsoluteUri;
-        options.IgnoreHTTPSErrors = true;
-        options.Locale = "pt-BR";
-        options.TimezoneId = "America/Sao_Paulo";
-
-        IBrowserContext context = await stack.Browser.NewContextAsync(options);
-        context.SetDefaultTimeout(15_000);
+        IBrowserContext context = await NewContextAsync(host, contextOptions);
         await context.Tracing.StartAsync(new TracingStartOptions
         {
             Title = testName,
@@ -62,6 +57,26 @@ public static class BrowserJourney
 
             await context.CloseAsync();
         }
+    }
+
+    // A further browser context on the same host, for journeys that need a
+    // second person's session next to the main one. It is not traced; the
+    // caller disposes it.
+    public static async Task<IBrowserContext> NewContextAsync(
+        E2EHost host,
+        BrowserNewContextOptions? contextOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+
+        BrowserNewContextOptions options = contextOptions ?? new();
+        options.BaseURL = host.BaseAddress.AbsoluteUri;
+        options.IgnoreHTTPSErrors = true;
+        options.Locale = "pt-BR";
+        options.TimezoneId = "America/Sao_Paulo";
+
+        IBrowserContext context = await host.Browser.NewContextAsync(options);
+        context.SetDefaultTimeout(15_000);
+        return context;
     }
 
     // Best effort: never mask the journey's own failure.

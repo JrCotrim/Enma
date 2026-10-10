@@ -9,24 +9,24 @@ namespace Enma.E2ETests.Journeys;
 // show the Owner's name, the Administrator's rows add "(inativo)", and every
 // event, entity and actor has a label (no "desconhecido" fallback).
 [Collection(E2ECollection.Name)]
-public sealed class AuditLogJourneyTests
+public sealed class AuditLogJourneyTests : IClassFixture<E2EHost>
 {
     private const int ActorColumn = 3;
 
-    private readonly E2EStack stack;
+    private readonly E2EHost host;
 
-    public AuditLogJourneyTests(E2EStack stack)
+    public AuditLogJourneyTests(E2EHost host)
     {
-        ArgumentNullException.ThrowIfNull(stack);
-        this.stack = stack;
+        ArgumentNullException.ThrowIfNull(host);
+        this.host = host;
     }
 
     [Fact]
     public Task AuditLog_ShowsCurrentActorNamesAndLabelsEveryEvent()
     {
-        return BrowserJourney.RunAsync(stack, async page =>
+        return BrowserJourney.RunAsync(host, async page =>
         {
-            using SeededOwner owner = await stack.Seeder.CreateVerifiedOwnerAsync("Zeta");
+            using SeededOwner owner = await host.Seeder.CreateVerifiedOwnerAsync("Zeta");
             string suffix = Guid.NewGuid().ToString("N")[..8];
             Guid ownerClientId = await owner.CreateIndividualClientAsync(
                 $"Cliente Zeta Titular E2E {suffix}");
@@ -34,7 +34,7 @@ public sealed class AuditLogJourneyTests
             Guid adminMembershipId;
             string adminName;
             Guid adminClientId;
-            using (SeededMember admin = await stack.Seeder.AddActiveMemberAsync(
+            using (SeededMember admin = await host.Seeder.AddActiveMemberAsync(
                        owner,
                        "Zeta",
                        "Administrator"))

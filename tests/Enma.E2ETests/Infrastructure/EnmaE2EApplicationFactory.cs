@@ -1,5 +1,6 @@
 using Enma.Application.Security;
 using Enma.Infrastructure.Email;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -19,15 +20,19 @@ internal sealed class EnmaE2EApplicationFactory : WebApplicationFactory<Program>
 
     private readonly IReadOnlyDictionary<string, string?> settings;
     private readonly string distributionPath;
+    private readonly string dataProtectionKeysPath;
 
     public EnmaE2EApplicationFactory(
         IReadOnlyDictionary<string, string?> settings,
-        string distributionPath)
+        string distributionPath,
+        string dataProtectionKeysPath)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentException.ThrowIfNullOrWhiteSpace(distributionPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataProtectionKeysPath);
         this.settings = settings;
         this.distributionPath = distributionPath;
+        this.dataProtectionKeysPath = dataProtectionKeysPath;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -56,6 +61,12 @@ internal sealed class EnmaE2EApplicationFactory : WebApplicationFactory<Program>
             // stays the production MailKit one.
             services.RemoveAll<
                 IValidateOptions<EmailVerificationDeliveryOptions>>();
+
+            // Outside Production and Pilot the API keeps the default key ring,
+            // which lives in the user profile and is shared with Development
+            // runs. Each E2E host gets its own throwaway key ring instead.
+            services.AddDataProtection()
+                .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
 
             services.AddSingleton<IStartupFilter>(
                 new SpaStaticFilesStartupFilter(distributionPath));

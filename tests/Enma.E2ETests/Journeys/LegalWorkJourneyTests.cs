@@ -11,28 +11,28 @@ namespace Enma.E2ETests.Journeys;
 // responsible, creates a deadline on that process — the form suggests the
 // process responsible — and completes it.
 [Collection(E2ECollection.Name)]
-public sealed class LegalWorkJourneyTests
+public sealed class LegalWorkJourneyTests : IClassFixture<E2EHost>
 {
     // Synthetic check-digit-valid documents, the same ones the integration
     // tests use; neither belongs to a real person or company.
     private const string SyntheticCpf = "529.982.247-25";
     private const string SyntheticCnpj = "12.ABC.345/01DE-35";
 
-    private readonly E2EStack stack;
+    private readonly E2EHost host;
 
-    public LegalWorkJourneyTests(E2EStack stack)
+    public LegalWorkJourneyTests(E2EHost host)
     {
-        ArgumentNullException.ThrowIfNull(stack);
-        this.stack = stack;
+        ArgumentNullException.ThrowIfNull(host);
+        this.host = host;
     }
 
     [Fact]
     public Task Owner_RegistersClientsProcessAndCompletesDeadline()
     {
-        return BrowserJourney.RunAsync(stack, async page =>
+        return BrowserJourney.RunAsync(host, async page =>
         {
-            using SeededOwner owner = await stack.Seeder.CreateVerifiedOwnerAsync("Epsilon");
-            using SeededMember responsible = await stack.Seeder.AddActiveMemberAsync(
+            using SeededOwner owner = await host.Seeder.CreateVerifiedOwnerAsync("Epsilon");
+            using SeededMember responsible = await host.Seeder.AddActiveMemberAsync(
                 owner,
                 "Epsilon",
                 "Member");

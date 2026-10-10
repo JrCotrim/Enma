@@ -1,4 +1,6 @@
 using System.Net;
+using System.Text.Json;
+using Enma.Api.Contracts.Finance;
 using Enma.Api.Contracts.Processes;
 using Microsoft.Playwright;
 
@@ -41,6 +43,33 @@ public sealed class SeededOwner : IDisposable
             new { clientId, title });
     }
 
+    public async Task<Guid> CreatePaymentPlanAsync(
+        Guid clientId,
+        decimal totalAmount,
+        int installmentCount,
+        DateOnly firstDueDate)
+    {
+        string content = await session.SendAsync(
+            HttpMethod.Post,
+            $"api/organizations/{OrganizationId:D}/finance/payment-plans",
+            new { clientId, totalAmount, installmentCount, firstDueDate },
+            HttpStatusCode.Created,
+            withCsrfToken: true);
+
+        return (JsonSerializer.Deserialize<CreatePaymentPlanResponse>(
+                content,
+                JsonSerializerOptions.Web)
+            ?? throw new InvalidOperationException(
+                "The payment plan creation returned an empty body."))
+            .PaymentPlanId;
+    }
+
+    public Task<PaymentPlanResponse> GetPaymentPlanAsync(Guid paymentPlanId)
+    {
+        return session.GetFromJsonAsync<PaymentPlanResponse>(
+            $"api/organizations/{OrganizationId:D}/finance/payment-plans/{paymentPlanId:D}");
+    }
+
     public async Task<IReadOnlyList<string>> ListProcessTitlesAsync()
     {
         ListLegalProcessesResponse response =
@@ -78,21 +107,7 @@ public sealed class SeededOwner : IDisposable
     // Reuses the API session in the browser instead of a second UI login.
     public Task AuthenticateAsync(IBrowserContext context)
     {
-        ArgumentNullException.ThrowIfNull(context);
-        System.Net.Cookie sessionCookie = session.SessionCookie;
-
-        return context.AddCookiesAsync(
-        [
-            new Microsoft.Playwright.Cookie
-            {
-                Name = sessionCookie.Name,
-                Value = sessionCookie.Value,
-                Url = session.BaseAddress.GetLeftPart(UriPartial.Authority) + "/",
-                HttpOnly = true,
-                Secure = true,
-                SameSite = SameSiteAttribute.Lax
-            }
-        ]);
+        return session.AuthenticateAsync(context);
     }
 
     public void Dispose()

@@ -8,20 +8,20 @@ namespace Enma.E2ETests.Journeys;
 // J1: register through the UI, open the real verification e-mail link, sign
 // in, reach the dashboard, sign out, and confirm protected routes are closed.
 [Collection(E2ECollection.Name)]
-public sealed class OwnerAccountJourneyTests
+public sealed class OwnerAccountJourneyTests : IClassFixture<E2EHost>
 {
-    private readonly E2EStack stack;
+    private readonly E2EHost host;
 
-    public OwnerAccountJourneyTests(E2EStack stack)
+    public OwnerAccountJourneyTests(E2EHost host)
     {
-        ArgumentNullException.ThrowIfNull(stack);
-        this.stack = stack;
+        ArgumentNullException.ThrowIfNull(host);
+        this.host = host;
     }
 
     [Fact]
     public Task Owner_RegistersVerifiesSignsInAndSignsOut()
     {
-        return BrowserJourney.RunAsync(stack, async page =>
+        return BrowserJourney.RunAsync(host, async page =>
         {
             SyntheticAccount account = SyntheticAccount.Create("Alfa");
 
@@ -41,9 +41,9 @@ public sealed class OwnerAccountJourneyTests
             await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Verifique seu e-mail" }))
                 .ToBeVisibleAsync();
 
-            Uri verificationLink = await stack.Mailpit.WaitForLinkAsync(
+            Uri verificationLink = await host.Mailpit.WaitForLinkAsync(
                 account.Email,
-                new Uri(stack.BaseAddress, "verify-email"));
+                new Uri(host.BaseAddress, "verify-email"));
             await page.GotoAsync(verificationLink.AbsoluteUri);
             await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "E-mail verificado" }))
                 .ToBeVisibleAsync();

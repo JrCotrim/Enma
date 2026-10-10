@@ -11,22 +11,22 @@ namespace Enma.E2ETests.Journeys;
 // mutation control renders, and a write through the Member's own session with
 // a valid CSRF token is refused with 403.
 [Collection(E2ECollection.Name)]
-public sealed class MemberInvitationJourneyTests
+public sealed class MemberInvitationJourneyTests : IClassFixture<E2EHost>
 {
-    private readonly E2EStack stack;
+    private readonly E2EHost host;
 
-    public MemberInvitationJourneyTests(E2EStack stack)
+    public MemberInvitationJourneyTests(E2EHost host)
     {
-        ArgumentNullException.ThrowIfNull(stack);
-        this.stack = stack;
+        ArgumentNullException.ThrowIfNull(host);
+        this.host = host;
     }
 
     [Fact]
     public Task InvitedMember_JoinsThroughEmailAndProcessesStayReadOnly()
     {
-        return BrowserJourney.RunAsync(stack, async page =>
+        return BrowserJourney.RunAsync(host, async page =>
         {
-            using SeededOwner owner = await stack.Seeder.CreateVerifiedOwnerAsync("Delta");
+            using SeededOwner owner = await host.Seeder.CreateVerifiedOwnerAsync("Delta");
             string suffix = Guid.NewGuid().ToString("N")[..8];
             Guid clientId = await owner.CreateIndividualClientAsync($"Cliente Delta E2E {suffix}");
             string processTitle = $"Processo Delta E2E {suffix}";
@@ -46,9 +46,9 @@ public sealed class MemberInvitationJourneyTests
 
             // From here on the browser belongs to the invitee.
             await page.Context.ClearCookiesAsync();
-            Uri invitationLink = await stack.Mailpit.WaitForLinkAsync(
+            Uri invitationLink = await host.Mailpit.WaitForLinkAsync(
                 invitee.Email,
-                new Uri(stack.BaseAddress, "accept-invitation"));
+                new Uri(host.BaseAddress, "accept-invitation"));
             await page.GotoAsync(invitationLink.AbsoluteUri);
             await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Você recebeu um convite" }))
                 .ToBeVisibleAsync();
@@ -67,9 +67,9 @@ public sealed class MemberInvitationJourneyTests
             await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Verifique seu e-mail" }))
                 .ToBeVisibleAsync();
 
-            Uri verificationLink = await stack.Mailpit.WaitForLinkAsync(
+            Uri verificationLink = await host.Mailpit.WaitForLinkAsync(
                 invitee.Email,
-                new Uri(stack.BaseAddress, "verify-email"));
+                new Uri(host.BaseAddress, "verify-email"));
             await page.GotoAsync(verificationLink.AbsoluteUri);
             await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "E-mail verificado" }))
                 .ToBeVisibleAsync();
@@ -105,7 +105,7 @@ public sealed class MemberInvitationJourneyTests
             // (c) the backend refuses the write itself, not only the UI.
             IAPIRequestContext memberApi = page.Context.APIRequest;
             IAPIResponse csrf = await memberApi.GetAsync(
-                new Uri(stack.BaseAddress, "api/auth/csrf").AbsoluteUri);
+                new Uri(host.BaseAddress, "api/auth/csrf").AbsoluteUri);
             Assert.Equal(200, csrf.Status);
             string requestToken = (await csrf.JsonAsync())?
                 .GetProperty("requestToken").GetString()
@@ -113,7 +113,7 @@ public sealed class MemberInvitationJourneyTests
 
             IAPIResponse write = await memberApi.PostAsync(
                 new Uri(
-                    stack.BaseAddress,
+                    host.BaseAddress,
                     $"api/organizations/{owner.OrganizationId:D}/processes").AbsoluteUri,
                 new APIRequestContextOptions
                 {

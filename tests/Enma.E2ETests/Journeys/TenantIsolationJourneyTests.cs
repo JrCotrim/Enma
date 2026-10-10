@@ -11,26 +11,26 @@ namespace Enma.E2ETests.Journeys;
 // tenant's client inside A's own organization must be indistinguishable from a
 // client that does not exist. The UI must not reveal B's names either.
 [Collection(E2ECollection.Name)]
-public sealed class TenantIsolationJourneyTests
+public sealed class TenantIsolationJourneyTests : IClassFixture<E2EHost>
 {
-    private readonly E2EStack stack;
+    private readonly E2EHost host;
     private readonly ITestOutputHelper output;
 
-    public TenantIsolationJourneyTests(E2EStack stack, ITestOutputHelper output)
+    public TenantIsolationJourneyTests(E2EHost host, ITestOutputHelper output)
     {
-        ArgumentNullException.ThrowIfNull(stack);
+        ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(output);
-        this.stack = stack;
+        this.host = host;
         this.output = output;
     }
 
     [Fact]
     public Task ForeignTenantResources_AreIndistinguishableFromMissingOnes()
     {
-        return BrowserJourney.RunAsync(stack, async page =>
+        return BrowserJourney.RunAsync(host, async page =>
         {
-            using SeededOwner ownerA = await stack.Seeder.CreateVerifiedOwnerAsync("Alfa");
-            using SeededOwner ownerB = await stack.Seeder.CreateVerifiedOwnerAsync("Beta");
+            using SeededOwner ownerA = await host.Seeder.CreateVerifiedOwnerAsync("Alfa");
+            using SeededOwner ownerB = await host.Seeder.CreateVerifiedOwnerAsync("Beta");
             string clientBName = $"Cliente Beta E2E {Guid.NewGuid():N}"[..30];
             Guid clientB = await ownerB.CreateIndividualClientAsync(clientBName);
 

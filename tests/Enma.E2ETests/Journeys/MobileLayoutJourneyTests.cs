@@ -7,20 +7,20 @@ namespace Enma.E2ETests.Journeys;
 // J10: the login page and the dashboard fit a 375×812 mobile viewport without
 // horizontal overflow.
 [Collection(E2ECollection.Name)]
-public sealed class MobileLayoutJourneyTests
+public sealed class MobileLayoutJourneyTests : IClassFixture<E2EHost>
 {
-    private readonly E2EStack stack;
+    private readonly E2EHost host;
 
-    public MobileLayoutJourneyTests(E2EStack stack)
+    public MobileLayoutJourneyTests(E2EHost host)
     {
-        ArgumentNullException.ThrowIfNull(stack);
-        this.stack = stack;
+        ArgumentNullException.ThrowIfNull(host);
+        this.host = host;
     }
 
     [Fact]
     public Task Login_HasNoHorizontalOverflowOnMobile()
     {
-        return BrowserJourney.RunAsync(stack, async page =>
+        return BrowserJourney.RunAsync(host, async page =>
         {
             await page.GotoAsync("/login");
             await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Entrar no ENMA" }))
@@ -33,9 +33,9 @@ public sealed class MobileLayoutJourneyTests
     [Fact]
     public Task Dashboard_HasNoHorizontalOverflowOnMobile()
     {
-        return BrowserJourney.RunAsync(stack, async page =>
+        return BrowserJourney.RunAsync(host, async page =>
         {
-            using SeededOwner owner = await stack.Seeder.CreateVerifiedOwnerAsync("Gama");
+            using SeededOwner owner = await host.Seeder.CreateVerifiedOwnerAsync("Gama");
             await owner.AuthenticateAsync(page.Context);
 
             await page.GotoAsync($"/organizations/{owner.OrganizationId:D}");

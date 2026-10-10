@@ -98,6 +98,27 @@ public sealed class SeededSession : IDisposable
             body);
     }
 
+    // Hands the signed-in session to a browser context, so journeys do not
+    // spend a second login on the UI.
+    public Task AuthenticateAsync(Microsoft.Playwright.IBrowserContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        Cookie sessionCookie = SessionCookie;
+
+        return context.AddCookiesAsync(
+        [
+            new Microsoft.Playwright.Cookie
+            {
+                Name = sessionCookie.Name,
+                Value = sessionCookie.Value,
+                Url = BaseAddress.GetLeftPart(UriPartial.Authority) + "/",
+                HttpOnly = true,
+                Secure = true,
+                SameSite = Microsoft.Playwright.SameSiteAttribute.Lax
+            }
+        ]);
+    }
+
     public void Dispose()
     {
         httpClient.Dispose();

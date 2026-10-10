@@ -1,3 +1,5 @@
+using Microsoft.Playwright;
+
 namespace Enma.E2ETests.Infrastructure;
 
 // A non-owner who accepted an invitation through the API and stays signed in.
@@ -29,6 +31,11 @@ public sealed class SeededMember : IDisposable
         return session.CreateAsync(
             $"api/organizations/{OrganizationId:D}/clients",
             new { name, email = (string?)null, phone = (string?)null, cpf = (string?)null });
+    }
+
+    public Task AuthenticateAsync(IBrowserContext context)
+    {
+        return session.AuthenticateAsync(context);
     }
 
     public void Dispose()

@@ -1,21 +1,19 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using Amazon.Runtime;
 using Amazon.S3;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using Enma.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Playwright;
 using Testcontainers.PostgreSql;
 
 namespace Enma.E2ETests.Infrastructure;
 
-// One disposable stack per run: PostgreSQL, Mailpit and MinIO containers, the
-// API with the Enma.Web build on one HTTPS origin, and a headless Chromium.
-// Nothing here touches the Development or Pilot stores.
+// One disposable stack per run, shared by every journey class: PostgreSQL
+// (migrated once), Mailpit and MinIO containers, the checked Enma.Web build and
+// a headless Chromium. Each journey class gets its own API host on top of it
+// (E2EHost). Nothing here touches the Development or Pilot stores.
 public sealed class E2EStack : IAsyncLifetime
 {
     private const string PostgreSqlImage = "postgres:18-alpine";
@@ -33,11 +31,11 @@ public sealed class E2EStack : IAsyncLifetime
     private readonly IContainer mailpit;
     private readonly IContainer minio;
 
-    private EnmaE2EApplicationFactory? application;
     private IPlaywright? playwright;
     private IBrowser? browser;
     private MailpitClient? mailpitClient;
-    private Uri? baseAddress;
+    private string? distributionPath;
+    private string? storageServiceUrl;
 
     public E2EStack()
     {
@@ -68,17 +66,15 @@ public sealed class E2EStack : IAsyncLifetime
 
     public string RepositoryRoot { get; } = RepositoryPaths.FindRoot();
 
-    public Uri BaseAddress => baseAddress ?? throw NotStarted();
+    public string DistributionPath => distributionPath ?? throw NotStarted();
 
     public IBrowser Browser => browser ?? throw NotStarted();
 
     public MailpitClient Mailpit => mailpitClient ?? throw NotStarted();
 
-    public ApiSeeder Seeder => new(BaseAddress, Mailpit);
-
     public async Task InitializeAsync()
     {
-        string distributionPath = WebDistribution.EnsureCurrent(RepositoryRoot);
+        distributionPath = WebDistribution.EnsureCurrent(RepositoryRoot);
 
         using var startupTimeout = new CancellationTokenSource(
             TimeSpan.FromMinutes(3));
@@ -88,18 +84,9 @@ public sealed class E2EStack : IAsyncLifetime
             minio.StartAsync(startupTimeout.Token));
 
         await MigrateDatabaseAsync();
-        string storageServiceUrl =
+        storageServiceUrl =
             $"http://127.0.0.1:{minio.GetMappedPublicPort(MinioApiPort)}";
         await CreateDocumentBucketAsync(storageServiceUrl);
-
-        int port = FindFreeLoopbackPort();
-        baseAddress = new Uri($"https://localhost:{port}/");
-        application = new EnmaE2EApplicationFactory(
-            CreateApplicationSettings(storageServiceUrl),
-            distributionPath);
-        application.UseKestrel(options =>
-            options.ListenLocalhost(port, listen => listen.UseHttps()));
-        application.StartServer();
 
         mailpitClient = new MailpitClient(new Uri(
             $"http://127.0.0.1:{mailpit.GetMappedPublicPort(MailpitApiPort)}/"));
@@ -120,29 +107,27 @@ public sealed class E2EStack : IAsyncLifetime
         playwright?.Dispose();
         mailpitClient?.Dispose();
 
-        if (application is not null)
-        {
-            await application.DisposeAsync();
-        }
-
         await Task.WhenAll(
             postgreSql.DisposeAsync().AsTask(),
             mailpit.DisposeAsync().AsTask(),
             minio.DisposeAsync().AsTask());
     }
 
-    private Dictionary<string, string?> CreateApplicationSettings(
-        string storageServiceUrl)
+    // Settings for one API host served at baseAddress. All hosts share the
+    // same database, mail sink and bucket; e-mail links point at the host that
+    // sent them.
+    public Dictionary<string, string?> CreateApplicationSettings(Uri baseAddress)
     {
+        ArgumentNullException.ThrowIfNull(baseAddress);
         string delivery = "EmailVerification:Delivery";
 
         return new Dictionary<string, string?>
         {
             ["ConnectionStrings:Database"] = postgreSql.GetConnectionString(),
             [$"{delivery}:VerificationPageUrl"] =
-                new Uri(BaseAddress, "verify-email").AbsoluteUri,
+                new Uri(baseAddress, "verify-email").AbsoluteUri,
             [$"{delivery}:PasswordRecoveryPageUrl"] =
-                new Uri(BaseAddress, "reset-password").AbsoluteUri,
+                new Uri(baseAddress, "reset-password").AbsoluteUri,
             [$"{delivery}:SenderName"] = "ENMA E2E",
             [$"{delivery}:SenderAddress"] = "no-reply@enma-e2e.test",
             [$"{delivery}:SmtpHost"] = "127.0.0.1",
@@ -152,7 +137,7 @@ public sealed class E2EStack : IAsyncLifetime
             [$"{delivery}:SmtpSecurity"] = "None",
             [$"{delivery}:SmtpUsername"] = string.Empty,
             [$"{delivery}:SmtpPassword"] = string.Empty,
-            ["DocumentStorage:ServiceUrl"] = storageServiceUrl,
+            ["DocumentStorage:ServiceUrl"] = storageServiceUrl ?? throw NotStarted(),
             ["DocumentStorage:BucketName"] = DocumentBucketName,
             ["DocumentStorage:Region"] = StorageRegion,
             ["DocumentStorage:ForcePathStyle"] = "true",
@@ -186,13 +171,6 @@ public sealed class E2EStack : IAsyncLifetime
             });
 
         await client.PutBucketAsync(DocumentBucketName);
-    }
-
-    private static int FindFreeLoopbackPort()
-    {
-        using var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
     private static string CreateSecret(int bytes)
