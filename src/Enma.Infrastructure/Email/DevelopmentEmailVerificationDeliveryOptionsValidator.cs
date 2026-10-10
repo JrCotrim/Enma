@@ -24,6 +24,17 @@ public sealed class DevelopmentEmailVerificationDeliveryOptionsValidator
             nameof(options.PasswordRecoveryPageUrl),
             "/reset-password",
             failures);
+        if (string.IsNullOrWhiteSpace(options.SenderName) ||
+            options.SenderName.Any(char.IsControl))
+        {
+            failures.Add(
+                $"{DevelopmentEmailVerificationDeliveryOptions.SectionName}:SenderName is required and must not contain control characters.");
+        }
+        if (options.SmtpPort is < 1 or > 65_535)
+        {
+            failures.Add(
+                $"{DevelopmentEmailVerificationDeliveryOptions.SectionName}:SmtpPort must be between 1 and 65535.");
+        }
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success

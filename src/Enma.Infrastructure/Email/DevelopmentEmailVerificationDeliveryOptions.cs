@@ -15,4 +15,8 @@ public sealed class DevelopmentEmailVerificationDeliveryOptions
 
     public string PasswordRecoveryPageUrl { get; init; } =
         DefaultPasswordRecoveryPageUrl;
+
+    public string SenderName { get; init; } = "ENMA Development";
+
+    public int SmtpPort { get; init; } = 1025;
 }

@@ -39,8 +39,9 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
+bool isPilot = builder.Environment.IsEnvironment("Pilot");
 
-if (builder.Environment.IsProduction())
+if (builder.Environment.IsProduction() || isPilot)
 {
     string? dataProtectionKeysPath = builder.Configuration[
         "DataProtection:KeysPath"];
@@ -50,7 +51,9 @@ if (builder.Environment.IsProduction())
         !CanWriteToDirectory(dataProtectionKeysPath))
     {
         throw new InvalidOperationException(
-            "Production data protection configuration is invalid.");
+            builder.Environment.IsProduction()
+                ? "Production data protection configuration is invalid."
+                : "Pilot data protection configuration is invalid.");
     }
 
     builder.Services
@@ -347,11 +350,19 @@ builder.Services.AddScoped<GetOrganizationByIdHandler>();
 builder.Services.AddInfrastructure(
     connectionString,
     builder.Configuration,
-    builder.Environment.IsDevelopment());
-if (builder.Environment.IsProduction())
+    builder.Environment.IsDevelopment() || isPilot);
+if (builder.Environment.IsProduction() || isPilot)
 {
-    builder.Services.AddOptions<EmailVerificationDeliveryOptions>()
-        .ValidateOnStart();
+    if (builder.Environment.IsProduction())
+    {
+        builder.Services.AddOptions<EmailVerificationDeliveryOptions>()
+            .ValidateOnStart();
+    }
+    else
+    {
+        builder.Services.AddOptions<DevelopmentEmailVerificationDeliveryOptions>()
+            .ValidateOnStart();
+    }
     builder.Services.AddOptions<EmailVerificationSendBudgetOptions>()
         .ValidateOnStart();
     builder.Services.AddOptions<DocumentStorageOptions>()

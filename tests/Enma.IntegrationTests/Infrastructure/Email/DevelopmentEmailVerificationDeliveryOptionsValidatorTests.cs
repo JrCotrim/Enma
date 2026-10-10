@@ -51,4 +51,22 @@ public sealed class DevelopmentEmailVerificationDeliveryOptionsValidatorTests
                 "VerificationPageUrl",
                 StringComparison.Ordinal));
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(65536)]
+    public void Validate_InvalidSmtpPort_ReturnsFailure(int value)
+    {
+        ValidateOptionsResult result = validator.Validate(
+            null,
+            new DevelopmentEmailVerificationDeliveryOptions
+            {
+                SmtpPort = value
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(
+            result.Failures ?? [],
+            failure => failure.Contains("SmtpPort", StringComparison.Ordinal));
+    }
 }

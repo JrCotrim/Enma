@@ -247,6 +247,28 @@ public sealed class ProductionIngressTests
     }
 
     [Fact]
+    public void Startup_PilotWithExplicitLocalRuntimeSettings_Succeeds()
+    {
+        AssertStartupSucceeds("Pilot", ValidPilotRuntimeSettings());
+    }
+
+    [Fact]
+    public void Startup_PilotWithoutDataProtectionKeyDirectory_FailsClosed()
+    {
+        Dictionary<string, string?> settings = ValidPilotRuntimeSettings();
+        settings["DataProtection:KeysPath"] = string.Empty;
+
+        using ConfiguredApiFactory factory = new("Pilot", settings);
+        Exception exception = Assert.ThrowsAny<Exception>(
+            () => _ = factory.Services);
+
+        Assert.Contains(
+            "Pilot data protection configuration is invalid.",
+            exception.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Startup_ProductionWithoutAllowedHosts_FailsClosed()
     {
         AssertProductionStartupFails(
@@ -549,6 +571,27 @@ public sealed class ProductionIngressTests
             ["DocumentStorage:AccessKey"] = "synthetic-access-key",
             ["DocumentStorage:SecretKey"] = "synthetic-secret-key",
             ["DocumentStorage:RequireTls"] = "true"
+        };
+    }
+
+    private static Dictionary<string, string?> ValidPilotRuntimeSettings()
+    {
+        return new Dictionary<string, string?>
+        {
+            ["DataProtection:KeysPath"] = Path.GetTempPath(),
+            ["EmailVerification:DevelopmentDelivery:VerificationPageUrl"] =
+                "https://localhost:5443/verify-email",
+            ["EmailVerification:DevelopmentDelivery:PasswordRecoveryPageUrl"] =
+                "https://localhost:5443/reset-password",
+            ["EmailVerification:DevelopmentDelivery:SenderName"] = "ENMA Pilot",
+            ["EmailVerification:DevelopmentDelivery:SmtpPort"] = "1125",
+            ["DocumentStorage:ServiceUrl"] = "http://127.0.0.1:9100",
+            ["DocumentStorage:BucketName"] = "enma-pilot-documents",
+            ["DocumentStorage:Region"] = "us-east-1",
+            ["DocumentStorage:AccessKey"] = "synthetic-pilot-access-key",
+            ["DocumentStorage:SecretKey"] = "synthetic-pilot-secret-key",
+            ["DocumentStorage:RequireTls"] = "false",
+            ["Authentication:Google:Enabled"] = "false"
         };
     }
 

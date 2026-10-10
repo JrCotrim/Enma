@@ -8,14 +8,12 @@ namespace Enma.Infrastructure.Email;
 public sealed class DevelopmentOrganizationInvitationDelivery
     : IOrganizationInvitationDelivery
 {
-    private const int MailpitSmtpPort = 1025;
-
     private readonly MailKitOrganizationInvitationDelivery delivery;
 
     public DevelopmentOrganizationInvitationDelivery(
         IOptions<DevelopmentEmailVerificationDeliveryOptions> options,
         ILogger<MailKitOrganizationInvitationDelivery> logger)
-        : this(options, logger, MailpitSmtpPort)
+        : this(options, logger, GetSmtpPort(options))
     {
     }
 
@@ -33,7 +31,7 @@ public sealed class DevelopmentOrganizationInvitationDelivery
             Options.Create(new EmailVerificationDeliveryOptions
             {
                 VerificationPageUrl = options.Value.VerificationPageUrl,
-                SenderName = "ENMA Development",
+                SenderName = options.Value.SenderName,
                 SenderAddress = "no-reply@enma.local",
                 SmtpHost = "127.0.0.1",
                 SmtpPort = smtpPort,
@@ -50,5 +48,12 @@ public sealed class DevelopmentOrganizationInvitationDelivery
         CancellationToken cancellationToken = default)
     {
         return delivery.DeliverAsync(request, cancellationToken);
+    }
+
+    private static int GetSmtpPort(
+        IOptions<DevelopmentEmailVerificationDeliveryOptions> options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return options.Value.SmtpPort;
     }
 }

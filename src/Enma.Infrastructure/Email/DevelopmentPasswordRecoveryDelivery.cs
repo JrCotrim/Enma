@@ -18,10 +18,10 @@ public sealed class DevelopmentPasswordRecoveryDelivery : IPasswordRecoveryDeliv
             {
                 VerificationPageUrl = options.Value.VerificationPageUrl,
                 PasswordRecoveryPageUrl = options.Value.PasswordRecoveryPageUrl,
-                SenderName = "ENMA Development",
+                SenderName = options.Value.SenderName,
                 SenderAddress = "no-reply@enma.local",
                 SmtpHost = "127.0.0.1",
-                SmtpPort = 1025,
+                SmtpPort = options.Value.SmtpPort,
                 SmtpSecurity = SecureSocketOptions.None
             });
         delivery = new MailKitPasswordRecoveryDelivery(
