@@ -51,7 +51,11 @@ public sealed class MailKitOrganizationInvitationDelivery
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        using var smtpClient = new SmtpClient();
+        using var smtpClient = new SmtpClient
+        {
+            Timeout = (int)TimeSpan.FromSeconds(options.SmtpTimeoutSeconds)
+                .TotalMilliseconds
+        };
 
         try
         {
@@ -165,6 +169,7 @@ public sealed class MailKitOrganizationInvitationDelivery
             or MailKit.Security.SslHandshakeException
             or ParseException
             or SocketException
-            or IOException;
+            or IOException
+            or TimeoutException;
     }
 }

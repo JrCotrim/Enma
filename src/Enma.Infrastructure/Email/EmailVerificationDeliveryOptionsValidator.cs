@@ -39,6 +39,14 @@ public sealed class EmailVerificationDeliveryOptionsValidator
                 $"{EmailVerificationDeliveryOptions.SectionName}:SmtpPort must be between 1 and 65535.");
         }
 
+        if (options.SmtpTimeoutSeconds is
+            < EmailVerificationDeliveryOptions.MinimumSmtpTimeoutSeconds
+            or > EmailVerificationDeliveryOptions.MaximumSmtpTimeoutSeconds)
+        {
+            failures.Add(
+                $"{EmailVerificationDeliveryOptions.SectionName}:SmtpTimeoutSeconds must be between {EmailVerificationDeliveryOptions.MinimumSmtpTimeoutSeconds} and {EmailVerificationDeliveryOptions.MaximumSmtpTimeoutSeconds}.");
+        }
+
         if (options.SmtpSecurity is not SecureSocketOptions.StartTls
             and not SecureSocketOptions.SslOnConnect)
         {

@@ -69,4 +69,24 @@ public sealed class DevelopmentEmailVerificationDeliveryOptionsValidatorTests
             result.Failures ?? [],
             failure => failure.Contains("SmtpPort", StringComparison.Ordinal));
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(61)]
+    public void Validate_OutOfRangeSmtpTimeout_ReturnsFailure(int value)
+    {
+        ValidateOptionsResult result = validator.Validate(
+            null,
+            new DevelopmentEmailVerificationDeliveryOptions
+            {
+                SmtpTimeoutSeconds = value
+            });
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(
+            result.Failures ?? [],
+            failure => failure.Contains(
+                "SmtpTimeoutSeconds",
+                StringComparison.Ordinal));
+    }
 }

@@ -13,6 +13,7 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         .WithDatabase("enma_integration_tests")
         .WithUsername("enma_tests")
         .WithPassword("enma_tests_password")
+        .WithCreateParameterModifier(LoopbackPortBindings.Apply)
         .Build();
 
     private DbContextOptions<EnmaDbContext>? _dbContextOptions;

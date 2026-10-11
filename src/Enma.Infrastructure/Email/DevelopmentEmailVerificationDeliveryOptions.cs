@@ -19,4 +19,7 @@ public sealed class DevelopmentEmailVerificationDeliveryOptions
     public string SenderName { get; init; } = "ENMA Development";
 
     public int SmtpPort { get; init; } = 1025;
+
+    public int SmtpTimeoutSeconds { get; init; } =
+        EmailVerificationDeliveryOptions.DefaultSmtpTimeoutSeconds;
 }

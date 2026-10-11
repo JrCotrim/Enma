@@ -35,6 +35,13 @@ public sealed class DevelopmentEmailVerificationDeliveryOptionsValidator
             failures.Add(
                 $"{DevelopmentEmailVerificationDeliveryOptions.SectionName}:SmtpPort must be between 1 and 65535.");
         }
+        if (options.SmtpTimeoutSeconds is
+            < EmailVerificationDeliveryOptions.MinimumSmtpTimeoutSeconds
+            or > EmailVerificationDeliveryOptions.MaximumSmtpTimeoutSeconds)
+        {
+            failures.Add(
+                $"{DevelopmentEmailVerificationDeliveryOptions.SectionName}:SmtpTimeoutSeconds must be between {EmailVerificationDeliveryOptions.MinimumSmtpTimeoutSeconds} and {EmailVerificationDeliveryOptions.MaximumSmtpTimeoutSeconds}.");
+        }
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success

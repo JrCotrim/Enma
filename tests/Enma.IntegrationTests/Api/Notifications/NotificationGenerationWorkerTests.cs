@@ -4,7 +4,10 @@ using Enma.Api.Notifications;
 using Enma.Application.Notifications;
 using Enma.Application.Time;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 
 namespace Enma.IntegrationTests.Api.Notifications;
 
@@ -112,26 +115,96 @@ public sealed class NotificationGenerationWorkerTests
     }
 
     [Fact]
-    public async Task UnexpectedCycleFailure_IsNotSwallowed()
+    public async Task UnexpectedCycleFailure_IsLoggedAndNextTickStillRuns()
     {
         var control = new GenerationControl();
         control.EnqueueFailure(new InvalidOperationException("synthetic failure"));
         await using ServiceProvider services = CreateServices(control);
         var delay = new ManualCycleDelay();
-        NotificationGenerationWorker worker = CreateWorker(services, delay);
+        var logs = new CapturingLoggerProvider();
+        NotificationGenerationWorker worker = CreateWorker(services, delay, logs);
 
-        InvalidOperationException exception =
-            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            {
-                await worker.StartAsync(CancellationToken.None);
-                Task executeTask = worker.ExecuteTask
-                    ?? throw new InvalidOperationException(
-                        "The worker did not expose its execution task.");
-                await executeTask;
-            });
+        await worker.StartAsync(CancellationToken.None);
+        await control.WaitForCycleAsync();
+        await delay.WaitUntilWaitingAsync();
+        delay.ReleaseTick();
+        await control.WaitForCycleAsync();
+        await delay.WaitUntilWaitingAsync();
+        await worker.StopAsync(CancellationToken.None);
 
-        Assert.Equal("synthetic failure", exception.Message);
-        Assert.Equal(1, control.CycleCount);
+        Assert.Equal(2, control.CycleCount);
+        Assert.False(worker.ExecuteTask?.IsFaulted);
+        CapturedLogEntry failure = Assert.Single(
+            logs.Entries,
+            entry => entry.Level == LogLevel.Error);
+        Assert.Contains(
+            nameof(InvalidOperationException),
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Null(failure.Exception);
+        Assert.DoesNotContain(
+            logs.Entries,
+            entry => entry.Contains("synthetic failure"));
+    }
+
+    [Fact]
+    public async Task NonTransientPostgresFailure_DoesNotStopHostAndNextCycleRuns()
+    {
+        const string syntheticRelation = "synthetic_sensitive_relation";
+        const string syntheticRowValue = "sensitive-row@example.test";
+        var control = new GenerationControl();
+        control.EnqueueFailure(new PostgresException(
+            messageText: $"relation {syntheticRelation} does not exist",
+            severity: "ERROR",
+            invariantSeverity: "ERROR",
+            sqlState: PostgresErrorCodes.UndefinedTable,
+            detail: $"Key (email)=({syntheticRowValue}) is referenced."));
+        var delay = new ManualCycleDelay();
+        var logs = new CapturingLoggerProvider();
+        HostApplicationBuilder builder = Host.CreateEmptyApplicationBuilder(
+            new HostApplicationBuilderSettings());
+        builder.Logging.AddProvider(logs);
+        builder.Services.Configure<HostOptions>(options =>
+            options.BackgroundServiceExceptionBehavior =
+                BackgroundServiceExceptionBehavior.StopHost);
+        AddGenerationServices(builder.Services, control);
+        builder.Services.AddSingleton<INotificationGenerationCycleDelay>(delay);
+        builder.Services.AddHostedService<NotificationGenerationWorker>();
+        using IHost host = builder.Build();
+        IHostApplicationLifetime lifetime = host.Services
+            .GetRequiredService<IHostApplicationLifetime>();
+
+        await host.StartAsync();
+        try
+        {
+            await control.WaitForCycleAsync();
+            await delay.WaitUntilWaitingAsync();
+            delay.ReleaseTick();
+            await control.WaitForCycleAsync();
+            await delay.WaitUntilWaitingAsync();
+
+            Assert.Equal(2, control.CycleCount);
+            Assert.False(lifetime.ApplicationStopping.IsCancellationRequested);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+
+        CapturedLogEntry failure = Assert.Single(
+            logs.Entries,
+            entry => entry.Category == typeof(NotificationGenerationWorker).FullName &&
+                entry.Level == LogLevel.Error);
+        Assert.Contains(nameof(PostgresException), failure.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            PostgresErrorCodes.UndefinedTable,
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.Null(failure.Exception);
+        Assert.DoesNotContain(
+            logs.Entries,
+            entry => entry.Contains(syntheticRelation) ||
+                entry.Contains(syntheticRowValue));
     }
 
     [Fact]
@@ -145,15 +218,7 @@ public sealed class NotificationGenerationWorkerTests
     private static ServiceProvider CreateServices(GenerationControl control)
     {
         var services = new ServiceCollection();
-        services.AddSingleton(control);
-        services.AddSingleton<TimeProvider>(TimeProvider.System);
-        services.AddSingleton(serviceProvider => new OperationalCalendar(
-            serviceProvider.GetRequiredService<TimeProvider>(),
-            TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo")));
-        services.AddScoped<
-            INotificationGenerationPersistence,
-            ControlledGenerationPersistence>();
-        services.AddScoped<GenerateNotificationsUseCase>();
+        AddGenerationServices(services, control);
 
         return services.BuildServiceProvider(
             new ServiceProviderOptions
@@ -163,15 +228,33 @@ public sealed class NotificationGenerationWorkerTests
             });
     }
 
+    private static void AddGenerationServices(
+        IServiceCollection services,
+        GenerationControl control)
+    {
+        services.AddSingleton(control);
+        services.AddSingleton<TimeProvider>(TimeProvider.System);
+        services.AddSingleton(serviceProvider => new OperationalCalendar(
+            serviceProvider.GetRequiredService<TimeProvider>(),
+            TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo")));
+        services.AddScoped<
+            INotificationGenerationPersistence,
+            ControlledGenerationPersistence>();
+        services.AddScoped<GenerateNotificationsUseCase>();
+    }
+
     private static NotificationGenerationWorker CreateWorker(
         ServiceProvider services,
-        INotificationGenerationCycleDelay delay)
+        INotificationGenerationCycleDelay delay,
+        ILoggerFactory? loggerFactory = null)
     {
         return new NotificationGenerationWorker(
             services.GetRequiredService<IServiceScopeFactory>(),
             delay,
             services.GetRequiredService<TimeProvider>(),
-            NullLogger<NotificationGenerationWorker>.Instance);
+            loggerFactory is null
+                ? NullLogger<NotificationGenerationWorker>.Instance
+                : new Logger<NotificationGenerationWorker>(loggerFactory));
     }
 
     private sealed class ManualCycleDelay : INotificationGenerationCycleDelay

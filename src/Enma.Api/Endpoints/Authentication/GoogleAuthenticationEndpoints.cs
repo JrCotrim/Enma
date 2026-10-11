@@ -11,6 +11,7 @@ public static class GoogleAuthenticationEndpoints
 {
     internal const string RateLimitPolicy = "GoogleAuthentication";
     private const string CompletePath = "/api/auth/google/complete";
+    private const string FetchSiteHeader = "Sec-Fetch-Site";
 
     public static IEndpointRouteBuilder MapGoogleAuthenticationEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -47,11 +48,23 @@ public static class GoogleAuthenticationEndpoints
         HttpContext httpContext,
         GoogleAuthenticationAvailability availability,
         IOrganizationInvitationTokenService invitationTokenService,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
         if (!availability.Enabled)
         {
             return TypedResults.NotFound();
+        }
+
+        string? crossOriginReason = GetCrossOriginReason(httpContext.Request);
+        if (crossOriginReason is not null)
+        {
+            loggerFactory
+                .CreateLogger(typeof(GoogleAuthenticationEndpoints))
+                .LogWarning(
+                    "Google sign-in start rejected: {Reason}",
+                    crossOriginReason);
+            return TypedResults.StatusCode(StatusCodes.Status403Forbidden);
         }
 
         if (!httpContext.Request.HasFormContentType)
@@ -262,6 +275,51 @@ public static class GoogleAuthenticationEndpoints
             subject is not null &&
             email is not null &&
             emailVerified;
+    }
+
+    // Only a page of this application may start the Google flow; otherwise
+    // another site could sign the browser in, or bind an invitation, with an
+    // account of its choosing. Fetch Metadata decides when the browser sends
+    // it (the Vite proxy keeps it while rewriting Host); without it, Origin
+    // must equal the request's public origin as resolved by forwarded headers
+    // and AllowedHosts. The returned reason is a fixed code, never input.
+    private static string? GetCrossOriginReason(HttpRequest request)
+    {
+        if (request.Headers.TryGetValue(FetchSiteHeader, out var fetchSite))
+        {
+            return fetchSite.Count == 1 &&
+                string.Equals(fetchSite[0], "same-origin", StringComparison.Ordinal)
+                    ? null
+                    : "fetch-metadata-not-same-origin";
+        }
+
+        if (request.Headers.Origin is not [{ Length: > 0 } origin])
+        {
+            return "origin-missing";
+        }
+
+        return IsRequestOrigin(origin, request) ? null : "origin-mismatch";
+    }
+
+    private static bool IsRequestOrigin(string origin, HttpRequest request)
+    {
+        return request.Host.HasValue &&
+            Uri.TryCreate(origin, UriKind.Absolute, out Uri? originUri) &&
+            originUri.UserInfo.Length == 0 &&
+            string.Equals(
+                originUri.GetLeftPart(UriPartial.Authority),
+                origin,
+                StringComparison.OrdinalIgnoreCase) &&
+            Uri.TryCreate(
+                $"{request.Scheme}://{request.Host.Value}",
+                UriKind.Absolute,
+                out Uri? requestOrigin) &&
+            Uri.Compare(
+                originUri,
+                requestOrigin,
+                UriComponents.SchemeAndServer,
+                UriFormat.UriEscaped,
+                StringComparison.OrdinalIgnoreCase) == 0;
     }
 
     private static string BuildFrontendTarget(

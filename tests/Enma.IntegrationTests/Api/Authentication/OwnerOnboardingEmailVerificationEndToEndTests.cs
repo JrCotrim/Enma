@@ -11,6 +11,7 @@ using Enma.Domain.Authentication;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
+using Enma.IntegrationTests.Infrastructure;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -59,6 +60,7 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
     private readonly IContainer mailpit = new ContainerBuilder(MailpitImage)
         .WithPortBinding(SmtpContainerPort, true)
         .WithPortBinding(ApiContainerPort, true)
+        .WithCreateParameterModifier(LoopbackPortBindings.Apply)
         .WithWaitStrategy(
             Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(
                 request => request

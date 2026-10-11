@@ -52,7 +52,11 @@ public sealed class MailKitPasswordRecoveryDelivery : IPasswordRecoveryDelivery
         }
 
         MimeMessage message = CreateMessage(recipient, linkBuilder.Build(rawToken));
-        using var smtpClient = new SmtpClient();
+        using var smtpClient = new SmtpClient
+        {
+            Timeout = (int)TimeSpan.FromSeconds(options.SmtpTimeoutSeconds)
+                .TotalMilliseconds
+        };
 
         try
         {
@@ -89,7 +93,8 @@ public sealed class MailKitPasswordRecoveryDelivery : IPasswordRecoveryDelivery
             MailKit.Security.SaslException or
             MailKit.Security.SslHandshakeException or
             SocketException or
-            IOException)
+            IOException or
+            TimeoutException)
         {
             LogFailed(logger, null);
             return PasswordRecoveryDeliveryResult.Failed;

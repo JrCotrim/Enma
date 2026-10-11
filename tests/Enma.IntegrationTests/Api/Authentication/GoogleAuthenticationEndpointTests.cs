@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
@@ -15,6 +16,11 @@ namespace Enma.IntegrationTests.Api.Authentication;
 public sealed class GoogleAuthenticationEndpointTests(
     PostgreSqlFixture fixture) : IAsyncLifetime
 {
+    private const string FetchSiteHeader = "Sec-Fetch-Site";
+    private const string StartPath = "/api/auth/google/start";
+    private const string SyntheticInvitationToken =
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
     public Task InitializeAsync() => fixture.ResetDatabaseAsync();
     public Task DisposeAsync() => Task.CompletedTask;
 
@@ -26,6 +32,7 @@ public sealed class GoogleAuthenticationEndpointTests(
         {
             AllowAutoRedirect = false
         });
+        client.DefaultRequestHeaders.Add(FetchSiteHeader, "same-origin");
 
         HttpResponseMessage providers = await client.GetAsync(
             "/api/auth/providers");
@@ -48,6 +55,7 @@ public sealed class GoogleAuthenticationEndpointTests(
         {
             AllowAutoRedirect = false
         });
+        client.DefaultRequestHeaders.Add(FetchSiteHeader, "same-origin");
         const string invitationToken =
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -70,6 +78,94 @@ public sealed class GoogleAuthenticationEndpointTests(
         Assert.Contains("nonce=", location.Query);
         Assert.Contains("code_challenge=", location.Query);
         Assert.DoesNotContain(invitationToken, location.OriginalString);
+    }
+
+    // The test client calls the API at http://localhost. The Vite dev and
+    // Pilot proxies rewrite Host to the API but keep the browser's Origin
+    // (the Vite origin) and Sec-Fetch-Site, so Fetch Metadata must carry them.
+    [Theory]
+    [InlineData("same-origin", null)]
+    [InlineData(null, "http://localhost")]
+    [InlineData("same-origin", "http://localhost:5173")]
+    public async Task Start_SameOriginRequest_RedirectsToGoogle(
+        string? fetchSite,
+        string? origin)
+    {
+        await using WebApplicationFactory<Program> factory = CreateEnabledFactory();
+        using HttpClient client = factory.CreateClient(new()
+        {
+            AllowAutoRedirect = false
+        });
+
+        using HttpResponseMessage response = await client.SendAsync(
+            CreateStartRequest(fetchSite, origin));
+
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Uri location = Assert.IsType<Uri>(response.Headers.Location);
+        Assert.Equal("provider.example.test", location.Host);
+        Assert.Contains("state=", location.Query);
+    }
+
+    [Theory]
+    [InlineData("cross-site", null)]
+    [InlineData("same-site", null)]
+    [InlineData("none", null)]
+    [InlineData("cross-site", "http://localhost")]
+    [InlineData(null, "https://attacker.example.test")]
+    [InlineData(null, "http://localhost:5173")]
+    [InlineData(null, null)]
+    [InlineData(null, "null")]
+    public async Task Start_NotSameOriginRequest_ReturnsNeutralForbidden(
+        string? fetchSite,
+        string? origin)
+    {
+        var logs = new CapturingLoggerProvider();
+        await using WebApplicationFactory<Program> factory =
+            CreateEnabledFactory(logs: logs);
+        using HttpClient client = factory.CreateClient(new()
+        {
+            AllowAutoRedirect = false
+        });
+
+        using HttpResponseMessage response = await client.SendAsync(
+            CreateStartRequest(fetchSite, origin));
+
+        await AssertNeutralForbiddenAsync(response);
+        Assert.Contains(
+            logs.Entries,
+            entry => entry.Message.StartsWith(
+                "Google sign-in start rejected",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Start_CrossSiteRequestWithInvitation_ReturnsNeutralForbiddenWithoutLoggingIt()
+    {
+        var logs = new CapturingLoggerProvider();
+        await using WebApplicationFactory<Program> factory =
+            CreateEnabledFactory(logs: logs);
+        using HttpClient client = factory.CreateClient(new()
+        {
+            AllowAutoRedirect = false
+        });
+
+        using HttpResponseMessage response = await client.SendAsync(
+            CreateStartRequest(
+                "cross-site",
+                "https://attacker.example.test",
+                SyntheticInvitationToken));
+
+        await AssertNeutralForbiddenAsync(response);
+        CapturedLogEntry rejection = Assert.Single(
+            logs.Entries,
+            entry => entry.Message.StartsWith(
+                "Google sign-in start rejected",
+                StringComparison.Ordinal));
+        Assert.Equal(LogLevel.Warning, rejection.Level);
+        Assert.DoesNotContain(
+            logs.Entries,
+            entry => entry.Contains(SyntheticInvitationToken) ||
+                entry.Contains("attacker.example.test"));
     }
 
     [Fact]
@@ -110,8 +206,45 @@ public sealed class GoogleAuthenticationEndpointTests(
         Assert.ThrowsAny<Exception>(() => factory.CreateClient());
     }
 
+    private static HttpRequestMessage CreateStartRequest(
+        string? fetchSite,
+        string? origin,
+        string? invitationToken = null)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, StartPath)
+        {
+            Content = new FormUrlEncodedContent(invitationToken is null
+                ? []
+                : new Dictionary<string, string>
+                {
+                    ["invitationToken"] = invitationToken
+                })
+        };
+        if (fetchSite is not null)
+        {
+            request.Headers.TryAddWithoutValidation(FetchSiteHeader, fetchSite);
+        }
+
+        if (origin is not null)
+        {
+            request.Headers.TryAddWithoutValidation("Origin", origin);
+        }
+
+        return request;
+    }
+
+    private static async Task AssertNeutralForbiddenAsync(
+        HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Null(response.Headers.Location);
+        Assert.False(response.Headers.Contains("Set-Cookie"));
+        Assert.Empty(await response.Content.ReadAsByteArrayAsync());
+    }
+
     private WebApplicationFactory<Program> CreateEnabledFactory(
-        string? frontendOrigin = null)
+        string? frontendOrigin = null,
+        CapturingLoggerProvider? logs = null)
     {
         var baseFactory = new EnmaApiFactory(fixture);
         return baseFactory.WithWebHostBuilder(builder =>
@@ -131,6 +264,11 @@ public sealed class GoogleAuthenticationEndpointTests(
             }
             builder.ConfigureTestServices(services =>
             {
+                if (logs is not null)
+                {
+                    services.AddSingleton<ILoggerProvider>(logs);
+                }
+
                 services.PostConfigure<OpenIdConnectOptions>("Google", options =>
                 {
                     var configuration = new OpenIdConnectConfiguration

@@ -1,12 +1,9 @@
 using System.Net;
-using Enma.Api.Notifications;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Npgsql;
 
 namespace Enma.IntegrationTests.Api;
@@ -156,19 +153,8 @@ public sealed class HealthEndpointTests(PostgreSqlFixture fixture)
                     {
                         ["ConnectionStrings:Database"] = connectionString
                     }));
-            builder.ConfigureTestServices(services =>
-            {
-                ServiceDescriptor[] workers = services
-                    .Where(descriptor =>
-                        descriptor.ServiceType == typeof(IHostedService) &&
-                        descriptor.ImplementationType ==
-                            typeof(NotificationGenerationWorker))
-                    .ToArray();
-                foreach (ServiceDescriptor worker in workers)
-                {
-                    services.Remove(worker);
-                }
-            });
+            builder.ConfigureTestServices(
+                TestHostIsolation.RemoveBackgroundWorkers);
         }
     }
 }

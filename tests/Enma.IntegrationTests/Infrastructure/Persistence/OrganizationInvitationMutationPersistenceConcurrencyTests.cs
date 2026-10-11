@@ -12,16 +12,20 @@ using Enma.Domain.Tasks;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Security;
+using Enma.IntegrationTests.Api;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
 using Npgsql;
+using Xunit.Abstractions;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
 
 [Collection(PostgreSqlCollection.Name)]
 public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
-    PostgreSqlFixture fixture) : IAsyncLifetime
+    PostgreSqlFixture fixture,
+    ITestOutputHelper output) : IAsyncLifetime
 {
     private static readonly DateTimeOffset CreatedAt = new(
         2026,
@@ -404,6 +408,111 @@ public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
             await DrainAsync(taskCreation);
             await DrainAsync(invitation);
         }
+    }
+
+    // A handled lock conflict (55P03 on FOR UPDATE NOWAIT) is an expected
+    // outcome: outside Development the API registers the Entity Framework
+    // failure events at Debug, while Development keeps EF Core's default
+    // Error level.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Create_HandledLockNotAvailable_LogsEntityFrameworkFailuresAtEnvironmentLevelWithoutRowData(
+        bool development)
+    {
+        TestGraph graph = await SeedGraphAsync(OrganizationRole.Owner);
+        InactiveMember invitee = await SeedInactiveMemberAsync(graph.Organization);
+        var operationalGate = new PauseAfterMembershipLockInterceptor();
+        var invitationProbe = new InvitationRetryProbeInterceptor();
+        var logs = new CapturingLoggerProvider();
+        var taskPersistence = new LegalTaskCreationPersistence(
+            CreateOptions(operationalGate),
+            new FixedTimeProvider(Now));
+        using var timeout = CreateTimeout();
+        Task<LegalTaskCreationPersistenceResult> taskCreation =
+            taskPersistence.ExecuteAsync(
+                new LegalTaskCreationPersistenceRequest(
+                    graph.Actor.Id,
+                    graph.Organization.Id,
+                    graph.Membership.Id,
+                    invitee.Membership.Id,
+                    null),
+                _ => LegalTaskCreationDecision.AccessDenied,
+                timeout.Token);
+        await operationalGate.MembershipLocked.WaitAsync(timeout.Token);
+        Task<CreateOrganizationInvitationPersistenceResult> invitation =
+            CreatePersistence(
+                invitationProbe,
+                loggerFactory: logs,
+                lowerDatabaseFailureEvents: !development).CreateAsync(
+                CreateRequest(graph, invitee.User.Email, OrganizationRole.Member),
+                timeout.Token);
+
+        try
+        {
+            await WaitForBlockedMembershipLockAsync(timeout.Token);
+            operationalGate.Release();
+            await Task.WhenAll(taskCreation, invitation).WaitAsync(timeout.Token);
+
+            Assert.Equal(
+                CreateOrganizationInvitationPersistenceStatus.Succeeded,
+                (await invitation).Status);
+            Assert.Equal(1, invitationProbe.LockNotAvailableCount);
+        }
+        finally
+        {
+            operationalGate.Release();
+            await DrainAsync(taskCreation);
+            await DrainAsync(invitation);
+        }
+
+        CapturedLogEntry[] entityFrameworkEntries = logs.Entries
+            .Where(entry =>
+                entry.Category.StartsWith(
+                    "Microsoft.EntityFrameworkCore",
+                    StringComparison.Ordinal) &&
+                entry.Level >= LogLevel.Warning)
+            .ToArray();
+        foreach (CapturedLogEntry entry in entityFrameworkEntries)
+        {
+            output.WriteLine(
+                $"{entry.Level} {entry.Category}[{entry.EventId.Id}] " +
+                $"{entry.EventId.Name}");
+        }
+
+        CapturedLogEntry[] failureEntries = logs.Entries
+            .Where(entry =>
+                entry.Category.StartsWith(
+                    "Microsoft.EntityFrameworkCore",
+                    StringComparison.Ordinal) &&
+                entry.EventId.Id is 10100 or 20102)
+            .ToArray();
+        foreach (CapturedLogEntry entry in failureEntries)
+        {
+            output.WriteLine(
+                $"{entry.Level} {entry.Category}[{entry.EventId.Id}] " +
+                $"{entry.EventId.Name}");
+        }
+
+        Assert.Equal(
+            new[] { 10100, 20102 },
+            failureEntries.Select(entry => entry.EventId.Id).Distinct().Order());
+        Assert.All(
+            failureEntries,
+            entry => Assert.Equal(
+                development ? LogLevel.Error : LogLevel.Debug,
+                entry.Level));
+        if (!development)
+        {
+            Assert.DoesNotContain(
+                entityFrameworkEntries,
+                entry => entry.Level >= LogLevel.Error);
+        }
+
+        Assert.DoesNotContain(
+            logs.Entries,
+            entry => entry.Contains(invitee.User.Email) ||
+                entry.Contains(graph.Organization.Name));
     }
 
     [Fact]
@@ -1142,16 +1251,20 @@ public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
 
     private OrganizationInvitationMutationPersistence CreatePersistence(
         IInterceptor? interceptor = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ILoggerFactory? loggerFactory = null,
+        bool lowerDatabaseFailureEvents = false)
     {
         return new OrganizationInvitationMutationPersistence(
-            CreateOptions(interceptor),
+            CreateOptions(interceptor, loggerFactory, lowerDatabaseFailureEvents),
             timeProvider ?? new FixedTimeProvider(Now),
             new CryptographicOrganizationInvitationTokenService());
     }
 
     private DbContextOptions<EnmaDbContext> CreateOptions(
-        IInterceptor? interceptor = null)
+        IInterceptor? interceptor = null,
+        ILoggerFactory? loggerFactory = null,
+        bool lowerDatabaseFailureEvents = false)
     {
         var builder = new DbContextOptionsBuilder<EnmaDbContext>()
             .UseNpgsql(fixture.ConnectionString);
@@ -1159,6 +1272,16 @@ public sealed class OrganizationInvitationMutationPersistenceConcurrencyTests(
         if (interceptor is not null)
         {
             builder.AddInterceptors(interceptor);
+        }
+
+        if (loggerFactory is not null)
+        {
+            builder.UseLoggerFactory(loggerFactory);
+        }
+
+        if (lowerDatabaseFailureEvents)
+        {
+            builder.LogDatabaseFailureEventsAtDebug();
         }
 
         return builder.Options;

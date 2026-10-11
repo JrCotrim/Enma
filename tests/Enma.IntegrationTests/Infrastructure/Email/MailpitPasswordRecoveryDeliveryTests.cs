@@ -15,6 +15,7 @@ public sealed class MailpitPasswordRecoveryDeliveryTests : IAsyncLifetime
     private readonly IContainer container = new ContainerBuilder("axllent/mailpit:v1.30.7")
         .WithPortBinding(SmtpPort, true)
         .WithPortBinding(ApiPort, true)
+        .WithCreateParameterModifier(LoopbackPortBindings.Apply)
         .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(
             request => request.ForPort(ApiPort).ForPath("/api/v1/messages")))
         .Build();

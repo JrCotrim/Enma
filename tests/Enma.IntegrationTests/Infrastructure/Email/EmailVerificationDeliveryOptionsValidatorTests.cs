@@ -108,6 +108,36 @@ public sealed class EmailVerificationDeliveryOptionsValidatorTests
     }
 
     [Theory]
+    [InlineData(1)]
+    [InlineData(60)]
+    public void Validate_SmtpTimeoutWithinRange_ReturnsSuccess(int value)
+    {
+        ValidateOptionsResult result = validator.Validate(
+            null,
+            CreateOptions(smtpTimeoutSeconds: value));
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(61)]
+    public void Validate_OutOfRangeSmtpTimeout_ReturnsFailure(int value)
+    {
+        ValidateOptionsResult result = validator.Validate(
+            null,
+            CreateOptions(smtpTimeoutSeconds: value));
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(
+            result.Failures ?? [],
+            failure => failure.Contains(
+                "SmtpTimeoutSeconds",
+                StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData(SecureSocketOptions.None)]
     [InlineData(SecureSocketOptions.Auto)]
     [InlineData(SecureSocketOptions.StartTlsWhenAvailable)]
@@ -173,7 +203,9 @@ public sealed class EmailVerificationDeliveryOptionsValidatorTests
         int smtpPort = 587,
         SecureSocketOptions smtpSecurity = SecureSocketOptions.StartTls,
         string smtpUsername = "smtp-user",
-        string smtpPassword = "synthetic-smtp-password")
+        string smtpPassword = "synthetic-smtp-password",
+        int smtpTimeoutSeconds =
+            EmailVerificationDeliveryOptions.DefaultSmtpTimeoutSeconds)
     {
         return new EmailVerificationDeliveryOptions
         {
@@ -185,7 +217,8 @@ public sealed class EmailVerificationDeliveryOptionsValidatorTests
             SmtpPort = smtpPort,
             SmtpSecurity = smtpSecurity,
             SmtpUsername = smtpUsername,
-            SmtpPassword = smtpPassword
+            SmtpPassword = smtpPassword,
+            SmtpTimeoutSeconds = smtpTimeoutSeconds
         };
     }
 }

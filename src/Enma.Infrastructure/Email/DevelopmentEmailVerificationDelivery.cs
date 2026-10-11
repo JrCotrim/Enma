@@ -36,7 +36,8 @@ public sealed class DevelopmentEmailVerificationDelivery
                 SenderAddress = "no-reply@enma.local",
                 SmtpHost = "127.0.0.1",
                 SmtpPort = smtpPort,
-                SmtpSecurity = SecureSocketOptions.None
+                SmtpSecurity = SecureSocketOptions.None,
+                SmtpTimeoutSeconds = options.Value.SmtpTimeoutSeconds
             });
         delivery = new MailKitEmailVerificationDelivery(
             deliveryOptions,

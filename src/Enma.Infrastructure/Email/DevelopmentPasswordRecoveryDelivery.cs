@@ -22,7 +22,8 @@ public sealed class DevelopmentPasswordRecoveryDelivery : IPasswordRecoveryDeliv
                 SenderAddress = "no-reply@enma.local",
                 SmtpHost = "127.0.0.1",
                 SmtpPort = options.Value.SmtpPort,
-                SmtpSecurity = SecureSocketOptions.None
+                SmtpSecurity = SecureSocketOptions.None,
+                SmtpTimeoutSeconds = options.Value.SmtpTimeoutSeconds
             });
         delivery = new MailKitPasswordRecoveryDelivery(
             deliveryOptions,

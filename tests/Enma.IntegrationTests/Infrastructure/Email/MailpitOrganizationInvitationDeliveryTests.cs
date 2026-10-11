@@ -18,6 +18,7 @@ public sealed class MailpitOrganizationInvitationDeliveryTests : IAsyncLifetime
     private readonly IContainer container = new ContainerBuilder(MailpitImage)
         .WithPortBinding(SmtpContainerPort, true)
         .WithPortBinding(ApiContainerPort, true)
+        .WithCreateParameterModifier(LoopbackPortBindings.Apply)
         .WithWaitStrategy(
             Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(
                 request => request

@@ -52,6 +52,7 @@ public sealed class EmailVerificationEndpointsTests : IDisposable
                 services.AddSingleton<IEmailVerificationChallengePersistence>(
                     persistence);
                 services.AddSingleton<IEmailVerificationDelivery>(delivery);
+                TestHostIsolation.RemoveBackgroundWorkers(services);
             });
         });
         client = testFactory.CreateClient(new WebApplicationFactoryClientOptions

@@ -79,7 +79,11 @@ public sealed class MailKitEmailVerificationDelivery
             email,
             linkBuilder.Build(rawToken, invitationToken));
 
-        using var smtpClient = new SmtpClient();
+        using var smtpClient = new SmtpClient
+        {
+            Timeout = (int)TimeSpan.FromSeconds(options.SmtpTimeoutSeconds)
+                .TotalMilliseconds
+        };
 
         try
         {
@@ -167,6 +171,7 @@ public sealed class MailKitEmailVerificationDelivery
             or MailKit.Security.SaslException
             or MailKit.Security.SslHandshakeException
             or SocketException
-            or IOException;
+            or IOException
+            or TimeoutException;
     }
 }

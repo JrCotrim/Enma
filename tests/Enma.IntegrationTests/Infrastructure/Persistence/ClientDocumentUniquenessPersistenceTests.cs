@@ -4,8 +4,11 @@ using Enma.Domain.Clients;
 using Enma.Domain.Organizations;
 using Enma.Domain.Users;
 using Enma.Infrastructure.Persistence;
+using Enma.IntegrationTests.Api;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Logging;
+using Xunit.Abstractions;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
 
@@ -14,7 +17,8 @@ namespace Enma.IntegrationTests.Infrastructure.Persistence;
 // invisible to the pre-check and only the unique index can reject the write.
 [Collection(PostgreSqlCollection.Name)]
 public sealed class ClientDocumentUniquenessPersistenceTests(
-    PostgreSqlFixture fixture) : IAsyncLifetime
+    PostgreSqlFixture fixture,
+    ITestOutputHelper output) : IAsyncLifetime
 {
     private const string Cpf = "52998224725";
     private const string Cnpj = "12ABC34501DE35";
@@ -107,6 +111,108 @@ public sealed class ClientDocumentUniquenessPersistenceTests(
             await RollbackIfOpenAsync(blockerTransaction);
             await DrainTaskAsync(creation);
         }
+    }
+
+    // A handled unique violation (23505) is an expected outcome: outside
+    // Development the API registers the Entity Framework failure events at
+    // Debug, while Development keeps EF Core's default Error level.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_HandledUniqueViolation_LogsEntityFrameworkFailuresAtEnvironmentLevelWithoutRowData(
+        bool development)
+    {
+        Organization organization = await SeedOrganizationAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await using EnmaDbContext blockerContext = fixture.CreateDbContext();
+        await using IDbContextTransaction blockerTransaction =
+            await BeginBlockingDocumentClaimAsync(
+                blockerContext,
+                organization,
+                PersonType.Individual,
+                Cpf,
+                null,
+                timeout.Token);
+        var logs = new CapturingLoggerProvider();
+        var persistence = new ClientCreationPersistence(
+            CreateOptions(logs, lowerDatabaseFailureEvents: !development),
+            TimeProvider.System);
+        Task<ClientCreationPersistenceResult>? creation = null;
+
+        try
+        {
+            creation = persistence.ExecuteAsync(
+                new ClientCreationPersistenceRequest(
+                    _userId,
+                    organization.Id,
+                    _membershipId),
+                _ => ClientCreationDecision.Persist(new Client(
+                    organization.Id,
+                    "Racing client",
+                    CreatedAt,
+                    cpf: Cpf,
+                    personType: PersonType.Individual)),
+                timeout.Token);
+
+            await WaitForBlockedClientWriteAsync(timeout.Token);
+            await blockerTransaction.CommitAsync(timeout.Token);
+
+            ClientCreationPersistenceResult result =
+                await creation.WaitAsync(timeout.Token);
+            Assert.Equal(ClientCreationDecisionStatus.DuplicateDocument, result.Status);
+        }
+        finally
+        {
+            await RollbackIfOpenAsync(blockerTransaction);
+            await DrainTaskAsync(creation);
+        }
+
+        CapturedLogEntry[] entityFrameworkEntries = logs.Entries
+            .Where(entry =>
+                entry.Category.StartsWith(
+                    "Microsoft.EntityFrameworkCore",
+                    StringComparison.Ordinal) &&
+                entry.Level >= LogLevel.Warning)
+            .ToArray();
+        foreach (CapturedLogEntry entry in entityFrameworkEntries)
+        {
+            output.WriteLine(
+                $"{entry.Level} {entry.Category}[{entry.EventId.Id}] " +
+                $"{entry.EventId.Name}");
+        }
+
+        CapturedLogEntry[] failureEntries = logs.Entries
+            .Where(entry =>
+                entry.Category.StartsWith(
+                    "Microsoft.EntityFrameworkCore",
+                    StringComparison.Ordinal) &&
+                entry.EventId.Id is 20102 or 10000)
+            .ToArray();
+        foreach (CapturedLogEntry entry in failureEntries)
+        {
+            output.WriteLine(
+                $"{entry.Level} {entry.Category}[{entry.EventId.Id}] " +
+                $"{entry.EventId.Name}");
+        }
+
+        Assert.Equal(
+            new[] { 10000, 20102 },
+            failureEntries.Select(entry => entry.EventId.Id).Distinct().Order());
+        Assert.All(
+            failureEntries,
+            entry => Assert.Equal(
+                development ? LogLevel.Error : LogLevel.Debug,
+                entry.Level));
+        if (!development)
+        {
+            Assert.DoesNotContain(
+                entityFrameworkEntries,
+                entry => entry.Level >= LogLevel.Error);
+        }
+
+        Assert.DoesNotContain(
+            logs.Entries,
+            entry => entry.Contains(Cpf) || entry.Contains("Racing client"));
     }
 
     [Theory]
@@ -287,11 +393,24 @@ public sealed class ClientDocumentUniquenessPersistenceTests(
         await dbContext.SaveChangesAsync();
     }
 
-    private DbContextOptions<EnmaDbContext> CreateOptions()
+    private DbContextOptions<EnmaDbContext> CreateOptions(
+        ILoggerFactory? loggerFactory = null,
+        bool lowerDatabaseFailureEvents = false)
     {
-        return new DbContextOptionsBuilder<EnmaDbContext>()
-            .UseNpgsql(fixture.ConnectionString)
-            .Options;
+        var builder = new DbContextOptionsBuilder<EnmaDbContext>()
+            .UseNpgsql(fixture.ConnectionString);
+
+        if (loggerFactory is not null)
+        {
+            builder.UseLoggerFactory(loggerFactory);
+        }
+
+        if (lowerDatabaseFailureEvents)
+        {
+            builder.LogDatabaseFailureEventsAtDebug();
+        }
+
+        return builder.Options;
     }
 
     private static async Task RollbackIfOpenAsync(IDbContextTransaction transaction)

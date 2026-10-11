@@ -17,6 +17,7 @@ using Enma.Domain.Users;
 using Enma.Infrastructure.Email;
 using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Security;
+using Enma.IntegrationTests.Infrastructure;
 using Enma.IntegrationTests.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -58,6 +59,7 @@ public sealed class DevelopmentOwnerOnboardingEmailVerificationEndToEndTests
     private readonly IContainer mailpit = new ContainerBuilder(MailpitImage)
         .WithPortBinding(SmtpContainerPort, true)
         .WithPortBinding(ApiContainerPort, true)
+        .WithCreateParameterModifier(LoopbackPortBindings.Apply)
         .WithWaitStrategy(
             Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(
                 request => request
@@ -503,7 +505,9 @@ public sealed class DevelopmentOwnerOnboardingEmailVerificationEndToEndTests
                 configuration.AddInMemoryCollection(
                     new Dictionary<string, string?>
                     {
-                        ["ConnectionStrings:Database"] = fixture.ConnectionString
+                        ["ConnectionStrings:Database"] = fixture.ConnectionString,
+                        [TestHostIsolation.DevelopmentSmtpPortKey] =
+                            smtpPort.ToString()
                     });
             });
             builder.ConfigureLogging(logging => logging.AddProvider(loggerProvider));
@@ -520,6 +524,7 @@ public sealed class DevelopmentOwnerOnboardingEmailVerificationEndToEndTests
                         serviceProvider.GetRequiredService<ILogger<
                             MailKitEmailVerificationDelivery>>(),
                         smtpPort));
+                TestHostIsolation.RemoveBackgroundWorkers(services);
             });
         }
     }

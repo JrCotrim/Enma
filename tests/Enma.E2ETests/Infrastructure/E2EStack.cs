@@ -43,10 +43,12 @@ public sealed class E2EStack : IAsyncLifetime
             .WithDatabase("enma_e2e")
             .WithUsername("enma_e2e")
             .WithPassword(CreateSecret(24))
+            .WithCreateParameterModifier(LoopbackPortBindings.Apply)
             .Build();
         mailpit = new ContainerBuilder(MailpitImage)
             .WithPortBinding(MailpitSmtpPort, true)
             .WithPortBinding(MailpitApiPort, true)
+            .WithCreateParameterModifier(LoopbackPortBindings.Apply)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(
                 request => request
                     .ForPort(MailpitApiPort)
@@ -57,6 +59,7 @@ public sealed class E2EStack : IAsyncLifetime
             .WithEnvironment("MINIO_ROOT_USER", storageAccessKey)
             .WithEnvironment("MINIO_ROOT_PASSWORD", storageSecretKey)
             .WithPortBinding(MinioApiPort, true)
+            .WithCreateParameterModifier(LoopbackPortBindings.Apply)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(
                 request => request
                     .ForPort(MinioApiPort)

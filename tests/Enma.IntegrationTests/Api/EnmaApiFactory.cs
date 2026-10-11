@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace Enma.IntegrationTests.Api;
 
@@ -11,14 +12,17 @@ public sealed class EnmaApiFactory : WebApplicationFactory<Program>
 {
     private readonly PostgreSqlFixture fixture;
     private readonly Action<IServiceCollection>? configureTestServices;
+    private readonly bool includeBackgroundWorkers;
 
     public EnmaApiFactory(
         PostgreSqlFixture fixture,
-        Action<IServiceCollection>? configureTestServices = null)
+        Action<IServiceCollection>? configureTestServices = null,
+        bool includeBackgroundWorkers = false)
     {
         ArgumentNullException.ThrowIfNull(fixture);
         this.fixture = fixture;
         this.configureTestServices = configureTestServices;
+        this.includeBackgroundWorkers = includeBackgroundWorkers;
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -31,7 +35,9 @@ public sealed class EnmaApiFactory : WebApplicationFactory<Program>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Database"] = fixture.ConnectionString
+                ["ConnectionStrings:Database"] = fixture.ConnectionString,
+                [TestHostIsolation.DevelopmentSmtpPortKey] =
+                    TestHostIsolation.UnusedSmtpPort.ToString()
             });
         });
 
@@ -39,5 +45,15 @@ public sealed class EnmaApiFactory : WebApplicationFactory<Program>
         {
             builder.ConfigureTestServices(configureTestServices);
         }
+
+        if (!includeBackgroundWorkers)
+        {
+            builder.ConfigureTestServices(TestHostIsolation.RemoveBackgroundWorkers);
+        }
+    }
+
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        return OrderedHostStart.Start(builder);
     }
 }

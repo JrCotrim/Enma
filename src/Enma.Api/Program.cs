@@ -28,6 +28,7 @@ using Enma.Application.Organizations.GetById;
 using Enma.Infrastructure;
 using Enma.Infrastructure.Documents.Storage;
 using Enma.Infrastructure.Email;
+using Enma.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
@@ -351,6 +352,11 @@ builder.Services.AddInfrastructure(
     connectionString,
     builder.Configuration,
     builder.Environment.IsDevelopment() || isPilot);
+if (!builder.Environment.IsDevelopment())
+{
+    builder.Services.ConfigureDbContext<EnmaDbContext>(
+        options => options.LogDatabaseFailureEventsAtDebug());
+}
 if (builder.Environment.IsProduction() || isPilot)
 {
     if (builder.Environment.IsProduction())

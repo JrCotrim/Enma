@@ -71,7 +71,9 @@ public sealed class NotificationGenerationDependencyInjectionTests(
             await dbContext.Database.MigrateAsync();
         }
 
-        await using var factory = new EnmaApiFactory(fixture);
+        await using var factory = new EnmaApiFactory(
+            fixture,
+            includeBackgroundWorkers: true);
 
         IHostedService[] hostedServices = factory.Services
             .GetServices<IHostedService>()

@@ -1,15 +1,26 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using Enma.Application.Authentication;
+using Enma.Application.Organizations.Invitations;
 using Enma.Domain.Authentication;
+using Enma.Infrastructure.Email;
+using Enma.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Options;
 
 namespace Enma.IntegrationTests.Api;
 
@@ -373,6 +384,94 @@ public sealed class ProductionIngressTests
     }
 
     [Fact]
+    public void Startup_Production_UsesJsonConsoleLogsAndWarningEntityFrameworkLogs()
+    {
+        using ConfiguredApiFactory factory = new(
+            "Production",
+            ValidProductionHostSettings());
+        IServiceProvider services = factory.Services;
+
+        Assert.Equal(
+            ConsoleFormatterNames.Json,
+            services.GetRequiredService<IOptionsMonitor<ConsoleLoggerOptions>>()
+                .CurrentValue
+                .FormatterName);
+        Assert.True(services
+            .GetRequiredService<IOptionsMonitor<JsonConsoleFormatterOptions>>()
+            .CurrentValue
+            .UseUtcTimestamp);
+        Assert.Contains(
+            services.GetRequiredService<IOptions<LoggerFilterOptions>>().Value.Rules,
+            rule => rule.ProviderName is null &&
+                rule.CategoryName == "Microsoft.EntityFrameworkCore" &&
+                rule.LogLevel == LogLevel.Warning);
+
+        using IServiceScope scope = services.CreateScope();
+        DbContextOptions<EnmaDbContext> databaseOptions = scope.ServiceProvider
+            .GetRequiredService<DbContextOptions<EnmaDbContext>>();
+        Assert.False(databaseOptions
+            .FindExtension<CoreOptionsExtension>()?
+            .IsSensitiveDataLoggingEnabled ?? false);
+    }
+
+    [Theory]
+    [InlineData("Development", null)]
+    [InlineData("Testing", LogLevel.Debug)]
+    [InlineData("Pilot", LogLevel.Debug)]
+    [InlineData("Production", LogLevel.Debug)]
+    public void Startup_DatabaseFailureEvents_AreDebugOnlyOutsideDevelopment(
+        string environment,
+        LogLevel? expectedLevel)
+    {
+        Dictionary<string, string?> settings = environment switch
+        {
+            "Production" => ValidProductionHostSettings(),
+            "Pilot" => ValidPilotRuntimeSettings(),
+            _ => []
+        };
+        using ConfiguredApiFactory factory = new(environment, settings);
+        using IServiceScope scope = factory.Services.CreateScope();
+
+        WarningsConfiguration warnings = scope.ServiceProvider
+            .GetRequiredService<DbContextOptions<EnmaDbContext>>()
+            .FindExtension<CoreOptionsExtension>()!
+            .WarningsConfiguration;
+
+        // Null keeps EF Core's own level for the event, which is Error.
+        Assert.Equal(expectedLevel, warnings.GetLevel(RelationalEventId.CommandError));
+        Assert.Equal(expectedLevel, warnings.GetLevel(CoreEventId.QueryIterationFailed));
+        Assert.Equal(expectedLevel, warnings.GetLevel(CoreEventId.SaveChangesFailed));
+    }
+
+    [Fact]
+    public async Task Startup_Production_ResolvesMailKitDeliveryChainWithoutDevelopmentDelivery()
+    {
+        using ConfiguredApiFactory factory = new(
+            "Production",
+            ValidProductionHostSettings());
+        IServiceProvider services = factory.Services;
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+
+        IEmailVerificationDelivery verification = scope.ServiceProvider
+            .GetRequiredService<IEmailVerificationDelivery>();
+        IPasswordRecoveryDelivery recovery = scope.ServiceProvider
+            .GetRequiredService<IPasswordRecoveryDelivery>();
+        IOrganizationInvitationDelivery invitation = scope.ServiceProvider
+            .GetRequiredService<IOrganizationInvitationDelivery>();
+
+        Assert.IsType<BudgetedEmailVerificationDelivery>(verification);
+        Assert.IsType<MailKitEmailVerificationDelivery>(
+            GetInnerDelivery<IEmailVerificationDelivery>(verification));
+        Assert.IsType<BudgetedPasswordRecoveryDelivery>(recovery);
+        Assert.IsType<MailKitPasswordRecoveryDelivery>(
+            GetInnerDelivery<IPasswordRecoveryDelivery>(recovery));
+        Assert.IsType<MailKitOrganizationInvitationDelivery>(invitation);
+        Assert.Null(services.GetService<DevelopmentEmailVerificationDelivery>());
+        Assert.Null(services.GetService<DevelopmentPasswordRecoveryDelivery>());
+        Assert.Null(services.GetService<DevelopmentOrganizationInvitationDelivery>());
+    }
+
+    [Fact]
     public void Startup_WithMalformedDatabaseConnectionString_FailsWithoutDisclosure()
     {
         const string syntheticSecret = "sensitive-database-secret";
@@ -547,6 +646,24 @@ public sealed class ProductionIngressTests
         };
     }
 
+    private static Dictionary<string, string?> ValidProductionHostSettings()
+    {
+        Dictionary<string, string?> settings = ValidProductionProxySettings();
+        settings["AllowedHosts"] = "app.example.test";
+        return settings;
+    }
+
+    private static object? GetInnerDelivery<TDelivery>(TDelivery decorator)
+        where TDelivery : class
+    {
+        FieldInfo innerField = Assert.Single(
+            decorator.GetType().GetFields(
+                BindingFlags.Instance | BindingFlags.NonPublic),
+            field => field.FieldType == typeof(TDelivery));
+
+        return innerField.GetValue(decorator);
+    }
+
     private static Dictionary<string, string?> ValidProductionRuntimeSettings()
     {
         return new Dictionary<string, string?>
@@ -634,6 +751,8 @@ public sealed class ProductionIngressTests
                         : [];
                 testSettings["ConnectionStrings:Database"] =
                     DatabaseConnectionString;
+                testSettings[TestHostIsolation.DevelopmentSmtpPortKey] =
+                    TestHostIsolation.UnusedSmtpPort.ToString();
                 foreach ((string key, string? value) in settings)
                 {
                     testSettings[key] = value;
@@ -645,6 +764,14 @@ public sealed class ProductionIngressTests
             {
                 builder.ConfigureTestServices(configureTestServices);
             }
+
+            builder.ConfigureTestServices(
+                TestHostIsolation.RemoveBackgroundWorkers);
+        }
+
+        protected override IHost CreateHost(IHostBuilder builder)
+        {
+            return OrderedHostStart.Start(builder);
         }
     }
 

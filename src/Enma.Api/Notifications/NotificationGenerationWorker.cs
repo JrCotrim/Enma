@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Enma.Application.Notifications;
 
 namespace Enma.Api.Notifications;
@@ -16,12 +17,26 @@ internal sealed class NotificationGenerationWorker(
             {
                 await RunCycleAsync(stoppingToken);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
             catch (NotificationGenerationTransientException exception)
             {
                 logger.LogWarning(
                     "Notification generation cycle skipped after transient " +
                     "failure {ClassificationCode}",
                     exception.ClassificationCode);
+            }
+            catch (Exception exception)
+            {
+                // Only the type and SQLSTATE are logged: messages and provider
+                // details can carry row values.
+                logger.LogError(
+                    "Notification generation cycle failed with {FailureType} " +
+                    "and SQLSTATE {SqlState}; the next cycle will retry",
+                    exception.GetType().Name,
+                    FindSqlState(exception));
             }
         }
         while (await cycleDelay.WaitForNextCycleAsync(stoppingToken));
@@ -48,6 +63,21 @@ internal sealed class NotificationGenerationWorker(
         logger.LogInformation(
             "Notification generation cycle completed in {DurationMilliseconds} ms",
             duration.TotalMilliseconds);
+    }
+
+    private static string? FindSqlState(Exception exception)
+    {
+        for (Exception? current = exception;
+            current is not null;
+            current = current.InnerException)
+        {
+            if (current is DbException { SqlState: { } sqlState })
+            {
+                return sqlState;
+            }
+        }
+
+        return null;
     }
 
     private void LogSourceResult(
