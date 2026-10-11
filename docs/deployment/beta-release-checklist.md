@@ -35,9 +35,10 @@ Mark `APPLICATION READY: YES` only when every item above has dated evidence.
 - [ ] Secrets are injected from the provider secret store; the persistent Data
       Protection key directory is mounted, encrypted, restricted, and survives
       replacement of the API process.
-- [ ] All reviewed migrations, including
-      `20260918162422_AddGoogleAuthentication`, are applied before the API starts;
-      `/health/ready` returns 200 in the destination.
+- [ ] All reviewed migrations, up to the latest one listed by
+      `dotnet tool run dotnet-ef migrations list` for the release commit (see the
+      production runbook), are applied before the API starts; `/health/ready`
+      returns 200 in the destination.
 - [ ] Production SMTP sends to the approved synthetic mailbox without sensitive
       logging.
 - [ ] If enabled, Google OAuth registers exactly the public HTTPS callback and a

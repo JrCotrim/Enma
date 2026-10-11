@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     ports:
-      - "${POSTGRES_PORT:?POSTGRES_PORT is required}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:?POSTGRES_PORT is required}:5432"
     volumes:
       - enma_postgres_data:/var/lib/postgresql
     healthcheck:

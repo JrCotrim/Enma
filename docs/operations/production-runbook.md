@@ -26,6 +26,8 @@ Non-secret deployment settings:
 - `EmailVerification__Delivery__SmtpHost=<host-only>`.
 - `EmailVerification__Delivery__SmtpPort=<1-65535>`.
 - `EmailVerification__Delivery__SmtpSecurity=StartTls` or `SslOnConnect`.
+- Optional `EmailVerification__Delivery__SmtpTimeoutSeconds=<1-60>` (default
+  10); a timed-out delivery is reported as failed, never as a server error.
 - `DocumentStorage__ServiceUrl=https://<private-s3-endpoint>`.
 - `DocumentStorage__BucketName=<private-bucket>`.
 - `DocumentStorage__Region=<provider-region>`.
@@ -88,9 +90,12 @@ dotnet tool run dotnet-ef migrations has-pending-model-changes `
   --context EnmaDbContext
 ```
 
-Review the pending migration list and confirm that the expected latest migration
-is `20260918162422_AddGoogleAuthentication`. Open a maintenance window or keep
-the new version without traffic, take the required backup, then apply:
+Review the pending migration list. The expected latest migration is the last
+entry that `migrations list` prints for the release commit; confirm it matches
+the newest migration file under `src/Enma.Infrastructure/Persistence/Migrations`
+in that commit and that every reviewed migration of the release appears as
+pending. Open a maintenance window or keep the new version without traffic, take
+the required backup, then apply:
 
 ```powershell
 dotnet tool run dotnet-ef database update `

@@ -486,3 +486,10 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# ENMA local Pilot (scripts/pilot) keeps its configuration, Data Protection
+# keys and backups outside the repository; these patterns are a safety net
+# in case one of them is ever placed inside the working tree.
+pilot.env
+data-protection-keys/
+enma-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z-*/
