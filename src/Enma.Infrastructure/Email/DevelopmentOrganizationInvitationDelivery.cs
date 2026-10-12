@@ -33,7 +33,7 @@ public sealed class DevelopmentOrganizationInvitationDelivery
                 VerificationPageUrl = options.Value.VerificationPageUrl,
                 SenderName = options.Value.SenderName,
                 SenderAddress = "no-reply@enma.local",
-                SmtpHost = "127.0.0.1",
+                SmtpHost = options.Value.SmtpHost,
                 SmtpPort = smtpPort,
                 SmtpSecurity = SecureSocketOptions.None,
                 SmtpTimeoutSeconds = options.Value.SmtpTimeoutSeconds

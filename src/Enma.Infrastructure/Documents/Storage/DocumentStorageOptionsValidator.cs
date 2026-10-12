@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Extensions.Options;
 
 namespace Enma.Infrastructure.Documents.Storage;
@@ -60,11 +61,22 @@ public sealed class DocumentStorageOptionsValidator
         }
 
         if (uri.Scheme == Uri.UriSchemeHttp
-            && (!uri.IsLoopback || options.RequireTls))
+            && (options.RequireTls
+                || !(uri.IsLoopback
+                    || (options.AllowPlainHttpSingleLabelHost
+                        && IsSingleLabelHost(uri)))))
         {
             failures.Add(
-                $"{DocumentStorageOptions.SectionName}:Plain HTTP storage is allowed only for loopback development endpoints with RequireTls disabled.");
+                $"{DocumentStorageOptions.SectionName}:Plain HTTP storage is allowed only for loopback endpoints, or single-label hosts with AllowPlainHttpSingleLabelHost enabled, with RequireTls disabled.");
         }
+    }
+
+    private static bool IsSingleLabelHost(Uri uri)
+    {
+        return uri.HostNameType == UriHostNameType.Dns
+            && uri.IdnHost.Length > 0
+            && !uri.IdnHost.Contains('.', StringComparison.Ordinal)
+            && !IPAddress.TryParse(uri.IdnHost, out _);
     }
 
     private static void ValidateBucketName(

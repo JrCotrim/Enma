@@ -17,4 +17,9 @@ public sealed class DocumentStorageOptions
     public string SecretKey { get; init; } = string.Empty;
 
     public bool RequireTls { get; init; } = true;
+
+    // Opt-in for plain HTTP to a single-label host (no dot, not an IP), such
+    // as the Compose service name of a co-located MinIO on an internal
+    // network. Off by default; RequireTls must still be disabled.
+    public bool AllowPlainHttpSingleLabelHost { get; init; }
 }

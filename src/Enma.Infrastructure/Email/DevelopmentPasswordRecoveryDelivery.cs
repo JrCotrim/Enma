@@ -20,7 +20,7 @@ public sealed class DevelopmentPasswordRecoveryDelivery : IPasswordRecoveryDeliv
                 PasswordRecoveryPageUrl = options.Value.PasswordRecoveryPageUrl,
                 SenderName = options.Value.SenderName,
                 SenderAddress = "no-reply@enma.local",
-                SmtpHost = "127.0.0.1",
+                SmtpHost = options.Value.SmtpHost,
                 SmtpPort = options.Value.SmtpPort,
                 SmtpSecurity = SecureSocketOptions.None,
                 SmtpTimeoutSeconds = options.Value.SmtpTimeoutSeconds

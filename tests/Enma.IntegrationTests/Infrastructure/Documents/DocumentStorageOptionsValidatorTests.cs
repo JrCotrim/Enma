@@ -45,6 +45,121 @@ public sealed class DocumentStorageOptionsValidatorTests
     }
 
     [Fact]
+    public void Validate_LoopbackHttpWithSingleLabelOptInEnabled_Succeeds()
+    {
+        DocumentStorageOptions options = CreateValidOptions(
+            serviceUrl: "http://localhost:9000",
+            requireTls: false,
+            allowPlainHttpSingleLabelHost: true);
+
+        ValidateOptionsResult result = validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Theory]
+    [InlineData("http://minio:9000")]
+    [InlineData("http://MINIO")]
+    [InlineData("http://enma-storage:9000/")]
+    public void Validate_SingleLabelHttpWithOptInEnabled_Succeeds(
+        string serviceUrl)
+    {
+        DocumentStorageOptions options = CreateValidOptions(
+            serviceUrl: serviceUrl,
+            requireTls: false,
+            allowPlainHttpSingleLabelHost: true);
+
+        ValidateOptionsResult result = validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public void Validate_SingleLabelHttpWithOptInDisabled_Fails()
+    {
+        DocumentStorageOptions options = CreateValidOptions(
+            serviceUrl: "http://minio:9000",
+            requireTls: false);
+
+        ValidateOptionsResult result = validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(
+            result.Failures,
+            failure => failure.Contains("Plain HTTP storage", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_SingleLabelHttpWithOptInButTlsRequired_Fails()
+    {
+        DocumentStorageOptions options = CreateValidOptions(
+            serviceUrl: "http://minio:9000",
+            requireTls: true,
+            allowPlainHttpSingleLabelHost: true);
+
+        ValidateOptionsResult result = validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(
+            result.Failures,
+            failure => failure.Contains("RequireTls", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("http://storage.example.test:9000")]
+    [InlineData("http://minio.:9000")]
+    [InlineData("http://minio.internal:9000")]
+    [InlineData("http://10.0.0.5:9000")]
+    [InlineData("http://172.18.0.3")]
+    [InlineData("http://167772165")]
+    [InlineData("http://[fd00::5]:9000")]
+    public void Validate_NonSingleLabelOrNonLoopbackIpHttpWithOptInEnabled_Fails(
+        string serviceUrl)
+    {
+        DocumentStorageOptions options = CreateValidOptions(
+            serviceUrl: serviceUrl,
+            requireTls: false,
+            allowPlainHttpSingleLabelHost: true);
+
+        ValidateOptionsResult result = validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(
+            result.Failures,
+            failure => failure.Contains("Plain HTTP storage", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("http://")]
+    [InlineData("http://:9000")]
+    public void Validate_EmptyHostWithOptInEnabled_Fails(string serviceUrl)
+    {
+        DocumentStorageOptions options = CreateValidOptions(
+            serviceUrl: serviceUrl,
+            requireTls: false,
+            allowPlainHttpSingleLabelHost: true);
+
+        ValidateOptionsResult result = validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(
+            result.Failures,
+            failure => failure.Contains("ServiceUrl", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Validate_HttpsSingleLabelEndpointWithRequiredTls_Succeeds()
+    {
+        DocumentStorageOptions options = CreateValidOptions(
+            serviceUrl: "https://minio:9000");
+
+        ValidateOptionsResult result = validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
     public void Validate_LoopbackHttpWithTlsRequired_Fails()
     {
         DocumentStorageOptions options = CreateValidOptions(
@@ -136,7 +251,8 @@ public sealed class DocumentStorageOptionsValidatorTests
         string region = "us-east-1",
         string accessKey = "synthetic-access-key",
         string secretKey = "synthetic-secret-key",
-        bool requireTls = true)
+        bool requireTls = true,
+        bool allowPlainHttpSingleLabelHost = false)
     {
         return new DocumentStorageOptions
         {
@@ -146,7 +262,8 @@ public sealed class DocumentStorageOptionsValidatorTests
             ForcePathStyle = true,
             AccessKey = accessKey,
             SecretKey = secretKey,
-            RequireTls = requireTls
+            RequireTls = requireTls,
+            AllowPlainHttpSingleLabelHost = allowPlainHttpSingleLabelHost
         };
     }
 }
