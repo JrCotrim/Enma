@@ -70,7 +70,9 @@ Include integration tests with:
 powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\verify.ps1" -IntegrationTests
 ```
 
-Integration tests require Docker.
+Integration tests require Docker. They start their own disposable PostgreSQL,
+Mailpit and MinIO containers (Testcontainers) and do not use `.env` or the
+Development Compose services.
 
 ## Deployment
 

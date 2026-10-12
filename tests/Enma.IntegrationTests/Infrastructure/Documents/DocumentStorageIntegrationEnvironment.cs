@@ -1,13 +1,30 @@
+using System.Security.Cryptography;
+using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Containers;
+
 namespace Enma.IntegrationTests.Infrastructure.Documents;
 
+// One disposable MinIO per test run, shared by every document storage test
+// (same image as the E2E stack). The fixture creates the private bucket and an
+// application identity restricted by the repository's bucket policy, as the
+// compose bootstrap does. Credentials are generated here; nothing is read from
+// .env and the Development MinIO is never touched. The Testcontainers resource
+// reaper removes the container when the test process exits.
 internal sealed class DocumentStorageIntegrationEnvironment
 {
-    private static readonly string[] RequiredKeys =
-    [
-        "MINIO_APP_ACCESS_KEY",
-        "MINIO_APP_SECRET_KEY",
-        "MINIO_API_PORT"
-    ];
+    private const string MinioImage = "minio/minio:RELEASE.2025-09-07T16-13-09Z";
+    private const ushort MinioApiPort = 9000;
+    private const string AdminAlias = "enma";
+    private const string PolicyName = "enma-documents-app";
+    private const string PolicyContainerPath =
+        "/policies/enma-documents-app-policy.json";
+
+    private static readonly Lazy<Task<DocumentStorageIntegrationEnvironment>>
+        SharedEnvironment = new(
+            // Off the xUnit synchronization context: Load() blocks on it from
+            // synchronous test constructors.
+            () => Task.Run(StartAsync),
+            LazyThreadSafetyMode.ExecutionAndPublication);
 
     private DocumentStorageIntegrationEnvironment(
         string serviceUrl,
@@ -31,96 +48,77 @@ internal sealed class DocumentStorageIntegrationEnvironment
 
     public static DocumentStorageIntegrationEnvironment Load()
     {
-        string repositoryRoot = FindRepositoryRoot();
-        string localEnvironmentPath = Path.Combine(repositoryRoot, ".env");
-        string exampleEnvironmentPath = Path.Combine(repositoryRoot, ".env.example");
-        string environmentPath = File.Exists(localEnvironmentPath)
-            ? localEnvironmentPath
-            : exampleEnvironmentPath;
-
-        if (!File.Exists(environmentPath))
-        {
-            throw new InvalidOperationException(
-                "Document storage integration tests require .env or .env.example.");
-        }
-
-        IReadOnlyDictionary<string, string> settings =
-            ReadEnvironment(environmentPath);
-
-        if (!int.TryParse(
-                settings["MINIO_API_PORT"],
-                out int minioApiPort)
-            || minioApiPort is < 1 or > 65_535)
-        {
-            throw new InvalidOperationException(
-                "MINIO_API_PORT must be a valid TCP port.");
-        }
-
-        return new DocumentStorageIntegrationEnvironment(
-            $"http://127.0.0.1:{minioApiPort}",
-            settings["MINIO_APP_ACCESS_KEY"],
-            settings["MINIO_APP_SECRET_KEY"]);
+        return SharedEnvironment.Value.GetAwaiter().GetResult();
     }
 
-    private static IReadOnlyDictionary<string, string> ReadEnvironment(
-        string path)
+    private static async Task<DocumentStorageIntegrationEnvironment> StartAsync()
     {
-        var settings = new Dictionary<string, string>(
-            StringComparer.Ordinal);
-        int lineNumber = 0;
+        string rootUser = $"root-{CreateSecret(8)}";
+        string rootPassword = CreateSecret(24);
+        string appAccessKey = $"app-{CreateSecret(8)}";
+        string appSecretKey = CreateSecret(24);
+        byte[] policy = await File.ReadAllBytesAsync(Path.Combine(
+            FindRepositoryRoot(),
+            "infrastructure",
+            "minio",
+            "enma-documents-app-policy.json"));
 
-        foreach (string line in File.ReadLines(path))
+        IContainer minio = new ContainerBuilder(MinioImage)
+            .WithCommand("server", "/data")
+            .WithEnvironment("MINIO_ROOT_USER", rootUser)
+            .WithEnvironment("MINIO_ROOT_PASSWORD", rootPassword)
+            .WithEnvironment(
+                $"MC_HOST_{AdminAlias}",
+                $"http://{rootUser}:{rootPassword}@127.0.0.1:{MinioApiPort}")
+            .WithResourceMapping(policy, PolicyContainerPath)
+            .WithPortBinding(MinioApiPort, true)
+            .WithCreateParameterModifier(LoopbackPortBindings.Apply)
+            .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(
+                request => request
+                    .ForPort(MinioApiPort)
+                    .ForPath("/minio/health/ready")))
+            .Build();
+
+        using var startupTimeout = new CancellationTokenSource(
+            TimeSpan.FromMinutes(3));
+        await minio.StartAsync(startupTimeout.Token);
+
+        string bucket = $"{AdminAlias}/{BucketName}";
+        await RunAdminCommandAsync(minio, ["mb", bucket]);
+        await RunAdminCommandAsync(minio, ["anonymous", "set", "none", bucket]);
+        await RunAdminCommandAsync(
+            minio,
+            ["admin", "policy", "create", AdminAlias, PolicyName, PolicyContainerPath]);
+        await RunAdminCommandAsync(
+            minio,
+            ["admin", "user", "add", AdminAlias, appAccessKey, appSecretKey]);
+        await RunAdminCommandAsync(
+            minio,
+            ["admin", "policy", "attach", AdminAlias, PolicyName, "--user", appAccessKey]);
+
+        return new DocumentStorageIntegrationEnvironment(
+            $"http://127.0.0.1:{minio.GetMappedPublicPort(MinioApiPort)}",
+            appAccessKey,
+            appSecretKey);
+    }
+
+    private static async Task RunAdminCommandAsync(
+        IContainer minio,
+        string[] arguments)
+    {
+        ExecResult result = await minio.ExecAsync(["mc", .. arguments]);
+
+        if (result.ExitCode != 0)
         {
-            lineNumber++;
-            string trimmedLine = line.Trim();
-
-            if (string.IsNullOrWhiteSpace(trimmedLine)
-                || trimmedLine.StartsWith(
-                    "#",
-                    StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            int separatorIndex = line.IndexOf(
-                '=',
-                StringComparison.Ordinal);
-
-            if (separatorIndex < 1)
-            {
-                throw new InvalidOperationException(
-                    $"Invalid setting on line {lineNumber} of the local environment file.");
-            }
-
-            string key = line[..separatorIndex].Trim();
-
-            if (!RequiredKeys.Contains(key, StringComparer.Ordinal))
-            {
-                continue;
-            }
-
-            if (!settings.TryAdd(
-                    key,
-                    line[(separatorIndex + 1)..].Trim()))
-            {
-                throw new InvalidOperationException(
-                    $"Duplicate required setting '{key}' in the local environment file.");
-            }
+            throw new InvalidOperationException(
+                $"MinIO bootstrap step 'mc {arguments[0]} {arguments[1]}' failed " +
+                $"with exit code {result.ExitCode}.");
         }
+    }
 
-        foreach (string requiredKey in RequiredKeys)
-        {
-            if (!settings.TryGetValue(
-                    requiredKey,
-                    out string? value)
-                || string.IsNullOrWhiteSpace(value))
-            {
-                throw new InvalidOperationException(
-                    $"Required setting '{requiredKey}' is missing from the local environment file.");
-            }
-        }
-
-        return settings;
+    private static string CreateSecret(int bytes)
+    {
+        return Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(bytes));
     }
 
     private static string FindRepositoryRoot()
