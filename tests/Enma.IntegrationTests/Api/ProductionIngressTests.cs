@@ -664,7 +664,7 @@ public sealed class ProductionIngressTests
         return innerField.GetValue(decorator);
     }
 
-    private static Dictionary<string, string?> ValidProductionRuntimeSettings()
+    internal static Dictionary<string, string?> ValidProductionRuntimeSettings()
     {
         return new Dictionary<string, string?>
         {
@@ -691,7 +691,7 @@ public sealed class ProductionIngressTests
         };
     }
 
-    private static Dictionary<string, string?> ValidPilotRuntimeSettings()
+    internal static Dictionary<string, string?> ValidPilotRuntimeSettings()
     {
         return new Dictionary<string, string?>
         {

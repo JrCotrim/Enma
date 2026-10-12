@@ -37,6 +37,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -395,6 +396,7 @@ ProductionIngressConfiguration.Validate(
     app.Environment);
 TrustedProxyTrustSet trustedProxyTrustSet =
     app.Services.GetRequiredService<TrustedProxyTrustSet>();
+IFileProvider? webDistribution = WebDistributionHosting.Resolve(app.Environment);
 
 if (app.Environment.IsDevelopment())
 {
@@ -408,11 +410,19 @@ if (trustedProxyTrustSet.Enabled)
 }
 
 app.UseHttpsRedirection();
+if (webDistribution is not null)
+{
+    app.UseWebDistributionFiles(webDistribution);
+}
 app.UseRateLimiter();
 app.UseNoStoreResponses();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
+if (webDistribution is not null)
+{
+    app.UseWebDistributionFallback(webDistribution);
+}
 
 app.MapLoginEndpoints();
 app.MapGoogleAuthenticationEndpoints();

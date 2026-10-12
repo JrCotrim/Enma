@@ -39,6 +39,10 @@ internal sealed class EnmaE2EApplicationFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment(EnvironmentName);
 
+        // The API serves the Enma.Web build from its web root outside
+        // Development, exactly as the Production image does.
+        builder.UseWebRoot(distributionPath);
+
         // Program reads some values before the host is built, so they are
         // provided both as host settings and as application configuration.
         foreach ((string key, string? value) in settings)
@@ -67,9 +71,6 @@ internal sealed class EnmaE2EApplicationFactory : WebApplicationFactory<Program>
             // runs. Each E2E host gets its own throwaway key ring instead.
             services.AddDataProtection()
                 .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
-
-            services.AddSingleton<IStartupFilter>(
-                new SpaStaticFilesStartupFilter(distributionPath));
         });
     }
 }
