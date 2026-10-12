@@ -9,35 +9,31 @@ $testRoot = Join-Path $env:TEMP (
     "Enma\pilot-database-initialization-tests\" + [Guid]::NewGuid().ToString("N"))
 $configRoot = Join-Path $testRoot "config"
 $dockerCommand = Join-Path $testRoot "fake-docker.ps1"
-$dotnetCommand = Join-Path $testRoot "fake-dotnet.ps1"
-$dotnetLog = Join-Path $testRoot "dotnet-invoked.txt"
+$migratorLog = Join-Path $testRoot "migrator-invoked.txt"
 
 function Invoke-Scenario {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
         [Parameter(Mandatory = $true)][string]$Mode,
         [Parameter(Mandatory = $true)][bool]$ShouldSucceed,
-        [Parameter(Mandatory = $true)][string]$ExpectedMessage
+        [Parameter(Mandatory = $true)][string]$ExpectedMessage,
+        [bool]$ApiRunning = $false
     )
 
-    if (Test-Path -LiteralPath $dotnetLog) {
-        [System.IO.File]::Delete($dotnetLog)
+    if (Test-Path -LiteralPath $migratorLog) {
+        [System.IO.File]::Delete($migratorLog)
     }
-    $previousMode = [System.Environment]::GetEnvironmentVariable(
-        "ENMA_PILOT_TEST_SQL_MODE",
-        "Process")
-    $previousLog = [System.Environment]::GetEnvironmentVariable(
-        "ENMA_PILOT_TEST_DOTNET_LOG",
-        "Process")
+    $variables = @{
+        ENMA_PILOT_TEST_SQL_MODE = $Mode
+        ENMA_PILOT_TEST_MIGRATOR_LOG = $migratorLog
+        ENMA_PILOT_TEST_API_RUNNING = $ApiRunning.ToString().ToLowerInvariant()
+    }
+    $previous = @{}
     try {
-        [System.Environment]::SetEnvironmentVariable(
-            "ENMA_PILOT_TEST_SQL_MODE",
-            $Mode,
-            "Process")
-        [System.Environment]::SetEnvironmentVariable(
-            "ENMA_PILOT_TEST_DOTNET_LOG",
-            $dotnetLog,
-            "Process")
+        foreach ($key in $variables.Keys) {
+            $previous[$key] = [System.Environment]::GetEnvironmentVariable($key, "Process")
+            [System.Environment]::SetEnvironmentVariable($key, $variables[$key], "Process")
+        }
         $previousPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try {
@@ -45,8 +41,7 @@ function Invoke-Scenario {
                 -File $initializationScript `
                 -ConfigRoot $configRoot `
                 -ConfirmPilotInitialization `
-                -DockerCommand $dockerCommand `
-                -DotnetCommand $dotnetCommand 2>&1 | Out-String
+                -DockerCommand $dockerCommand 2>&1 | Out-String
             $exitCode = $LASTEXITCODE
         }
         finally {
@@ -54,28 +49,23 @@ function Invoke-Scenario {
         }
     }
     finally {
-        [System.Environment]::SetEnvironmentVariable(
-            "ENMA_PILOT_TEST_SQL_MODE",
-            $previousMode,
-            "Process")
-        [System.Environment]::SetEnvironmentVariable(
-            "ENMA_PILOT_TEST_DOTNET_LOG",
-            $previousLog,
-            "Process")
+        foreach ($key in $previous.Keys) {
+            [System.Environment]::SetEnvironmentVariable($key, $previous[$key], "Process")
+        }
     }
 
     if ($ShouldSucceed) {
         if ($exitCode -ne 0 -or
             $output -notmatch [regex]::Escape($ExpectedMessage) -or
-            -not (Test-Path -LiteralPath $dotnetLog)) {
+            -not (Test-Path -LiteralPath $migratorLog)) {
             throw "$Name did not complete the validated initialization path."
         }
     }
     elseif ($exitCode -eq 0 -or
         $output -notmatch [regex]::Escape($ExpectedMessage) -or
-        (Test-Path -LiteralPath $dotnetLog) -or
+        (Test-Path -LiteralPath $migratorLog) -or
         $output -match "PILOT DATABASE INITIALIZATION PASS") {
-        throw "$Name did not fail closed before EF Core execution."
+        throw "$Name did not fail closed before the migrator ran."
     }
     Write-Host "PASS: $Name"
 }
@@ -88,24 +78,18 @@ try {
             "PILOT_POSTGRES_DB=enma_pilot_test",
             "PILOT_POSTGRES_USER=enma_pilot_test",
             "PILOT_POSTGRES_PASSWORD=synthetic-postgres-test-only",
-            "PILOT_POSTGRES_PORT=5543",
             "PILOT_MINIO_ROOT_USER=enma-pilot-root-test",
             "PILOT_MINIO_ROOT_PASSWORD=synthetic-minio-root-test-only",
             "PILOT_MINIO_APP_ACCESS_KEY=enma-pilot-app-test",
             "PILOT_MINIO_APP_SECRET_KEY=synthetic-minio-app-test-only",
-            "PILOT_MINIO_API_PORT=9100",
-            "PILOT_MINIO_CONSOLE_PORT=9101",
-            "PILOT_MAILPIT_SMTP_PORT=1125",
             "PILOT_MAILPIT_UI_PORT=8125",
-            "PILOT_API_HTTPS_PORT=7041",
-            "PILOT_WEB_HTTPS_PORT=7042",
-            "PILOT_HTTPS_PFX_PATH=C:\synthetic\pilot-test.pfx",
-            "PILOT_HTTPS_PFX_PASSWORD=synthetic-pfx-test-only",
-            "PILOT_DATA_PROTECTION_KEYS_PATH=C:\synthetic\pilot-keys"
+            "PILOT_WEB_HTTPS_PORT=7042"
         ))
 
+    # A plain script (no param block): native-style flags such as -i or -d
+    # must reach it as arguments, not bind to PowerShell common parameters.
     [System.IO.File]::WriteAllText($dockerCommand, @'
-param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CommandArguments)
+$CommandArguments = [string[]]$args
 
 $global:LASTEXITCODE = 0
 $joined = $CommandArguments -join " "
@@ -122,7 +106,28 @@ if ($joined -match "com\.docker\.compose\.project") {
     return
 }
 if ($joined -match "\.State\.Running") {
-    Write-Output "true"
+    if ($joined -match "enma-pilot-api") {
+        Write-Output $env:ENMA_PILOT_TEST_API_RUNNING
+    }
+    else {
+        Write-Output "true"
+    }
+    return
+}
+if ($CommandArguments.Count -ge 1 -and $CommandArguments[0] -ceq "compose") {
+    if ($joined -match "--profile migrate run --rm --no-deps migrate$" -and
+        $env:ENMA_POSTGRES_PASSWORD -ceq "synthetic-postgres-test-only") {
+        [System.IO.File]::WriteAllText($env:ENMA_PILOT_TEST_MIGRATOR_LOG, "invoked")
+        return
+    }
+    $global:LASTEXITCODE = 21
+    return
+}
+if ($CommandArguments.Count -ge 3 -and
+    $CommandArguments[0] -ceq "exec" -and
+    $CommandArguments[1] -ceq "-i" -and
+    $CommandArguments[2] -ceq "enma-pilot-postgres") {
+    Write-Output "20260101000000_SyntheticMigration"
     return
 }
 if ($CommandArguments.Count -ge 3 -and
@@ -145,35 +150,29 @@ if ($CommandArguments.Count -ge 3 -and
 }
 '@)
 
-    [System.IO.File]::WriteAllText($dotnetCommand, @'
-$log = [System.Environment]::GetEnvironmentVariable(
-    "ENMA_PILOT_TEST_DOTNET_LOG",
-    "Process")
-if ([string]::IsNullOrWhiteSpace($log)) {
-    $global:LASTEXITCODE = 20
-    return
-}
-[System.IO.File]::WriteAllText($log, "invoked")
-$global:LASTEXITCODE = 0
-'@)
-
     Invoke-Scenario `
-        -Name "valid SQL identity permits EF Core" `
+        -Name "valid SQL identity runs the migrator" `
         -Mode "valid" `
         -ShouldSucceed $true `
         -ExpectedMessage "PILOT DATABASE INITIALIZATION PASS"
     Invoke-Scenario `
-        -Name "null SQL identity blocks EF Core" `
+        -Name "running Pilot API blocks the migrator" `
+        -Mode "valid" `
+        -ShouldSucceed $false `
+        -ExpectedMessage "The Pilot API is running. Stop it before applying migrations." `
+        -ApiRunning $true
+    Invoke-Scenario `
+        -Name "null SQL identity blocks the migrator" `
         -Mode "null" `
         -ShouldSucceed $false `
         -ExpectedMessage "Pilot PostgreSQL identity query did not return exactly one non-empty database name."
     Invoke-Scenario `
-        -Name "empty SQL identity blocks EF Core" `
+        -Name "empty SQL identity blocks the migrator" `
         -Mode "empty" `
         -ShouldSucceed $false `
         -ExpectedMessage "Pilot PostgreSQL identity query did not return exactly one non-empty database name."
     Invoke-Scenario `
-        -Name "SQL execution error blocks EF Core" `
+        -Name "SQL execution error blocks the migrator" `
         -Mode "error" `
         -ShouldSucceed $false `
         -ExpectedMessage "Pilot PostgreSQL identity query failed."

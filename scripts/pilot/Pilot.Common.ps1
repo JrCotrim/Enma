@@ -1,23 +1,36 @@
 Set-StrictMode -Version Latest
 
+# Settings read from the external pilot.env. Older files may still carry the
+# pre-container keys (database/MinIO/SMTP/API ports, HTTPS PFX, key path);
+# they are ignored.
 $script:PilotRequiredKeys = @(
     "PILOT_POSTGRES_DB",
     "PILOT_POSTGRES_USER",
     "PILOT_POSTGRES_PASSWORD",
-    "PILOT_POSTGRES_PORT",
     "PILOT_MINIO_ROOT_USER",
     "PILOT_MINIO_ROOT_PASSWORD",
     "PILOT_MINIO_APP_ACCESS_KEY",
     "PILOT_MINIO_APP_SECRET_KEY",
-    "PILOT_MINIO_API_PORT",
-    "PILOT_MINIO_CONSOLE_PORT",
-    "PILOT_MAILPIT_SMTP_PORT",
     "PILOT_MAILPIT_UI_PORT",
-    "PILOT_API_HTTPS_PORT",
-    "PILOT_WEB_HTTPS_PORT",
-    "PILOT_HTTPS_PFX_PATH",
-    "PILOT_HTTPS_PFX_PASSWORD",
-    "PILOT_DATA_PROTECTION_KEYS_PATH"
+    "PILOT_WEB_HTTPS_PORT"
+)
+
+# The Pilot is served by Caddy on this dedicated *.localhost hostname, bound to
+# 127.0.0.1:PILOT_WEB_HTTPS_PORT.
+$script:PilotHostName = "enma-pilot.localhost"
+$script:PilotImageTag = "pilot"
+$script:PilotDataVolumes = @(
+    "enma_pilot_postgres_data",
+    "enma_pilot_minio_data",
+    "enma_pilot_mailpit_data"
+)
+$script:PilotContainers = @(
+    "enma-pilot-postgres",
+    "enma-pilot-minio",
+    "enma-pilot-minio-bootstrap",
+    "enma-pilot-mailpit",
+    "enma-pilot-api",
+    "enma-pilot-caddy"
 )
 
 function Read-PilotEnvironment {
@@ -87,8 +100,7 @@ function Assert-PilotIdentitySettings {
     $secrets = @(
         $Settings.PILOT_POSTGRES_PASSWORD,
         $Settings.PILOT_MINIO_ROOT_PASSWORD,
-        $Settings.PILOT_MINIO_APP_SECRET_KEY,
-        $Settings.PILOT_HTTPS_PFX_PASSWORD)
+        $Settings.PILOT_MINIO_APP_SECRET_KEY)
     if (@($secrets | Select-Object -Unique).Count -ne $secrets.Count) {
         throw "Pilot credentials must be distinct from one another."
     }
@@ -153,7 +165,9 @@ function Protect-PilotDirectory {
             [System.Security.AccessControl.PropagationFlags]::None,
             $allow)))
     }
-    Set-Acl -LiteralPath $Path -AclObject $security
+    # Writes only the DACL; Set-Acl rewrites the whole descriptor and needs
+    # privileges a non-elevated Windows PowerShell session does not hold.
+    (Get-Item -LiteralPath $Path).SetAccessControl($security)
 }
 
 function Assert-CommandAvailable {
@@ -307,4 +321,89 @@ function Assert-LoopbackPortAvailable {
     finally {
         $listener.Stop()
     }
+}
+
+function Get-PilotComposeArguments {
+    param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
+
+    return @(
+        "compose", "--project-name", "enma-pilot",
+        "--file", (Join-Path $RepositoryRoot "deploy\compose.yaml"),
+        "--file", (Join-Path $RepositoryRoot "deploy\compose.pilot.yaml")
+    )
+}
+
+function Get-PilotComposeEnvironment {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Settings,
+        [string]$Revision = "unknown"
+    )
+
+    return @{
+        ENMA_IMAGE_TAG = $script:PilotImageTag
+        ENMA_REVISION = $Revision
+        ENMA_PUBLIC_HOST = $script:PilotHostName
+        ENMA_PILOT_HTTPS_PORT = (Get-PilotPort -Settings $Settings -Key "PILOT_WEB_HTTPS_PORT").ToString()
+        ENMA_PILOT_MAILPIT_UI_PORT = (Get-PilotPort -Settings $Settings -Key "PILOT_MAILPIT_UI_PORT").ToString()
+        ENMA_POSTGRES_DB = $Settings.PILOT_POSTGRES_DB
+        ENMA_POSTGRES_USER = $Settings.PILOT_POSTGRES_USER
+        ENMA_POSTGRES_PASSWORD = $Settings.PILOT_POSTGRES_PASSWORD
+        ENMA_MINIO_ROOT_USER = $Settings.PILOT_MINIO_ROOT_USER
+        ENMA_MINIO_ROOT_PASSWORD = $Settings.PILOT_MINIO_ROOT_PASSWORD
+        ENMA_MINIO_APP_ACCESS_KEY = $Settings.PILOT_MINIO_APP_ACCESS_KEY
+        ENMA_MINIO_APP_SECRET_KEY = $Settings.PILOT_MINIO_APP_SECRET_KEY
+    }
+}
+
+# Compose reads the ENMA_* variables from this process only for the duration
+# of the script block; secrets are never written to another file.
+function Invoke-WithPilotComposeEnvironment {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Environment,
+        [Parameter(Mandatory = $true)][scriptblock]$ScriptBlock
+    )
+
+    $previous = @{}
+    try {
+        foreach ($key in $Environment.Keys) {
+            $previous[$key] = [System.Environment]::GetEnvironmentVariable($key, "Process")
+            [System.Environment]::SetEnvironmentVariable($key, $Environment[$key], "Process")
+        }
+        & $ScriptBlock
+    }
+    finally {
+        foreach ($key in $previous.Keys) {
+            [System.Environment]::SetEnvironmentVariable($key, $previous[$key], "Process")
+        }
+    }
+}
+
+function Get-PilotAppliedMigration {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Settings,
+        [string]$DockerCommand = "docker"
+    )
+
+    # Sent on stdin: Windows PowerShell mangles double quotes in native
+    # arguments, and the quoted identifiers are case-sensitive.
+    $query = @'
+select to_regclass('public."__EFMigrationsHistory"') is not null as has_history \gset
+\if :has_history
+select coalesce(max("MigrationId"), '(none)') from "__EFMigrationsHistory";
+\else
+select '(none)';
+\endif
+'@
+    $result = @($query | & $DockerCommand exec -i enma-pilot-postgres `
+        psql -X -At -v ON_ERROR_STOP=1 `
+        -U $Settings.PILOT_POSTGRES_USER `
+        -d $Settings.PILOT_POSTGRES_DB `
+        -f -)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Pilot migration history query failed."
+    }
+    if ($result.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$result[0])) {
+        throw "Pilot migration history query did not return exactly one value."
+    }
+    return ([string]$result[0]).Trim()
 }

@@ -2,8 +2,15 @@
 param(
     [Parameter(Mandatory = $true)][string]$ConfigRoot,
     [switch]$InfrastructureOnly,
+    [switch]$SkipBuild,
     [string]$DockerCommand = "docker"
 )
+
+# Starts the Pilot on the Production images and topology (D3, D14, D15):
+# build the API and migrator images, start PostgreSQL/MinIO/Mailpit, apply
+# migrations with the migrator while the API is stopped, then start the API
+# behind Caddy at https://enma-pilot.localhost:<PILOT_WEB_HTTPS_PORT>.
+# -InfrastructureOnly starts only the data services (used for backups).
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -21,26 +28,9 @@ $settings = Read-PilotEnvironment -Path $environmentPath
 Assert-PilotIdentitySettings -Settings $settings
 Protect-PilotDirectory -Path $configRootFullPath
 
-$certificatePath = [System.IO.Path]::GetFullPath($settings.PILOT_HTTPS_PFX_PATH)
-$keysPath = [System.IO.Path]::GetFullPath($settings.PILOT_DATA_PROTECTION_KEYS_PATH)
-Assert-PathWithin -Path $certificatePath -Parent $configRootFullPath
-Assert-PathWithin -Path $keysPath -Parent $configRootFullPath
-if (-not (Test-Path -LiteralPath $certificatePath -PathType Leaf)) {
-    throw "Pilot HTTPS certificate was not found."
-}
-if (-not (Test-Path -LiteralPath $keysPath -PathType Container)) {
-    throw "Pilot Data Protection key directory was not found."
-}
-
-$portKeys = @(
-    "PILOT_POSTGRES_PORT", "PILOT_MINIO_API_PORT",
-    "PILOT_MINIO_CONSOLE_PORT", "PILOT_MAILPIT_SMTP_PORT",
-    "PILOT_MAILPIT_UI_PORT", "PILOT_API_HTTPS_PORT",
-    "PILOT_WEB_HTTPS_PORT"
-)
-$ports = @{}
-foreach ($key in $portKeys) { $ports[$key] = Get-PilotPort -Settings $settings -Key $key }
-if (@($ports.Values | Select-Object -Unique).Count -ne $ports.Count) {
+$httpsPort = Get-PilotPort -Settings $settings -Key "PILOT_WEB_HTTPS_PORT"
+$mailpitUiPort = Get-PilotPort -Settings $settings -Key "PILOT_MAILPIT_UI_PORT"
+if ($httpsPort -eq $mailpitUiPort) {
     throw "Pilot ports must be unique."
 }
 $developmentPorts = @(5014, 7028, 5173, 1025, 8025)
@@ -52,7 +42,7 @@ if (Test-Path -LiteralPath $developmentEnvironmentPath -PathType Leaf) {
         }
     }
 }
-if (@($ports.Values | Where-Object { $developmentPorts -contains $_ }).Count -gt 0) {
+if (@(@($httpsPort, $mailpitUiPort) | Where-Object { $developmentPorts -contains $_ }).Count -gt 0) {
     throw "Pilot ports overlap a Development port."
 }
 
@@ -78,25 +68,43 @@ foreach ($pilotKey in $secretMap.Keys) {
 }
 
 $docker = Assert-CommandAvailable -Command $DockerCommand
-$composePath = Join-Path $repositoryRoot "compose.pilot.yaml"
-$composeArguments = @(
-    "compose", "--project-name", "enma-pilot", "--file", $composePath,
-    "--env-file", $environmentPath
-)
-$services = @(Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @("config", "--services")) -CaptureOutput)
-$volumes = @(Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @("config", "--volumes")) -CaptureOutput)
-$expectedServices = @("postgres", "minio", "minio-bootstrap", "mailpit")
-$expectedVolumes = @("enma_pilot_postgres_data", "enma_pilot_minio_data", "enma_pilot_mailpit_data")
-if (@(Compare-Object $expectedServices $services).Count -ne 0 -or
-    @(Compare-Object $expectedVolumes $volumes).Count -ne 0) {
-    throw "Pilot Compose resolved unexpected services or volumes."
+$revision = "unknown"
+$git = Get-Command -Name "git" -ErrorAction SilentlyContinue
+if ($null -ne $git) {
+    $revision = (& $git.Source -C $repositoryRoot rev-parse HEAD).Trim()
+    if (@(& $git.Source -C $repositoryRoot status --porcelain).Count -gt 0) {
+        $revision += "-dirty"
+    }
+}
+$composeArguments = Get-PilotComposeArguments -RepositoryRoot $repositoryRoot
+$composeEnvironment = Get-PilotComposeEnvironment -Settings $settings -Revision $revision
+
+Invoke-WithPilotComposeEnvironment -Environment $composeEnvironment -ScriptBlock {
+    $services = @(Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @("config", "--services")) -CaptureOutput)
+    $volumes = @(Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @("config", "--volumes")) -CaptureOutput)
+    $expectedServices = @("postgres", "minio", "minio-bootstrap", "mailpit", "api", "caddy")
+    $expectedVolumes = @("postgres_data", "documents_data", "dataprotection_keys", "caddy_data", "caddy_config", "mailpit_data")
+    if (@(Compare-Object $expectedServices $services).Count -ne 0 -or
+        @(Compare-Object $expectedVolumes $volumes).Count -ne 0) {
+        throw "Pilot Compose resolved unexpected services or volumes."
+    }
 }
 
-foreach ($name in @("enma-pilot-postgres", "enma-pilot-minio", "enma-pilot-minio-bootstrap", "enma-pilot-mailpit")) {
+foreach ($name in $script:PilotContainers) {
     Assert-PilotDockerResourceOwnership -Kind container -Name $name -DockerCommand $docker
 }
-foreach ($name in $expectedVolumes) {
+foreach ($name in @($script:PilotDataVolumes + @(
+    "enma_pilot_dataprotection_keys", "enma_pilot_caddy_data", "enma_pilot_caddy_config"))) {
     Assert-PilotDockerResourceOwnership -Kind volume -Name $name -DockerCommand $docker
+}
+# The data volumes are external to Compose so it can never recreate them.
+# A first start creates them empty, labelled as Pilot resources.
+foreach ($name in $script:PilotDataVolumes) {
+    if (-not (Test-PilotDockerResourceExists -Kind volume -Name $name -DockerCommand $docker)) {
+        Invoke-PilotCommand -Command $docker -Arguments @(
+            "volume", "create", "--label", "com.docker.compose.project=enma-pilot", $name) |
+            Out-Null
+    }
 }
 Assert-PilotContainerEnvironment -Name "enma-pilot-postgres" -DockerCommand $docker -Expected @{
     POSTGRES_DB = $settings.PILOT_POSTGRES_DB
@@ -107,21 +115,12 @@ Assert-PilotContainerEnvironment -Name "enma-pilot-minio" -DockerCommand $docker
     MINIO_ROOT_USER = $settings.PILOT_MINIO_ROOT_USER
     MINIO_ROOT_PASSWORD = $settings.PILOT_MINIO_ROOT_PASSWORD
 }
-Assert-PilotContainerEnvironment -Name "enma-pilot-minio-bootstrap" -DockerCommand $docker -Expected @{
-    MINIO_ROOT_USER = $settings.PILOT_MINIO_ROOT_USER
-    MINIO_ROOT_PASSWORD = $settings.PILOT_MINIO_ROOT_PASSWORD
-    MINIO_APP_ACCESS_KEY = $settings.PILOT_MINIO_APP_ACCESS_KEY
-    MINIO_APP_SECRET_KEY = $settings.PILOT_MINIO_APP_SECRET_KEY
-}
 
-$infrastructurePorts = @(
-    @{ Name = "enma-pilot-postgres"; ContainerPort = 5432; Port = $ports.PILOT_POSTGRES_PORT; Purpose = "PostgreSQL" },
-    @{ Name = "enma-pilot-minio"; ContainerPort = 9000; Port = $ports.PILOT_MINIO_API_PORT; Purpose = "MinIO API" },
-    @{ Name = "enma-pilot-minio"; ContainerPort = 9001; Port = $ports.PILOT_MINIO_CONSOLE_PORT; Purpose = "MinIO console" },
-    @{ Name = "enma-pilot-mailpit"; ContainerPort = 1025; Port = $ports.PILOT_MAILPIT_SMTP_PORT; Purpose = "Mailpit SMTP" },
-    @{ Name = "enma-pilot-mailpit"; ContainerPort = 8025; Port = $ports.PILOT_MAILPIT_UI_PORT; Purpose = "Mailpit UI" }
+$bindings = @(
+    @{ Name = "enma-pilot-mailpit"; ContainerPort = 8025; Port = $mailpitUiPort; Purpose = "Mailpit UI" },
+    @{ Name = "enma-pilot-caddy"; ContainerPort = 443; Port = $httpsPort; Purpose = "HTTPS" }
 )
-foreach ($binding in $infrastructurePorts) {
+foreach ($binding in $bindings) {
     if (Test-PilotContainerRunning -Name $binding.Name -DockerCommand $docker) {
         Assert-RunningPilotContainerPort `
             -Name $binding.Name `
@@ -133,113 +132,70 @@ foreach ($binding in $infrastructurePorts) {
         Assert-LoopbackPortAvailable -Port $binding.Port -Purpose $binding.Purpose
     }
 }
-if (-not $InfrastructureOnly) {
-    Assert-LoopbackPortAvailable -Port $ports.PILOT_API_HTTPS_PORT -Purpose "API HTTPS"
-    Assert-LoopbackPortAvailable -Port $ports.PILOT_WEB_HTTPS_PORT -Purpose "frontend HTTPS"
-}
 
-Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @(
-    "up", "--detach", "--wait", "postgres", "minio", "mailpit"))
-Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @(
-    "up", "--detach", "minio-bootstrap"))
-$bootstrapExitCode = Invoke-PilotCommand -Command $docker -Arguments @(
-    "wait", "enma-pilot-minio-bootstrap") -CaptureOutput
-if ($bootstrapExitCode.ToString().Trim() -cne "0") {
-    throw "Pilot MinIO bootstrap failed."
+Invoke-WithPilotComposeEnvironment -Environment $composeEnvironment -ScriptBlock {
+    if (-not $SkipBuild -and -not $InfrastructureOnly) {
+        Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @(
+            "--profile", "migrate", "build", "api", "migrate"))
+    }
+    Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @(
+        "up", "--detach", "--wait", "postgres", "minio", "mailpit"))
+    Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @(
+        "up", "--detach", "--no-deps", "minio-bootstrap"))
+    $bootstrapExitCode = Invoke-PilotCommand -Command $docker -Arguments @(
+        "wait", "enma-pilot-minio-bootstrap") -CaptureOutput
+    if ($bootstrapExitCode.ToString().Trim() -cne "0") {
+        throw "Pilot MinIO bootstrap failed."
+    }
 }
-Write-Host "Pilot infrastructure is healthy and isolated."
+Write-Host "Pilot data services are healthy and isolated."
 if ($InfrastructureOnly) {
-    Write-Host "Application processes were not started; no migrations were applied."
+    Write-Host "The API was not started; no migrations were applied."
     return
 }
 
-$logDirectory = Join-Path $configRootFullPath "logs"
-if (-not (Test-Path -LiteralPath $logDirectory -PathType Container)) {
-    New-Item -ItemType Directory -Path $logDirectory | Out-Null
+Invoke-WithPilotComposeEnvironment -Environment $composeEnvironment -ScriptBlock {
+    Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @("stop", "api"))
 }
-Protect-PilotDirectory -Path $logDirectory
-$timestamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssZ")
-
-$apiEnvironment = @{
-    ASPNETCORE_ENVIRONMENT = "Pilot"
-    ASPNETCORE_URLS = "https://127.0.0.1:$($ports.PILOT_API_HTTPS_PORT)"
-    ASPNETCORE_Kestrel__Certificates__Default__Path = $certificatePath
-    ASPNETCORE_Kestrel__Certificates__Default__Password = $settings.PILOT_HTTPS_PFX_PASSWORD
-    ConnectionStrings__Database = "Host=127.0.0.1;Port=$($ports.PILOT_POSTGRES_PORT);Database=$($settings.PILOT_POSTGRES_DB);Username=$($settings.PILOT_POSTGRES_USER);Password=$($settings.PILOT_POSTGRES_PASSWORD)"
-    DataProtection__KeysPath = $keysPath
-    DocumentStorage__ServiceUrl = "http://127.0.0.1:$($ports.PILOT_MINIO_API_PORT)"
-    DocumentStorage__AccessKey = $settings.PILOT_MINIO_APP_ACCESS_KEY
-    DocumentStorage__SecretKey = $settings.PILOT_MINIO_APP_SECRET_KEY
-    EmailVerification__DevelopmentDelivery__VerificationPageUrl = "https://localhost:$($ports.PILOT_WEB_HTTPS_PORT)/verify-email"
-    EmailVerification__DevelopmentDelivery__PasswordRecoveryPageUrl = "https://localhost:$($ports.PILOT_WEB_HTTPS_PORT)/reset-password"
-    EmailVerification__DevelopmentDelivery__SmtpPort = $ports.PILOT_MAILPIT_SMTP_PORT.ToString()
-    Authentication__Google__Enabled = "false"
-}
-$webEnvironment = @{
-    ENMA_PILOT_API_TARGET = "https://127.0.0.1:$($ports.PILOT_API_HTTPS_PORT)"
-    ENMA_PILOT_HTTPS_PFX_PATH = $certificatePath
-    ENMA_PILOT_HTTPS_PFX_PASSWORD = $settings.PILOT_HTTPS_PFX_PASSWORD
+& (Join-Path $PSScriptRoot "Initialize-EnmaPilotDatabase.ps1") `
+    -ConfigRoot $configRootFullPath `
+    -ConfirmPilotInitialization `
+    -DockerCommand $docker
+Invoke-WithPilotComposeEnvironment -Environment $composeEnvironment -ScriptBlock {
+    Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @(
+        "up", "--detach", "--wait", "--no-deps", "api", "caddy"))
 }
 
-$environmentKeys = @($apiEnvironment.Keys) + @($webEnvironment.Keys) |
-    Select-Object -Unique
-$previousEnvironment = @{}
-$api = $null
-$web = $null
-try {
-    foreach ($key in $environmentKeys) {
-        $previousEnvironment[$key] = [System.Environment]::GetEnvironmentVariable($key, "Process")
-        [System.Environment]::SetEnvironmentVariable($key, $null, "Process")
+# Readiness through the edge, verified against Caddy's local root CA (also
+# saved for the optional Windows trust step in docs/operations/local-pilot.md).
+$rootCertificatePath = Join-Path $configRootFullPath "enma-pilot-caddy-root.crt"
+$origin = "https://$($script:PilotHostName):$httpsPort"
+$curl = Assert-CommandAvailable -Command "curl.exe"
+$ready = $false
+for ($attempt = 1; $attempt -le 30 -and -not $ready; $attempt++) {
+    Start-Sleep -Seconds 2
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $docker cp "enma-pilot-caddy:/data/caddy/pki/authorities/local/root.crt" $rootCertificatePath 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { continue }
+        # The local CA publishes no revocation lists; the chain is still
+        # verified against Caddy's root.
+        $status = & $curl --silent --output NUL --write-out "%{http_code}" `
+            --cacert $rootCertificatePath --ssl-no-revoke `
+            --resolve "$($script:PilotHostName):$($httpsPort):127.0.0.1" `
+            "$origin/health/ready" 2>$null
+        $ready = $LASTEXITCODE -eq 0 -and $status -eq "200"
     }
-    foreach ($key in $apiEnvironment.Keys) {
-        [System.Environment]::SetEnvironmentVariable($key, $apiEnvironment[$key], "Process")
+    finally {
+        $ErrorActionPreference = $previousPreference
     }
-    $dotnet = Assert-CommandAvailable -Command "dotnet"
-    $api = Start-Process -FilePath $dotnet -ArgumentList @(
-        "run", "--no-launch-profile", "--project", (Join-Path $repositoryRoot "src\Enma.Api\Enma.Api.csproj")) `
-        -WorkingDirectory $repositoryRoot -PassThru `
-        -RedirectStandardOutput (Join-Path $logDirectory "api-$timestamp.log") `
-        -RedirectStandardError (Join-Path $logDirectory "api-$timestamp.error.log")
-
-    foreach ($key in $environmentKeys) {
-        [System.Environment]::SetEnvironmentVariable($key, $null, "Process")
-    }
-    foreach ($key in $webEnvironment.Keys) {
-        [System.Environment]::SetEnvironmentVariable($key, $webEnvironment[$key], "Process")
-    }
-    $npm = Assert-CommandAvailable -Command "npm.cmd"
-    $web = Start-Process -FilePath $npm -ArgumentList @(
-        "run", "dev", "--", "--config", "vite.pilot.config.ts",
-        "--port", $ports.PILOT_WEB_HTTPS_PORT.ToString()) `
-        -WorkingDirectory (Join-Path $repositoryRoot "src\Enma.Web") -PassThru `
-        -RedirectStandardOutput (Join-Path $logDirectory "web-$timestamp.log") `
-        -RedirectStandardError (Join-Path $logDirectory "web-$timestamp.error.log")
 }
-catch {
-    foreach ($process in @($api, $web)) {
-        if ($null -ne $process -and -not $process.HasExited) {
-            Stop-Process -Id $process.Id
-        }
-    }
-    throw
-}
-finally {
-    foreach ($key in $environmentKeys) {
-        [System.Environment]::SetEnvironmentVariable($key, $previousEnvironment[$key], "Process")
-    }
+if (-not $ready) {
+    throw "The Pilot did not become ready through Caddy; inspect 'docker logs enma-pilot-api'."
 }
 
-Write-Host "ENMA Pilot is running at https://localhost:$($ports.PILOT_WEB_HTTPS_PORT)."
-Write-Host "Mailpit is available at http://127.0.0.1:$($ports.PILOT_MAILPIT_UI_PORT)."
-Write-Host "No migrations were applied. Logs are stored in the restricted Pilot configuration root."
-try {
-    while (-not $api.HasExited -and -not $web.HasExited) { Start-Sleep -Seconds 1 }
-    throw "A Pilot application process exited; inspect the restricted Pilot logs."
-}
-finally {
-    foreach ($process in @($api, $web)) {
-        if ($null -ne $process -and -not $process.HasExited) {
-            Stop-Process -Id $process.Id
-        }
-    }
-}
+Write-Host "ENMA Pilot is running at $origin (fictitious data only)."
+Write-Host "Mailpit is available at http://127.0.0.1:$mailpitUiPort."
+Write-Host "Caddy's local root CA was saved to $rootCertificatePath."
+Write-Host "Stop it with scripts\pilot\Stop-EnmaPilot.ps1."

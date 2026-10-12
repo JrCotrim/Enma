@@ -34,14 +34,20 @@ if (-not (Test-Path -LiteralPath $backupRootFullPath -PathType Container)) {
 
 $settings = Read-PilotEnvironment -Path (Join-Path $configRootFullPath "pilot.env")
 Assert-PilotIdentitySettings -Settings $settings
-$keysPath = [System.IO.Path]::GetFullPath($settings.PILOT_DATA_PROTECTION_KEYS_PATH)
-Assert-PathWithin -Path $keysPath -Parent $configRootFullPath
-if (-not (Test-Path -LiteralPath $keysPath -PathType Container) -or
-    @(Get-ChildItem -LiteralPath $keysPath -File -Filter "key-*.xml").Count -lt 1) {
-    throw "Pilot Data Protection key ring is missing or empty."
-}
 
 $docker = Assert-CommandAvailable -Command $DockerCommand
+# The key ring lives in the enma_pilot_dataprotection_keys volume and is read
+# through the stopped API container, which also proves the API is quiesced.
+$keysContainerPath = "/var/lib/enma/dataprotection-keys"
+Assert-PilotDockerResourceOwnership `
+    -Kind container -Name "enma-pilot-api" -DockerCommand $docker
+if (-not (Test-PilotDockerResourceExists `
+    -Kind container -Name "enma-pilot-api" -DockerCommand $docker)) {
+    throw "Pilot API container was not found; start the Pilot once before a backup."
+}
+if (Test-PilotContainerRunning -Name "enma-pilot-api" -DockerCommand $docker) {
+    throw "The Pilot API is running. Stop it with Stop-EnmaPilot.ps1 -ApplicationOnly first."
+}
 foreach ($container in @("enma-pilot-postgres", "enma-pilot-minio")) {
     Assert-PilotDockerResourceOwnership `
         -Kind container -Name $container -DockerCommand $docker
@@ -71,6 +77,7 @@ $null = & $backupScript `
     -SourceMinioContainer "enma-pilot-minio" `
     -BucketName "enma-pilot-documents" `
     -DockerCommand $docker `
+    -ApiContainer "enma-pilot-api" `
     -ConfirmQuiesced 6>$null
 
 $created = @(Get-ChildItem -LiteralPath $backupRootFullPath -Directory |
@@ -84,8 +91,11 @@ try {
     $recoveryDirectory = Join-Path $backupDirectory "recovery"
     $keyBackupDirectory = Join-Path $recoveryDirectory "data-protection-keys"
     New-Item -ItemType Directory -Path $keyBackupDirectory | Out-Null
-    Get-ChildItem -LiteralPath $keysPath -File -Filter "key-*.xml" |
-        Copy-Item -Destination $keyBackupDirectory
+    Invoke-PilotCommand -Command $docker -Arguments @(
+        "cp", "enma-pilot-api:$keysContainerPath/.", $keyBackupDirectory) | Out-Null
+    Get-ChildItem -LiteralPath $keyBackupDirectory -File |
+        Where-Object { $_.Name -notlike "key-*.xml" } |
+        Remove-Item
 
     $keyInventory = @(Get-ObjectInventory -ObjectsDirectory $keyBackupDirectory)
     if ($keyInventory.Count -lt 1) {
