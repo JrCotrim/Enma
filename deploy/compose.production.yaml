@@ -1,0 +1,54 @@
+# Production override for deploy/compose.yaml (D2, D15). Usage, from the
+# repository root on the host:
+#   docker compose -f deploy/compose.yaml -f deploy/compose.production.yaml \
+#     --env-file deploy/production.env <command>
+# deploy/production.env is never committed; deploy/production.env.example
+# lists every variable with placeholders only.
+
+name: enma-production
+
+services:
+  minio-bootstrap:
+    environment:
+      DOCUMENTS_BUCKET: enma-documents
+    volumes:
+      - ../infrastructure/minio/enma-documents-app-policy.json:/policies/app-policy.json:ro
+
+  api:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      DocumentStorage__BucketName: enma-documents
+      EmailVerification__Delivery__VerificationPageUrl: https://${ENMA_PUBLIC_HOST:?ENMA_PUBLIC_HOST is required}/verify-email
+      EmailVerification__Delivery__PasswordRecoveryPageUrl: https://${ENMA_PUBLIC_HOST:?ENMA_PUBLIC_HOST is required}/reset-password
+      EmailVerification__Delivery__SenderName: ${ENMA_SMTP_SENDER_NAME:?ENMA_SMTP_SENDER_NAME is required}
+      EmailVerification__Delivery__SenderAddress: ${ENMA_SMTP_SENDER_ADDRESS:?ENMA_SMTP_SENDER_ADDRESS is required}
+      EmailVerification__Delivery__SmtpHost: ${ENMA_SMTP_HOST:?ENMA_SMTP_HOST is required}
+      EmailVerification__Delivery__SmtpPort: ${ENMA_SMTP_PORT:?ENMA_SMTP_PORT is required}
+      EmailVerification__Delivery__SmtpSecurity: ${ENMA_SMTP_SECURITY:?ENMA_SMTP_SECURITY is required}
+      EmailVerification__Delivery__SmtpUsername: ${ENMA_SMTP_USERNAME:?ENMA_SMTP_USERNAME is required}
+      EmailVerification__Delivery__SmtpPassword: ${ENMA_SMTP_PASSWORD:?ENMA_SMTP_PASSWORD is required}
+      Authentication__Google__Enabled: ${ENMA_GOOGLE_ENABLED:-false}
+      Authentication__Google__ClientId: ${ENMA_GOOGLE_CLIENT_ID:-}
+      Authentication__Google__ClientSecret: ${ENMA_GOOGLE_CLIENT_SECRET:-}
+
+  caddy:
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      ENMA_ACME_EMAIL: ${ENMA_ACME_EMAIL:?ENMA_ACME_EMAIL is required}
+    volumes:
+      - ./caddy/Caddyfile.production:/etc/caddy/Caddyfile:ro
+
+volumes:
+  postgres_data:
+    name: enma_production_postgres_data
+  documents_data:
+    name: enma_production_documents_data
+  dataprotection_keys:
+    name: enma_production_dataprotection_keys
+  caddy_data:
+    name: enma_production_caddy_data
+  caddy_config:
+    name: enma_production_caddy_config

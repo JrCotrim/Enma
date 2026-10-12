@@ -1,0 +1,16 @@
+# Pilot edge (D15): Caddy's local CA (`tls internal`) for the dedicated
+# *.localhost hostname, published on 127.0.0.1 only. No ACME, no HTTP port,
+# and no HSTS, so nothing the Pilot sends can pin HTTPS on localhost
+# Development origins. Same CSP and headers as Production.
+{
+	skip_install_trust
+	auto_https disable_redirects
+}
+
+import /etc/caddy/enma.caddy
+
+{$ENMA_PUBLIC_HOST} {
+	tls internal
+	import enma_security_headers
+	import enma_api_proxy
+}

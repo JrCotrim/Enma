@@ -1,0 +1,14 @@
+# Production edge (D2, D15): automatic public TLS for ENMA_PUBLIC_HOST, HTTP
+# redirected to HTTPS, HSTS, and the API reachable only through this proxy.
+# Access logs stay off: URLs may carry one-time tokens.
+{
+	email {$ENMA_ACME_EMAIL}
+}
+
+import /etc/caddy/enma.caddy
+
+{$ENMA_PUBLIC_HOST} {
+	import enma_security_headers
+	header Strict-Transport-Security "max-age=31536000"
+	import enma_api_proxy
+}

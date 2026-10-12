@@ -1,194 +1,197 @@
 # ENMA production runbook
 
-This is the provider-neutral procedure for preparing a controlled ENMA beta.
-Replace angle-bracketed placeholders only in the deployment platform or secret
-store. Never commit real values. Provider-specific networking, volume, scheduler,
-DNS, certificate, and secret-store steps remain pending until a host is chosen.
+Procedure for a controlled ENMA beta on one Linux VPS with Docker Compose
+(D2): Caddy is the only public entry point, the API runs one replica without a
+published port, and PostgreSQL and MinIO stay on private networks. Provider,
+DNS, SMTP provider, image registry, and production backup scheduling remain
+pending (9H.6). Never commit real values.
 
-## 1. Required configuration
+## 1. Deployment artifact
 
-Set `ASPNETCORE_ENVIRONMENT=Production`. Keep the API private behind exactly one
-trusted edge and one API replica. Do not set
-`ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`.
+| File | Purpose |
+|---|---|
+| `Dockerfile` | multi-stage build: `api` (ASP.NET Core runtime, non-root `app`, HTTP 8080, Enma.Web build in `wwwroot`) and `migrator` (self-contained linux-x64 EF Core bundle, non-root) |
+| `deploy/compose.yaml` | shared topology (PostgreSQL, MinIO, bucket bootstrap, migrator, API, Caddy) |
+| `deploy/compose.production.yaml` | Production environment, public ports 80/443, HSTS Caddyfile |
+| `deploy/caddy/Caddyfile.production`, `deploy/caddy/enma.caddy` | TLS, security headers, CSP, reverse proxy |
+| `deploy/production.env.example` | every variable name, placeholders only |
+| `scripts/deploy/Export-EnmaMigrationSql.ps1` | review-only SQL of a migration range |
 
-Non-secret deployment settings:
+All commands below run from the repository root on the host, with:
 
-- `AllowedHosts=<public-hostname>`; use explicit hostnames separated by `;`,
-  never `*` or wildcard subdomains.
-- `Deployment__TrustedProxy__Enabled=true` and at least one exact
-  `Deployment__TrustedProxy__KnownProxies__0=<proxy-ip>` or narrowly scoped
-  `Deployment__TrustedProxy__KnownIPNetworks__0=<proxy-cidr>`.
-- `DataProtection__KeysPath=<existing-absolute-persistent-directory>`.
-- `EmailVerification__Delivery__VerificationPageUrl=https://<public-host>/verify-email`.
-- `EmailVerification__Delivery__PasswordRecoveryPageUrl=https://<public-host>/reset-password`.
-- `EmailVerification__Delivery__SenderName=<display-name>`.
-- `EmailVerification__Delivery__SenderAddress=<mailbox>`.
-- `EmailVerification__Delivery__SmtpHost=<host-only>`.
-- `EmailVerification__Delivery__SmtpPort=<1-65535>`.
-- `EmailVerification__Delivery__SmtpSecurity=StartTls` or `SslOnConnect`.
-- Optional `EmailVerification__Delivery__SmtpTimeoutSeconds=<1-60>` (default
-  10); a timed-out delivery is reported as failed, never as a server error.
-- `DocumentStorage__ServiceUrl=https://<private-s3-endpoint>`.
-- `DocumentStorage__BucketName=<private-bucket>`.
-- `DocumentStorage__Region=<provider-region>`.
-- `DocumentStorage__RequireTls=true`.
-- `DocumentStorage__ForcePathStyle=<provider-required-boolean>`.
+```bash
+COMPOSE="docker compose -f deploy/compose.yaml -f deploy/compose.production.yaml --env-file deploy/production.env"
+```
 
-Secrets, supplied only by the deployment secret store:
+## 2. Required configuration
 
-- `ConnectionStrings__Database`.
-- `EmailVerification__Delivery__SmtpUsername` and `SmtpPassword`.
-- `DocumentStorage__AccessKey` and `SecretKey`, scoped only to the private
-  document bucket.
-- When Google is enabled: `Authentication__Google__ClientId` and
-  `Authentication__Google__ClientSecret`.
+Copy `deploy/production.env.example` to `deploy/production.env` (gitignored),
+restrict it to the deploy operator (`chmod 600`), and fill every placeholder.
+Variable names:
+
+- Release: `ENMA_IMAGE_TAG`, `ENMA_REVISION`.
+- Edge: `ENMA_PUBLIC_HOST`, `ENMA_ACME_EMAIL`; optional `ENMA_EDGE_SUBNET`,
+  `ENMA_EDGE_DYNAMIC_RANGE`, `ENMA_EDGE_PROXY_IP`.
+- PostgreSQL: `ENMA_POSTGRES_DB`, `ENMA_POSTGRES_USER`, `ENMA_POSTGRES_PASSWORD`.
+- MinIO: `ENMA_MINIO_ROOT_USER`, `ENMA_MINIO_ROOT_PASSWORD` (bootstrap only),
+  `ENMA_MINIO_APP_ACCESS_KEY`, `ENMA_MINIO_APP_SECRET_KEY` (API, bucket-scoped).
+- SMTP: `ENMA_SMTP_HOST`, `ENMA_SMTP_PORT`, `ENMA_SMTP_SECURITY`
+  (`StartTls` or `SslOnConnect`), `ENMA_SMTP_USERNAME`, `ENMA_SMTP_PASSWORD`,
+  `ENMA_SMTP_SENDER_NAME`, `ENMA_SMTP_SENDER_ADDRESS`.
+- Google (optional): `ENMA_GOOGLE_ENABLED`, `ENMA_GOOGLE_CLIENT_ID`,
+  `ENMA_GOOGLE_CLIENT_SECRET`.
+
+The Compose files map them onto the API settings: `ASPNETCORE_ENVIRONMENT=Production`,
+`AllowedHosts=ENMA_PUBLIC_HOST`, the trusted-proxy allowlist pinned to Caddy's
+fixed address (only `X-Forwarded-For` and `X-Forwarded-Proto` are honoured),
+`DataProtection__KeysPath=/var/lib/enma/dataprotection-keys` (named volume
+owned by `app`, mode 0700, no `ProtectKeysWith*`), the e-mail page URLs on
+`https://ENMA_PUBLIC_HOST`, and document storage on `http://minio:9000`.
+Each service has its own network namespace (D18). PostgreSQL, MinIO, the
+bucket bootstrap, the migrator, and the API share the internal `backend`
+network (no egress); only the API and Caddy are on `edge`. Plain HTTP to
+MinIO is accepted only because `DocumentStorage__RequireTls=false` and the
+opt-in `DocumentStorage__AllowPlainHttpSingleLabelHost=true` are both set and
+the host is a single label (no dot, not an IP); any other plain-HTTP host is
+refused at startup. An external S3 provider must use HTTPS with
+`RequireTls=true` and without the opt-in. The database connection string sets
+`Gss Encryption Mode=Disable` (no Kerberos in the images). Do not set
+`ASPNETCORE_FORWARDEDHEADERS_ENABLED`. Production startup still validates every
+setting and refuses to start on missing or unsafe configuration (time zone,
+Data Protection, hosts, forwarded headers, SMTP, storage).
 
 `EmailVerification__SendBudget__GlobalHourlyLimit` defaults to 100 and
-`DestinationDailyLimit` defaults to 5; override only with reviewed positive
-limits. Production startup validates all settings above without echoing secret
-values. Missing or unsafe configuration prevents startup.
+`DestinationDailyLimit` to 5. Google remains optional. With
+`ENMA_GOOGLE_ENABLED=true`, register exactly `https://<public-host>/signin-google`
+as the redirect URI; `POST /api/auth/google/start` accepts only same-origin
+requests (D11) and relies on Caddy preserving the public `Host`.
 
-Google remains optional. With `Authentication__Google__Enabled=false`, local
-authentication remains available and Google credentials are not required. With
-`Enabled=true`, configure the Google client and register exactly
-`https://<public-host>/signin-google` as an authorized redirect URI. Under the
-supported same-origin topology, omit `Authentication__Google__FrontendOrigin`
-to use relative redirects. If it is set, it must be an HTTPS origin whose host
-is present in `AllowedHosts`.
+## 3. Build the images
 
-## 2. Prepare dependencies
+On the host (or a build machine with the same architecture), from the release
+commit:
 
-1. Provision PostgreSQL, a private S3-compatible document bucket, SMTP, the
-   persistent Data Protection directory, and the trusted edge. Apply encryption,
-   access control, network isolation, and secret injection in the provider.
-2. Make the document bucket private. Give the application identity only the
-   object operations ENMA needs; do not use the storage root identity.
-3. Ensure the key directory exists before API startup, is writable only by the
-   API identity, persists across deployments, and resides on encrypted storage.
-4. Build the frontend with `npm ci` followed by `npm run build` under
-   `src/Enma.Web`. Publish only the generated static assets and configure SPA
-   fallback to `index.html`.
-5. Build/publish the API in Release. Do not start it yet and do not run
-   migrations from application startup.
-
-## 3. Inspect and apply migrations
-
-Run from a restricted operator shell with the production connection string
-injected into the process environment as `ENMA_DESIGNTIME_CONNECTION_STRING`.
-Do not paste it into source, a script, command history, or logs.
-
-```powershell
-dotnet tool restore
-dotnet tool run dotnet-ef migrations list `
-  --project .\src\Enma.Infrastructure\Enma.Infrastructure.csproj `
-  --startup-project .\src\Enma.Infrastructure\Enma.Infrastructure.csproj `
-  --context EnmaDbContext
-
-dotnet tool run dotnet-ef migrations has-pending-model-changes `
-  --project .\src\Enma.Infrastructure\Enma.Infrastructure.csproj `
-  --startup-project .\src\Enma.Infrastructure\Enma.Infrastructure.csproj `
-  --context EnmaDbContext
+```bash
+export ENMA_IMAGE_TAG=<release-tag> ENMA_REVISION=$(git rev-parse HEAD)
+$COMPOSE --profile migrate build api migrate
+docker image ls "enma-*:$ENMA_IMAGE_TAG"
 ```
 
-Review the pending migration list. The expected latest migration is the last
-entry that `migrations list` prints for the release commit; confirm it matches
-the newest migration file under `src/Enma.Infrastructure/Persistence/Migrations`
-in that commit and that every reviewed migration of the release appears as
-pending. Open a maintenance window or keep the new version without traffic, take
-the required backup, then apply:
+Set the same `ENMA_IMAGE_TAG` and `ENMA_REVISION` in `deploy/production.env`.
+Base images are pinned by version (Node, .NET SDK/runtime, Caddy, PostgreSQL,
+MinIO). The OCI label `org.opencontainers.image.revision` records the commit.
+No secret is passed to the build; verify with
+`docker history --no-trunc enma-api:<tag>`. Keep the previous release's images
+for rollback.
+
+## 4. Review migrations
+
+Generate the non-idempotent SQL of the pending range for review (no database
+connection; output under `artifacts/migrations/`, never committed, never
+applied by hand):
 
 ```powershell
-dotnet tool run dotnet-ef database update `
-  --project .\src\Enma.Infrastructure\Enma.Infrastructure.csproj `
-  --startup-project .\src\Enma.Infrastructure\Enma.Infrastructure.csproj `
-  --context EnmaDbContext
+.\scripts\deploy\Export-EnmaMigrationSql.ps1 -FromMigration <last-applied-migration>
 ```
 
-Require exit code zero. Run `migrations list` again and require no pending
-migration. Clear the process environment variable when finished. On any failure,
-stop the release, preserve restricted diagnostics, and investigate; never edit a
-historical migration, retry destructive SQL blindly, or start the new API.
+The last applied migration is the newest `MigrationId` in
+`"__EFMigrationsHistory"`; the expected latest is the newest migration file
+under `src/Enma.Infrastructure/Persistence/Migrations` in the release commit.
 
-## 4. Start and verify
+## 5. Deploy order
 
-Start dependencies first, then the API, then publish/enable the frontend and
-edge routes. The edge must terminate public HTTPS, overwrite forwarded headers,
-preserve the intended host, route `/api/*` and `/health/*` to the private API,
-and never expose the API directly.
+Take the required backup first (see [backup-restore.md](backup-restore.md)).
+Then, in this order:
 
-From outside the edge, require:
-
-```powershell
-(Invoke-WebRequest "https://<public-host>/health/live").StatusCode
-(Invoke-WebRequest "https://<public-host>/health/ready").StatusCode
+```bash
+$COMPOSE up -d --wait postgres minio          # data services
+$COMPOSE up -d --no-deps minio-bootstrap      # private bucket + app identity
+$COMPOSE stop api                             # API stopped during migrations
+$COMPOSE run --rm migrate                     # D14: applies pending migrations
+$COMPOSE up -d --wait api caddy               # API, then edge
 ```
 
-Both must return 200 and only `Healthy`. Readiness returns 503 when PostgreSQL is
-unreachable or the schema is behind. SMTP, document storage, Google, and the
-compromised-password provider are deliberately excluded from global readiness,
-so verify them with these targeted smokes using synthetic beta data:
+The migrator must exit 0; it fails closed without a connection string and
+never runs at API startup. On failure, stop the release, keep the API stopped,
+preserve restricted diagnostics, and investigate; never edit a historical
+migration, retry destructive SQL blindly, or start the new API.
+
+## 6. Verify
+
+From outside the host:
+
+```bash
+curl -fsS https://<public-host>/health/live
+curl -fsS https://<public-host>/health/ready
+curl -sSI https://<public-host>/
+```
+
+Both health endpoints must return 200 and only `Healthy`; readiness returns 503
+when PostgreSQL is unreachable or the schema is behind. The headers must
+include `Strict-Transport-Security`, the CSP below, `X-Content-Type-Options:
+nosniff`, `Referrer-Policy: same-origin`, and no `Server` header. An unknown
+`/api/...` path must return an empty 404, never HTML.
+
+```text
+default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:;
+font-src 'self'; connect-src 'self'; frame-src blob:; object-src 'none';
+base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'
+```
+
+On the host: `docker ps` shows ports only on Caddy; `docker exec <api> id`
+shows uid 1654 (`app`); `docker inspect` shows `unless-stopped` and
+`json-file` with `max-size`/`max-file` on every long-running service.
+
+Targeted smokes with synthetic beta data:
 
 1. Log in locally, obtain CSRF normally, log out, and log in again.
-2. If Google is enabled, complete Google login through the public domain and
-   confirm the callback is HTTPS and returns only to the authorized origin.
-3. Trigger a verification or recovery email to an approved synthetic mailbox;
-   verify delivery without recording the token, URL fragment, address, body, or
-   provider token in logs/screenshots.
-4. Upload, download, and delete only a synthetic document through ENMA. Confirm
-   the bucket remains private and no object URL or credential is exposed.
+2. If Google is enabled, complete Google login through the public domain.
+3. Send a verification or recovery e-mail to an approved synthetic mailbox
+   without recording the token, URL, address, body, or provider token.
+4. Upload, preview, download, and delete only a synthetic document.
 5. Open the dashboard and representative Processes, Deadlines, Documents, and
-   Finance routes under an authorized beta tenant.
-6. Confirm edge response headers include HSTS, CSP with `frame-ancestors`,
-   `Referrer-Policy`, and `X-Content-Type-Options`.
+   Finance routes under an authorized beta tenant, with no CSP console errors.
 
-Application, edge, SMTP, and observability logs must exclude request bodies for
-authentication endpoints, `Authorization`, `Cookie`, `Set-Cookie`, CSRF values,
-session handles, verification/recovery/invitation tokens, Google codes/tokens,
-client secrets, connection strings, storage/SMTP credentials, and customer
-legal data. Client-facing 500/503 and health responses must not expose exception
-or infrastructure details.
+Logs are JSON on stdout (D7) with Docker rotation; Caddy access logs stay off
+because URLs may carry one-time tokens. Logs must never contain request bodies
+for authentication endpoints, `Authorization`, `Cookie`, `Set-Cookie`, CSRF
+values, session handles, verification/recovery/invitation tokens, Google
+codes/tokens, client secrets, connection strings, or customer legal data.
 
-## 5. Backup, incidents, and rollback
+## 7. Backup, incidents, and rollback
 
-Activate the schedule, retention, separate storage, alerting, and isolated
-restore proof in [backup-restore.md](backup-restore.md). A local script success
-does not prove production backups are active.
+The Data Protection key volume (`enma_production_dataprotection_keys`) is part
+of every backup together with PostgreSQL and the document volume. Activate the
+schedule, retention, separate storage, alerting, and isolated restore proof in
+[backup-restore.md](backup-restore.md); a local script success does not prove
+production backups are active.
 
-If readiness becomes 503, remove the new version from traffic and check
-PostgreSQL reachability and pending migrations from the restricted operator
-environment. A storage outage affects document operations; an SMTP outage
-affects email delivery; a Google outage affects only Google login. Preserve local
-login and unrelated modules while correcting the failed provider. Do not expose
-provider exceptions to clients or disable TLS/security controls to recover.
+If readiness becomes 503, check PostgreSQL reachability and pending migrations.
+A storage outage affects document operations; an SMTP outage affects e-mail; a
+Google outage affects only Google login. Do not expose provider exceptions or
+disable TLS/security controls to recover.
 
-Application rollback is allowed only when the previous binary is documented as
-compatible with the current forward schema. Prefer rolling the application back
-without reversing migrations. Never run an EF `Down` migration automatically.
-If the schema or data must be reversed, stop writes, preserve the failed
-environment, restore the selected backup into separate PostgreSQL and object
-storage resources, run the full isolated validation and smoke suite, then switch
-traffic only after incident approval.
+Application rollback: set `ENMA_IMAGE_TAG` back to the previous release tag and
+run `$COMPOSE up -d --wait api caddy`. Migrations are never reverted and EF
+`Down` is never run: the previous image must be compatible with the current
+forward schema. Audit-taxonomy migrations cannot be reversed once the first
+event of a new type exists, so their `Down()` is not a rollback path. If schema
+or data must be reversed, stop writes, preserve the failed environment, restore
+the selected backup into separate resources, run the full isolated validation
+and smoke suite, then switch traffic only after incident approval.
 
-## 6. Local USER QA handoff
+## 8. Local rehearsal
 
-This check does not require production hosting:
+The local Pilot runs the same images and topology with Caddy's local CA on
+`https://enma-pilot.localhost:5443`; see [local-pilot.md](local-pilot.md),
+including how to trust and later remove that CA for the current Windows user.
 
-1. Run `scripts/setup-local.ps1`, start the API with its Development launch
-   profile, then run `npm run dev` in `src/Enma.Web`.
-2. Open `http://localhost:5173`, log in locally, and confirm the dashboard plus
-   Processes, Deadlines, Documents, and Finance remain accessible.
-3. If the existing local Google client secrets are configured, use the Google
-   button and complete the localhost callback. If they are not configured, leave
-   Google disabled and confirm local login still works; do not create or paste
-   credentials for this QA.
-4. Open `https://localhost:7028/health/live` and
-   `https://localhost:7028/health/ready`. Accept only the trusted local
-   development certificate warning. Both responses must be 200 and contain only
-   `Healthy`.
-5. Stop PostgreSQL temporarily only if safe for the current local session:
-   liveness must remain 200 and readiness must become 503 with only `Unhealthy`.
-   Restart the same local dependency afterward; do not replace or restore the
-   user's database.
-6. Inspect the browser network responses for the health endpoints and a failed
-   request. No connection string, credential, token, stack trace, migration
-   name, user, organization, or document detail may appear.
+## 9. Local Development QA
+
+Development is unchanged: run `scripts/setup-local.ps1`, start the API with
+its Development launch profile, then `npm run dev` in `src/Enma.Web`, and open
+`http://localhost:5173`. `https://localhost:7028/health/live` and `/health/ready`
+must return 200 with only `Healthy`; stopping the local PostgreSQL turns only
+readiness into 503. Health responses and failed requests must expose no
+connection string, credential, token, stack trace, migration name, user,
+organization, or document detail.

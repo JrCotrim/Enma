@@ -1,0 +1,193 @@
+# ENMA deployment topology shared by Production and the local Pilot
+# (D2, D13-D15). Never used alone: combine it with compose.production.yaml or
+# compose.pilot.yaml. Development keeps the repository-root compose.yaml.
+#
+# Only Caddy publishes ports. Every service keeps its own network namespace
+# (D18), so restarting one never strands another. Two networks:
+#   backend - internal (no egress): PostgreSQL, MinIO, the bucket bootstrap,
+#             the migrator, and the API;
+#   edge    - the API and Caddy only; Caddy's fixed address is the single
+#             forwarded-header source the API trusts.
+# The API reaches MinIO by its single-label service name over plain HTTP on
+# the internal network, the only case DocumentStorage accepts beyond loopback
+# (AllowPlainHttpSingleLabelHost, off by default).
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# GSS encryption is disabled: the images ship no Kerberos library, and the
+# default probe only logs "Cannot load library libgssapi_krb5.so.2".
+x-postgres-connection: &postgres-connection >-
+  Host=postgres;Port=5432;Database=${ENMA_POSTGRES_DB:?ENMA_POSTGRES_DB is required};Username=${ENMA_POSTGRES_USER:?ENMA_POSTGRES_USER is required};Password=${ENMA_POSTGRES_PASSWORD:?ENMA_POSTGRES_PASSWORD is required};Gss Encryption Mode=Disable
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${ENMA_POSTGRES_DB:?ENMA_POSTGRES_DB is required}
+      POSTGRES_USER: ${ENMA_POSTGRES_USER:?ENMA_POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${ENMA_POSTGRES_PASSWORD:?ENMA_POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: server --address :9000 /data
+    environment:
+      MINIO_ROOT_USER: ${ENMA_MINIO_ROOT_USER:?ENMA_MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${ENMA_MINIO_ROOT_PASSWORD:?ENMA_MINIO_ROOT_PASSWORD is required}
+      MINIO_BROWSER: "off"
+    volumes:
+      - documents_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    logging: *default-logging
+
+  # One-shot: creates the private bucket and the restricted application
+  # identity. The overrides set DOCUMENTS_BUCKET and mount its policy.
+  minio-bootstrap:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    restart: "no"
+    networks:
+      - backend
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${ENMA_MINIO_ROOT_USER:?ENMA_MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${ENMA_MINIO_ROOT_PASSWORD:?ENMA_MINIO_ROOT_PASSWORD is required}
+      MINIO_APP_ACCESS_KEY: ${ENMA_MINIO_APP_ACCESS_KEY:?ENMA_MINIO_APP_ACCESS_KEY is required}
+      MINIO_APP_SECRET_KEY: ${ENMA_MINIO_APP_SECRET_KEY:?ENMA_MINIO_APP_SECRET_KEY is required}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        test -n "$${DOCUMENTS_BUCKET:-}"
+        mc alias set enma http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" --api S3v4 --path on
+        mc mb --ignore-existing "enma/$$DOCUMENTS_BUCKET"
+        mc anonymous set none "enma/$$DOCUMENTS_BUCKET"
+        mc admin policy create enma "$$DOCUMENTS_BUCKET-app" /policies/app-policy.json
+        mc admin user rm enma "$$MINIO_APP_ACCESS_KEY" >/dev/null 2>&1 || true
+        mc admin user add enma "$$MINIO_APP_ACCESS_KEY" "$$MINIO_APP_SECRET_KEY"
+        mc admin policy attach enma "$$DOCUMENTS_BUCKET-app" --user "$$MINIO_APP_ACCESS_KEY"
+    logging: *default-logging
+
+  # D14: one-shot migrations bundle. Runs only on demand
+  # (`run --rm migrate`) and only while the API is stopped.
+  migrate:
+    image: enma-migrator:${ENMA_IMAGE_TAG:?ENMA_IMAGE_TAG is required}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: migrator
+      args:
+        REVISION: ${ENMA_REVISION:-unknown}
+    profiles:
+      - migrate
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENMA_DESIGNTIME_CONNECTION_STRING: *postgres-connection
+    networks:
+      - backend
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  api:
+    image: enma-api:${ENMA_IMAGE_TAG:?ENMA_IMAGE_TAG is required}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: api
+      args:
+        REVISION: ${ENMA_REVISION:-unknown}
+    restart: unless-stopped
+    networks:
+      - backend
+      - edge
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      ConnectionStrings__Database: *postgres-connection
+      AllowedHosts: ${ENMA_PUBLIC_HOST:?ENMA_PUBLIC_HOST is required}
+      Deployment__TrustedProxy__Enabled: "true"
+      Deployment__TrustedProxy__KnownProxies__0: ${ENMA_EDGE_PROXY_IP:-10.247.31.2}
+      DataProtection__KeysPath: /var/lib/enma/dataprotection-keys
+      DocumentStorage__ServiceUrl: http://minio:9000
+      DocumentStorage__RequireTls: "false"
+      DocumentStorage__AllowPlainHttpSingleLabelHost: "true"
+      DocumentStorage__ForcePathStyle: "true"
+      DocumentStorage__Region: us-east-1
+      DocumentStorage__AccessKey: ${ENMA_MINIO_APP_ACCESS_KEY:?ENMA_MINIO_APP_ACCESS_KEY is required}
+      DocumentStorage__SecretKey: ${ENMA_MINIO_APP_SECRET_KEY:?ENMA_MINIO_APP_SECRET_KEY is required}
+    volumes:
+      - dataprotection_keys:/var/lib/enma/dataprotection-keys
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  caddy:
+    image: caddy:2.11.2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      ENMA_PUBLIC_HOST: ${ENMA_PUBLIC_HOST:?ENMA_PUBLIC_HOST is required}
+    volumes:
+      - ./caddy/enma.caddy:/etc/caddy/enma.caddy:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      edge:
+        ipv4_address: ${ENMA_EDGE_PROXY_IP:-10.247.31.2}
+    logging: *default-logging
+
+networks:
+  # Caddy's address is fixed so the API trusts forwarded headers from it alone;
+  # dynamic addresses come only from ip_range, which excludes it.
+  edge:
+    ipam:
+      config:
+        - subnet: ${ENMA_EDGE_SUBNET:-10.247.31.0/28}
+          ip_range: ${ENMA_EDGE_DYNAMIC_RANGE:-10.247.31.8/29}
+  backend:
+    internal: true
+
+volumes:
+  postgres_data:
+  documents_data:
+  dataprotection_keys:
+  caddy_data:
+  caddy_config:

@@ -493,3 +493,6 @@ $RECYCLE.BIN/
 pilot.env
 data-protection-keys/
 enma-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z-*/
+
+# ENMA deployment configuration (deploy/): real values never enter Git.
+deploy/*.env

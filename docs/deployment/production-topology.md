@@ -14,7 +14,7 @@ PUBLIC INTERNET
     | HTTPS
     v
 ONE TRUSTED EDGE / REVERSE PROXY
-    |-- /*       -> Enma.Web static assets, with SPA fallback to index.html
+    |-- /*       -> Enma.Web build, served by Enma.Api with SPA fallback (D3)
     |-- /health/* -> Enma.Api operational health endpoints
     |
     `-- /api/*   -> exactly ONE Enma.Api replica over a private path
@@ -22,8 +22,9 @@ ONE TRUSTED EDGE / REVERSE PROXY
 
 For illustration only, a public origin such as `https://app.example/` serves
 the frontend at `/`, the API at `/api/*`, and the verification page at
-`/verify-email`. The edge must route frontend paths, including
-`/verify-email`, to the SPA and fall back to `index.html`. Browser code keeps
+`/verify-email`. The edge routes every path to the API, which serves the
+Enma.Web build from its web root and falls back to `index.html` only for
+navigation outside `/api` and `/health`. Browser code keeps
 using relative `/api/...` URLs. Production CORS is neither required nor part of
 this topology.
 
@@ -156,8 +157,8 @@ The selected edge implementation must:
 - preserve the intended `Host` value;
 - route `/api/*` to the single private `Enma.Api` replica;
 - route `/health/live` and `/health/ready` to that same private API replica;
-- serve Enma.Web static assets for frontend routes and provide SPA fallback to
-  `index.html`;
+- route frontend paths to the same API, which serves the Enma.Web build with
+  SPA fallback to `index.html`;
 - prevent direct public access to the API;
 - keep exactly one API replica under the current process-local rate-limit model.
 

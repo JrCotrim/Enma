@@ -1,0 +1,94 @@
+# Local Pilot override for deploy/compose.yaml (D1, D15): same images and
+# topology as Production, fictitious data only. Driven by
+# scripts/pilot/Start-EnmaPilot.ps1 and Stop-EnmaPilot.ps1, which map the
+# external pilot.env onto the ENMA_* variables below; do not run it by hand
+# with real data.
+#
+# Differences from Production: environment Pilot, Caddy with `tls internal`
+# on a dedicated *.localhost hostname bound to 127.0.0.1 only and without
+# HSTS, and Mailpit for mail. Mailpit is its own service on the internal
+# backend network (D18); the API reaches its SMTP by the single-label name
+# `mailpit`.
+
+name: enma-pilot
+
+services:
+  postgres:
+    container_name: enma-pilot-postgres
+
+  minio:
+    container_name: enma-pilot-minio
+
+  minio-bootstrap:
+    container_name: enma-pilot-minio-bootstrap
+    environment:
+      DOCUMENTS_BUCKET: enma-pilot-documents
+    volumes:
+      - ../infrastructure/minio/enma-pilot-documents-app-policy.json:/policies/app-policy.json:ro
+
+  mailpit:
+    image: axllent/mailpit:v1.30.7
+    container_name: enma-pilot-mailpit
+    restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_SMTP_BIND_ADDR: 0.0.0.0:1025
+      MP_UI_BIND_ADDR: 0.0.0.0:8025
+    ports:
+      - "127.0.0.1:${ENMA_PILOT_MAILPIT_UI_PORT:?ENMA_PILOT_MAILPIT_UI_PORT is required}:8025"
+    networks:
+      - backend
+      - mailpit-ui
+    volumes:
+      - mailpit_data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  api:
+    container_name: enma-pilot-api
+    depends_on:
+      mailpit:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Pilot
+      Authentication__Google__Enabled: "false"
+      DocumentStorage__BucketName: enma-pilot-documents
+      EmailVerification__DevelopmentDelivery__VerificationPageUrl: https://${ENMA_PUBLIC_HOST:?ENMA_PUBLIC_HOST is required}:${ENMA_PILOT_HTTPS_PORT:?ENMA_PILOT_HTTPS_PORT is required}/verify-email
+      EmailVerification__DevelopmentDelivery__PasswordRecoveryPageUrl: https://${ENMA_PUBLIC_HOST:?ENMA_PUBLIC_HOST is required}:${ENMA_PILOT_HTTPS_PORT:?ENMA_PILOT_HTTPS_PORT is required}/reset-password
+      EmailVerification__DevelopmentDelivery__SmtpHost: mailpit
+      EmailVerification__DevelopmentDelivery__SmtpPort: "1025"
+
+  caddy:
+    container_name: enma-pilot-caddy
+    ports:
+      - "127.0.0.1:${ENMA_PILOT_HTTPS_PORT:?ENMA_PILOT_HTTPS_PORT is required}:443"
+    volumes:
+      - ./caddy/Caddyfile.pilot:/etc/caddy/Caddyfile:ro
+
+networks:
+  # Docker publishes no port from an internal network, so the loopback Mailpit
+  # UI needs this ordinary bridge. Mailpit is its only member; it is the one
+  # Pilot data service with outbound access, and it has no relay configured.
+  mailpit-ui: {}
+
+volumes:
+  # Pre-existing Pilot data volumes: used by name, never created, recreated or
+  # removed by Compose.
+  postgres_data:
+    external: true
+    name: enma_pilot_postgres_data
+  documents_data:
+    external: true
+    name: enma_pilot_minio_data
+  mailpit_data:
+    external: true
+    name: enma_pilot_mailpit_data
+  dataprotection_keys:
+    name: enma_pilot_dataprotection_keys
+  caddy_data:
+    name: enma_pilot_caddy_data
+  caddy_config:
+    name: enma_pilot_caddy_config

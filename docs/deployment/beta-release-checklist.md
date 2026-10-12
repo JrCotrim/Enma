@@ -21,6 +21,18 @@ Deployment Ready requires evidence from the selected production environment.
       --check`, protected hashes, and Critical review pass with zero Critical and
       zero High findings.
 - [ ] The local USER QA checklist passes.
+- [ ] `docker build --target api` and `--target migrator` succeed from the
+      release commit with pinned base images; both run as `app` (uid 1654),
+      carry the OCI revision label, and `docker history` shows no secret.
+- [ ] The API image serves the Enma.Web build on the same origin: SPA fallback
+      only for navigation, empty 404 for unknown `/api` and `/health` paths,
+      immutable cache for hashed assets, no cache for `index.html`.
+- [ ] `scripts/deploy/Test-EnmaDeployConfiguration.ps1` and
+      `scripts/pilot/Test-PilotConfiguration.ps1` pass (only Caddy publishes
+      ports, restart and log rotation on every service, internal backend).
+- [ ] The local Pilot runs on the same images: migrator applied with the API
+      stopped, readiness 200 through Caddy, CSP/nosniff/Referrer-Policy/
+      frame-ancestors present, no HSTS, and zero CSP console violations.
 
 Mark `APPLICATION READY: YES` only when every item above has dated evidence.
 
@@ -35,10 +47,12 @@ Mark `APPLICATION READY: YES` only when every item above has dated evidence.
 - [ ] Secrets are injected from the provider secret store; the persistent Data
       Protection key directory is mounted, encrypted, restricted, and survives
       replacement of the API process.
-- [ ] All reviewed migrations, up to the latest one listed by
-      `dotnet tool run dotnet-ef migrations list` for the release commit (see the
-      production runbook), are applied before the API starts; `/health/ready`
-      returns 200 in the destination.
+- [ ] Images are built for the release tag and the previous tag is kept for
+      rollback; `deploy/production.env` exists only on the host, mode 600.
+- [ ] The review SQL from `scripts/deploy/Export-EnmaMigrationSql.ps1` was
+      read; the migrator ran with the API stopped and exited 0, up to the
+      newest migration of the release commit (see the production runbook);
+      `/health/ready` returns 200 in the destination.
 - [ ] Production SMTP sends to the approved synthetic mailbox without sensitive
       logging.
 - [ ] If enabled, Google OAuth registers exactly the public HTTPS callback and a
@@ -49,7 +63,9 @@ Mark `APPLICATION READY: YES` only when every item above has dated evidence.
       storage, access control, encryption, failure alerts, and a successful
       isolated production-provider restore are evidenced.
 - [ ] Full deployed smoke tests pass and a schema-compatible rollback decision
-      is recorded.
+      is recorded: rollback means the previous image tag; migrations are not
+      reverted, and audit-taxonomy `Down()` is not viable once a new event
+      type exists.
 
 Mark `DEPLOYMENT READY: YES` only when every item above has dated destination
 evidence. Repository tests, local Docker, documentation, or a local restore drill

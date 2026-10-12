@@ -1,0 +1,35 @@
+# Edge behaviour shared by Production and the Pilot (D11, D15). Imported by
+# Caddyfile.production and Caddyfile.pilot; HSTS lives only in production.
+#
+# CSP: everything same-origin. Relaxations, each required by the shipped UI:
+#   img-src data:  - CSS-embedded SVG icons (data:image/svg+xml);
+#   img-src blob:, frame-src blob: - document preview renders the downloaded
+#                    blob in an <img>/<iframe> (no MinIO URL reaches the browser);
+#   form-action https://accounts.google.com - POST /api/auth/google/start
+#                    redirects the form submission to Google's authorization
+#                    endpoint.
+(enma_security_headers) {
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		-Server
+		-Via
+	}
+}
+
+# The public Host is preserved (D11); Caddy overwrites X-Forwarded-For and
+# X-Forwarded-Proto, which are the only forwarded headers the API trusts.
+# Compression is limited to the static build so authenticated API responses
+# carrying CSRF tokens are never compressed.
+(enma_api_proxy) {
+	@web_build not path /api/* /health/* /signin-google
+	encode @web_build zstd gzip
+
+	reverse_proxy api:8080 {
+		header_up Host {hostport}
+		header_up -X-Forwarded-Host
+		header_down -Server
+	}
+}

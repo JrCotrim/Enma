@@ -1,0 +1,18 @@
+# Allowlist: only what the Dockerfile copies enters the build context.
+*
+!.config/dotnet-tools.json
+!src/
+
+# Never sent, even from inside an allowed directory.
+artifacts/
+**/artifacts/
+**/node_modules/
+**/bin/
+**/obj/
+tests/
+**/TestResults/
+.git/
+**/.env
+**/.env*
+**/*.env
+src/Enma.Web/dist/
