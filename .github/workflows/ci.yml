@@ -1,0 +1,122 @@
+name: CI
+
+# Fast feedback on every push (D8): Release build, unit tests, the Enma.Web
+# lint/typecheck/tests/build and the dependency audits (D22). Integration, E2E
+# and the deployment artifacts run in ci-heavy.yml.
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  fast:
+    name: Build, unit, web and audits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The repository pins its toolchain in the Dockerfile; there is no
+      # global.json or .nvmrc to read instead.
+      - name: Read toolchain versions
+        id: toolchain
+        run: |
+          dotnet_sdk=$(sed -nE 's#^FROM mcr\.microsoft\.com/dotnet/sdk:([0-9.]+) .*#\1#p' Dockerfile)
+          node=$(sed -nE 's#^FROM node:([0-9.]+)-.*#\1#p' Dockerfile)
+          test -n "$dotnet_sdk" && test -n "$node"
+          echo "dotnet-sdk=$dotnet_sdk" >> "$GITHUB_OUTPUT"
+          echo "node=$node" >> "$GITHUB_OUTPUT"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ steps.toolchain.outputs.dotnet-sdk }}
+
+      # setup-dotnet caches only from packages.lock.json, which the repository
+      # does not use.
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '.config/dotnet-tools.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+          cache: npm
+          cache-dependency-path: src/Enma.Web/package-lock.json
+
+      - name: Restore
+        run: dotnet restore Enma.slnx
+
+      - name: Build (Release)
+        run: dotnet build Enma.slnx --configuration Release --no-restore
+
+      - name: Unit tests
+        run: >-
+          dotnet test tests/Enma.UnitTests/Enma.UnitTests.csproj
+          --configuration Release --no-build
+          --logger "console;verbosity=minimal"
+
+      - name: Install web dependencies
+        working-directory: src/Enma.Web
+        run: npm ci
+
+      - name: Lint
+        working-directory: src/Enma.Web
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: src/Enma.Web
+        run: npm run typecheck
+
+      # Under CPU contention the slowest flows (about 3 s alone) exceed the
+      # default 5 s test timeout. A longer timeout is the only stabilizer: no
+      # retry, and the worker count stays at the default.
+      - name: Vitest
+        working-directory: src/Enma.Web
+        run: npm run test:run -- --testTimeout=15000
+
+      - name: Web build
+        working-directory: src/Enma.Web
+        run: npm run build
+
+      - name: npm audit (fails on high or critical)
+        working-directory: src/Enma.Web
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: NuGet audit (fails on high or critical)
+        run: |
+          report="$RUNNER_TEMP/nuget-vulnerable.json"
+          dotnet list Enma.slnx package --vulnerable --include-transitive --format json > "$report"
+          findings=$(jq -r '
+            .projects[]? | .frameworks[]?
+            | (.topLevelPackages[]?, .transitivePackages[]?) as $package
+            | $package.vulnerabilities[]?
+            | "\(.severity)\t\($package.id) \($package.resolvedVersion)\t\(.advisoryurl)"
+          ' "$report" | sort -u)
+          if [ -z "$findings" ]; then
+            echo "No vulnerable NuGet packages."
+            exit 0
+          fi
+          printf '%s\n' "$findings"
+          if printf '%s\n' "$findings" | grep -qE '^(High|Critical)'; then
+            echo "::error::High or critical NuGet vulnerabilities found."
+            exit 1
+          fi

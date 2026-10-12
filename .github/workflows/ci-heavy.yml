@@ -1,0 +1,161 @@
+name: CI heavy
+
+# Slow checks on main and on demand (D8, D21): the full integration suite, the
+# E2E journeys and the deployment artifacts. Every external dependency runs in
+# disposable Testcontainers; nothing is uploaded (D23).
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The repository pins its toolchain in the Dockerfile; there is no
+      # global.json to read instead.
+      - name: Read .NET SDK version
+        id: toolchain
+        run: |
+          dotnet_sdk=$(sed -nE 's#^FROM mcr\.microsoft\.com/dotnet/sdk:([0-9.]+) .*#\1#p' Dockerfile)
+          test -n "$dotnet_sdk"
+          echo "dotnet-sdk=$dotnet_sdk" >> "$GITHUB_OUTPUT"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ steps.toolchain.outputs.dotnet-sdk }}
+
+      # setup-dotnet caches only from packages.lock.json, which the repository
+      # does not use.
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '.config/dotnet-tools.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Integration tests
+        run: >-
+          dotnet test tests/Enma.IntegrationTests/Enma.IntegrationTests.csproj
+          --configuration Release
+          --blame-hang-timeout 5m
+          --logger "console;verbosity=minimal"
+
+  e2e:
+    name: E2E journeys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The repository pins its toolchain in the Dockerfile; there is no
+      # global.json or .nvmrc to read instead.
+      - name: Read toolchain versions
+        id: toolchain
+        run: |
+          dotnet_sdk=$(sed -nE 's#^FROM mcr\.microsoft\.com/dotnet/sdk:([0-9.]+) .*#\1#p' Dockerfile)
+          node=$(sed -nE 's#^FROM node:([0-9.]+)-.*#\1#p' Dockerfile)
+          test -n "$dotnet_sdk" && test -n "$node"
+          echo "dotnet-sdk=$dotnet_sdk" >> "$GITHUB_OUTPUT"
+          echo "node=$node" >> "$GITHUB_OUTPUT"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ steps.toolchain.outputs.dotnet-sdk }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '.config/dotnet-tools.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+          cache: npm
+          cache-dependency-path: src/Enma.Web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: src/Enma.Web
+        run: npm ci
+
+      - name: Web build
+        working-directory: src/Enma.Web
+        run: npm run build
+
+      # The seeding HttpClient validates the host certificate, so the dev
+      # certificate must be trusted by OpenSSL, which on Linux reads it only
+      # through SSL_CERT_DIR. Exit code 4 is partial trust: the NSS browser
+      # stores are absent, which Playwright (IgnoreHTTPSErrors) does not need;
+      # the OpenSSL trust is verified explicitly instead.
+      - name: Trust the ASP.NET Core development certificate
+        run: |
+          dotnet dev-certs https --trust || [ $? -eq 4 ]
+          trust_dir="$HOME/.aspnet/dev-certs/trust"
+          for certificate in "$trust_dir"/*.pem; do
+            openssl verify -CApath "$trust_dir" "$certificate"
+          done
+          echo "SSL_CERT_DIR=$trust_dir:/usr/lib/ssl/certs" >> "$GITHUB_ENV"
+
+      - name: Build E2E tests
+        run: dotnet build tests/Enma.E2ETests/Enma.E2ETests.csproj --configuration Release
+
+      - name: Install Chromium
+        shell: pwsh
+        run: tests/Enma.E2ETests/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+
+      - name: E2E tests
+        run: >-
+          dotnet test tests/Enma.E2ETests/Enma.E2ETests.csproj
+          --configuration Release --no-build
+          --logger "console;verbosity=minimal"
+
+  deploy-artifacts:
+    name: Deployment artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Local builds only: no registry login and no push.
+      - name: Build the api image
+        run: docker build --target api --build-arg "REVISION=$GITHUB_SHA" --tag enma-api:ci .
+
+      - name: Build the migrator image
+        run: docker build --target migrator --build-arg "REVISION=$GITHUB_SHA" --tag enma-migrator:ci .
+
+      - name: Deployment configuration checks
+        shell: pwsh
+        run: ./scripts/deploy/Test-EnmaDeployConfiguration.ps1
