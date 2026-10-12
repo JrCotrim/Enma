@@ -5,6 +5,9 @@ param(
     [string]$SourceMinioContainer = "enma-minio",
     [string]$BucketName = "enma-documents",
     [string]$DockerCommand = "docker",
+    # Set when the API runs as a container (the Pilot): that container must be
+    # stopped, replacing the check for host Enma.Api processes.
+    [string]$ApiContainer = "",
     [switch]$ConfirmQuiesced
 )
 
@@ -28,7 +31,15 @@ try {
     Assert-SafeDockerName -Name $BucketName
     Assert-CommandAvailable -Command $DockerCommand
     Assert-CommandAvailable -Command "git"
-    Assert-EnmaApiStopped
+    if ([string]::IsNullOrEmpty($ApiContainer)) {
+        Assert-EnmaApiStopped
+    }
+    else {
+        Assert-SafeDockerName -Name $ApiContainer
+        Assert-EnmaApiContainerStopped `
+            -DockerCommand $DockerCommand `
+            -ContainerName $ApiContainer
+    }
 
     Assert-OutsideRepository -Path $backupRootFullPath -RepositoryRoot $repositoryRoot
     if (-not (Test-Path -LiteralPath $backupRootFullPath -PathType Container)) {

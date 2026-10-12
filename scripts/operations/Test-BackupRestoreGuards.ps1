@@ -20,8 +20,13 @@ function Assert-ScriptFails {
     $previousErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        $output = & $PowerShellExe -NoProfile -ExecutionPolicy Bypass `
-            -File $ScriptPath @Arguments 2>&1 | Out-String
+        # Raw stderr lines, not formatted error records: Out-String wraps
+        # those at the console width, splitting the expected message in a
+        # narrow terminal. The child still word-wraps at that width, so
+        # whitespace is collapsed before matching.
+        $output = (& $PowerShellExe -NoProfile -ExecutionPolicy Bypass `
+            -File $ScriptPath @Arguments 2>&1 |
+            ForEach-Object { $_.ToString() }) -join " "
         $exitCode = $LASTEXITCODE
     }
     finally {
@@ -30,7 +35,8 @@ function Assert-ScriptFails {
     if ($exitCode -eq 0) {
         throw "$Name unexpectedly succeeded."
     }
-    if ($output -notmatch [regex]::Escape($ExpectedMessage)) {
+    if (($output -replace '\s+', ' ') -notmatch
+        [regex]::Escape(($ExpectedMessage -replace '\s+', ' '))) {
         throw "$Name failed without the expected clear message."
     }
     Write-Host "PASS: $Name"
@@ -59,6 +65,16 @@ try {
             "-DockerCommand", $DockerCommand,
             "-ConfirmQuiesced") `
         -ExpectedMessage "Required source container is unavailable"
+
+    Assert-ScriptFails `
+        -Name "backup containerized API must exist" `
+        -ScriptPath $backupScript `
+        -Arguments @(
+            "-BackupRoot", (Join-Path $testRoot "api-container-missing"),
+            "-ApiContainer", "enma-missing-api-container",
+            "-DockerCommand", $DockerCommand,
+            "-ConfirmQuiesced") `
+        -ExpectedMessage "The API container is unavailable"
 
     $missingManifest = Join-Path $testRoot "missing-manifest"
     New-Item -ItemType Directory -Path $missingManifest | Out-Null

@@ -399,6 +399,23 @@ function Assert-EnmaApiStopped {
     }
 }
 
+# For an API that runs as a container (the Pilot): the container must exist
+# and be stopped. Host processes are not considered, so a Development API on
+# the same computer neither blocks nor satisfies this check.
+function Assert-EnmaApiContainerStopped {
+    param(
+        [Parameter(Mandatory = $true)][string]$DockerCommand,
+        [Parameter(Mandatory = $true)][string]$ContainerName
+    )
+
+    $state = @(Invoke-NativeCapture -Command $DockerCommand -Arguments @(
+        "container", "inspect", "--format", "{{.State.Running}}", $ContainerName
+    ) -FailureMessage "The API container is unavailable.")
+    if ($state.Count -ne 1 -or $state[0].Trim() -cne "false") {
+        throw "The API container '$ContainerName' is running. Stop it before backup."
+    }
+}
+
 function New-RandomSecret {
     param([int]$ByteCount = 32)
 
