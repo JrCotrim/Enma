@@ -42,7 +42,9 @@ while (($# > 0)); do
         *) usage ;;
     esac
 done
-[[ -n $source_file || -n $source_object ]] && [[ -z $source_file || -z $source_object ]] || usage
+if [[ (-z $source_file && -z $source_object) || (-n $source_file && -n $source_object) ]]; then
+    usage
+fi
 
 require_commands docker jq age curl sha256sum tar sort comm
 assert_secure_file "$ENMA_ENV_FILE"

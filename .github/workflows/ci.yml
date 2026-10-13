@@ -33,7 +33,9 @@ jobs:
       # D30: the production host scripts are bash; ShellCheck ships with the
       # runner image.
       - name: ShellCheck
-        run: shellcheck --external-sources scripts/production/*.sh
+        run: |
+          shellcheck --version
+          shellcheck --external-sources scripts/production/*.sh
 
       # The repository pins its toolchain in the Dockerfile; there is no
       # global.json or .nvmrc to read instead.

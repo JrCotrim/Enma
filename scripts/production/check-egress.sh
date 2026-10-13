@@ -26,14 +26,17 @@ image=$(service_image postgres)
 # Exit status: 0 = isolated and PostgreSQL reachable; 10/11 = egress leak;
 # 12 = PostgreSQL unreachable. The same DNS and TCP tools must first succeed
 # against PostgreSQL, so a broken probe cannot pass as isolation.
+# nslookup names are absolute (trailing dot): BusyBox nslookup appends the
+# host's search domain, which Docker copies into the probe, and the embedded
+# DNS of an internal network answers SERVFAIL for that unforwardable name.
 set +e
 docker run --rm --network "$network" --cap-drop ALL \
     --security-opt no-new-privileges:true --entrypoint /bin/sh \
     -e PROBE_IP="$probe_ip" "$image" -c '
-        nslookup postgres >/dev/null 2>&1 || exit 12
+        nslookup postgres. >/dev/null 2>&1 || exit 12
         nc -w 3 postgres 5432 </dev/null >/dev/null 2>&1 || exit 12
         pg_isready -q -t 5 -h postgres -p 5432 || exit 12
-        if nslookup example.com >/dev/null 2>&1; then exit 10; fi
+        if nslookup example.com. >/dev/null 2>&1; then exit 10; fi
         if nc -w 3 "$PROBE_IP" 443 </dev/null >/dev/null 2>&1; then exit 11; fi
         exit 0
     '
