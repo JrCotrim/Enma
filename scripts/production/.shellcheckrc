@@ -1,0 +1,4 @@
+# Single-quoted scripts passed to `sh -c` run inside containers on purpose:
+# the container's own environment (e.g. POSTGRES_USER) expands them, so no
+# secret ever reaches this host's command line.
+disable=SC2016

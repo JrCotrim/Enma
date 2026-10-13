@@ -1,0 +1,14 @@
+# Daily trigger for enma-backup.service (RPO 24 h, D6). Persistent runs a
+# missed backup at the next boot; the external heartbeat alerts when no
+# success arrives.
+
+[Unit]
+Description=Daily ENMA encrypted off-site backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 America/Sao_Paulo
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

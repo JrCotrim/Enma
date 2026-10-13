@@ -1,0 +1,20 @@
+# ENMA daily off-site backup (D6, D29, D30). Installed by the production
+# runbook into /etc/systemd/system; runs scripts/production/backup.sh from the
+# release checkout in /opt/enma. Configuration lives only in the root-owned
+# environment files below; nothing secret is written here.
+
+[Unit]
+Description=ENMA encrypted off-site backup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=ENMA_ENV_FILE=/etc/enma/production.env
+Environment=ENMA_BACKUP_ENV_FILE=/etc/enma/backup.env
+ExecStart=/opt/enma/scripts/production/backup.sh
+UMask=0077
+PrivateTmp=yes
+NoNewPrivileges=yes
+TimeoutStartSec=2h
