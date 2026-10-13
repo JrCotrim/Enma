@@ -154,6 +154,13 @@ a new empty target. Do not alter restored data to make validation pass.
 
 ## Production provider contract
 
+On the single production VPS (D2) the online, encrypted, off-site backup,
+the restore into an empty stack and the restore drill are
+`scripts/production/backup.sh` and `restore.sh`, scheduled by
+`deploy/systemd/enma-backup.timer`; see sections 11 to 13 of
+[production-runbook.md](production-runbook.md). The PowerShell scripts above
+remain the local and Pilot procedure.
+
 Before go-live, the selected PostgreSQL service must provide automatic daily
 backups, retention meeting this policy, restore to a separate instance,
 encryption at rest, restricted access, and backup-failure monitoring. The
