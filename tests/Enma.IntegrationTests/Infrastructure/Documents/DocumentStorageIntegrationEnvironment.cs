@@ -12,7 +12,7 @@ namespace Enma.IntegrationTests.Infrastructure.Documents;
 // reaper removes the container when the test process exits.
 internal sealed class DocumentStorageIntegrationEnvironment
 {
-    private const string MinioImage = "minio/minio:RELEASE.2025-09-07T16-13-09Z";
+    private const string MinioImage = "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46";
     private const ushort MinioApiPort = 9000;
     private const string AdminAlias = "enma";
     private const string PolicyName = "enma-documents-app";

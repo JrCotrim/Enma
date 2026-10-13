@@ -79,7 +79,10 @@ docker image ls "enma-*:$ENMA_IMAGE_TAG"
 
 Set the same `ENMA_IMAGE_TAG` and `ENMA_REVISION` in `deploy/production.env`.
 Base images are pinned by version (Node, .NET SDK/runtime, Caddy, PostgreSQL,
-MinIO). The OCI label `org.opencontainers.image.revision` records the commit.
+Silo); the Silo server and client images are also pinned by digest.
+MinIO OSS is discontinued; Silo (`docker.io/pgsty/silo`, `docker.io/pgsty/mc`)
+is the maintained fork (D25). Service, volume and `MINIO_*` names are kept.
+The OCI label `org.opencontainers.image.revision` records the commit.
 No secret is passed to the build; verify with
 `docker history --no-trunc enma-api:<tag>`. Keep the previous release's images
 for rollback.

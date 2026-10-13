@@ -18,7 +18,7 @@ public sealed class E2EStack : IAsyncLifetime
 {
     private const string PostgreSqlImage = "postgres:18-alpine";
     private const string MailpitImage = "axllent/mailpit:v1.30.7";
-    private const string MinioImage = "minio/minio:RELEASE.2025-09-07T16-13-09Z";
+    private const string MinioImage = "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46";
     private const ushort MailpitSmtpPort = 1025;
     private const ushort MailpitApiPort = 8025;
     private const ushort MinioApiPort = 9000;
