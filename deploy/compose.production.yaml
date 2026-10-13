@@ -1,9 +1,9 @@
-# Production override for deploy/compose.yaml (D2, D15). Usage, from the
-# repository root on the host:
+# Production override for deploy/compose.yaml (D2, D15). Driven by
+# scripts/production/*.sh; by hand, from the repository root on the host:
 #   docker compose -f deploy/compose.yaml -f deploy/compose.production.yaml \
-#     --env-file deploy/production.env <command>
-# deploy/production.env is never committed; deploy/production.env.example
-# lists every variable with placeholders only.
+#     --env-file /etc/enma/production.env <command>
+# The environment file lives outside the repository (root, mode 600);
+# deploy/production.env.example lists every variable with placeholders only.
 
 name: enma-production
 

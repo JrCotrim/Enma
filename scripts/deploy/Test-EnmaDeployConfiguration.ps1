@@ -42,10 +42,14 @@ if ($caddyfile -notmatch 'Strict-Transport-Security' -or
 foreach ($required in @(
     "default-src 'self'", "script-src 'self';", "object-src 'none'",
     "base-uri 'self'", "frame-ancestors 'none'", "connect-src 'self'",
-    "X-Content-Type-Options", "Referrer-Policy", "-Server", "header_up Host {hostport}")) {
+    "X-Content-Type-Options", "Referrer-Policy", "-Server", "header_up -X-Forwarded-Host")) {
     if ($shared.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) {
         throw "Shared Caddy configuration is missing '$required'."
     }
+}
+# D11: reverse_proxy passes the public Host through; a rewrite could change it.
+if ($shared -match '(?m)^\s*header_up\s+Host\b') {
+    throw "Shared Caddy configuration must not rewrite the Host header."
 }
 if ($shared -match "unsafe-inline|unsafe-eval") {
     throw "The CSP must not allow unsafe-inline or unsafe-eval."
@@ -111,6 +115,12 @@ foreach ($service in $model.services.PSObject.Properties) {
                 throw "Caddy publishes an unexpected port."
             }
         }
+    }
+    # Base images are pinned by multi-arch index digest; only the locally
+    # built release images are referenced by tag.
+    if ($definition.image -notmatch '^enma-(api|migrator):' -and
+        $definition.image -notmatch ':[^/@]+@sha256:[0-9a-f]{64}$') {
+        throw "Service '$($service.Name)' image must be pinned by tag and digest."
     }
     $expectedRestart = if ($oneShot -contains $service.Name) { "no" } else { "unless-stopped" }
     if ($definition.restart -cne $expectedRestart) {

@@ -27,7 +27,7 @@ jobs:
   integration:
     name: Integration tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 26
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,7 +39,7 @@ jobs:
       - name: Read .NET SDK version
         id: toolchain
         run: |
-          dotnet_sdk=$(sed -nE 's#^FROM mcr\.microsoft\.com/dotnet/sdk:([0-9.]+) .*#\1#p' Dockerfile)
+          dotnet_sdk=$(sed -nE 's#^FROM mcr\.microsoft\.com/dotnet/sdk:([0-9.]+)[@ ].*#\1#p' Dockerfile)
           test -n "$dotnet_sdk"
           echo "dotnet-sdk=$dotnet_sdk" >> "$GITHUB_OUTPUT"
 
@@ -67,7 +67,7 @@ jobs:
   e2e:
     name: E2E journeys
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,7 +79,7 @@ jobs:
       - name: Read toolchain versions
         id: toolchain
         run: |
-          dotnet_sdk=$(sed -nE 's#^FROM mcr\.microsoft\.com/dotnet/sdk:([0-9.]+) .*#\1#p' Dockerfile)
+          dotnet_sdk=$(sed -nE 's#^FROM mcr\.microsoft\.com/dotnet/sdk:([0-9.]+)[@ ].*#\1#p' Dockerfile)
           node=$(sed -nE 's#^FROM node:([0-9.]+)-.*#\1#p' Dockerfile)
           test -n "$dotnet_sdk" && test -n "$node"
           echo "dotnet-sdk=$dotnet_sdk" >> "$GITHUB_OUTPUT"
@@ -142,7 +142,7 @@ jobs:
   deploy-artifacts:
     name: Deployment artifacts
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 4
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -159,3 +159,13 @@ jobs:
       - name: Deployment configuration checks
         shell: pwsh
         run: ./scripts/deploy/Test-EnmaDeployConfiguration.ps1
+
+      # D2/D18 on a real Linux engine: a container only on the internal
+      # backend network must fail external DNS and TCP 443 yet reach
+      # PostgreSQL. Synthetic placeholder values, PostgreSQL only, no upload.
+      - name: Backend egress check
+        run: |
+          env_file="$RUNNER_TEMP/egress.env"
+          sed -E 's/<[^>]*>/synthetic/' deploy/production.env.example > "$env_file"
+          docker compose --env-file "$env_file" -f deploy/compose.yaml -f deploy/compose.production.yaml up --detach --wait postgres
+          ENMA_ENV_FILE="$env_file" bash scripts/production/check-egress.sh

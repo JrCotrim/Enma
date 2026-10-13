@@ -23,19 +23,24 @@ jobs:
   fast:
     name: Build, unit, web and audits
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 7
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
+      # D30: the production host scripts are bash; ShellCheck ships with the
+      # runner image.
+      - name: ShellCheck
+        run: shellcheck --external-sources scripts/production/*.sh
+
       # The repository pins its toolchain in the Dockerfile; there is no
       # global.json or .nvmrc to read instead.
       - name: Read toolchain versions
         id: toolchain
         run: |
-          dotnet_sdk=$(sed -nE 's#^FROM mcr\.microsoft\.com/dotnet/sdk:([0-9.]+) .*#\1#p' Dockerfile)
+          dotnet_sdk=$(sed -nE 's#^FROM mcr\.microsoft\.com/dotnet/sdk:([0-9.]+)[@ ].*#\1#p' Dockerfile)
           node=$(sed -nE 's#^FROM node:([0-9.]+)-.*#\1#p' Dockerfile)
           test -n "$dotnet_sdk" && test -n "$node"
           echo "dotnet-sdk=$dotnet_sdk" >> "$GITHUB_OUTPUT"

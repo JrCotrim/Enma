@@ -27,7 +27,8 @@ services:
       - ../infrastructure/minio/enma-pilot-documents-app-policy.json:/policies/app-policy.json:ro
 
   mailpit:
-    image: axllent/mailpit:v1.30.7
+    # Mailpit 1.30.7, index published 2026-08-08.
+    image: axllent/mailpit:v1.30.7@sha256:d5ecbb067db3705fa953d79e1b7f81ef84038df67aba6c52825d8c02a1ea748a
     container_name: enma-pilot-mailpit
     restart: unless-stopped
     environment:
