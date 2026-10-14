@@ -22,8 +22,8 @@ RUN npm ci
 COPY src/Enma.Web/ ./
 RUN npm run build
 
-# .NET SDK 10.0.302, index published 2026-08-01.
-FROM mcr.microsoft.com/dotnet/sdk:10.0.302@sha256:72dd743782f2ae7e5476fd64f6a460045e3998dc862218b80e6944cba79a01b0 AS build
+# .NET SDK 10.0.401 (runtime 10.0.12), index published 2026-09-21.
+FROM mcr.microsoft.com/dotnet/sdk:10.0.401@sha256:35d40304542c8689331f8cab17c65926cdf48fe711e289321d71924b230a7d29 AS build
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1
 WORKDIR /src
@@ -56,8 +56,8 @@ RUN dotnet tool restore \
         --target-runtime linux-x64 \
         --output /out/migrator/efbundle
 
-# .NET runtime-deps 10.0.10, index published 2026-08-01.
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.10@sha256:53d7e74e5178092627d7f5d7aa7cb27eee50054885d99ee902014b3c11382efa AS migrator
+# .NET runtime-deps 10.0.12, index published 2026-09-21.
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.12@sha256:099f6f87ed745377dd27bd722f0d1a352bca71b4fddaabfd75e7c064bcaa82da AS migrator
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="enma-migrator" \
       org.opencontainers.image.description="ENMA EF Core migrations bundle (run once, with the API stopped)" \
@@ -73,8 +73,8 @@ ENTRYPOINT ["/bin/sh", "-ec", "if [ -z \"${ENMA_DESIGNTIME_CONNECTION_STRING:-}\
 # D13: official non-chiseled ASP.NET Core runtime (tzdata + ICU), non-root
 # user `app`, plain HTTP 8080 reachable only on the Compose network; TLS ends
 # at the edge.
-# ASP.NET Core runtime 10.0.10, index published 2026-08-01.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.10@sha256:f1126d438ccc359f51cc6d4701a8deae513856cf10f5fe645d29ea6403dcac6b AS api
+# ASP.NET Core runtime 10.0.12, index published 2026-09-21.
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.12@sha256:2d584d8147faddb0d678c5748d47953e5b8e18621ed4fb7049a91381d9d7746f AS api
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="enma-api" \
       org.opencontainers.image.description="ENMA API serving the Enma.Web build on the same origin" \
