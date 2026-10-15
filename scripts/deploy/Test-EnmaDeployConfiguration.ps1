@@ -149,6 +149,77 @@ function Assert-DatabaseConnections {
     }
 }
 
+# Mirrors resolve_edge_mode and is_tailnet_ipv4 in
+# scripts/production/common.sh (D39).
+function Assert-EdgeModeValues {
+    param([Parameter(Mandatory = $true)][hashtable]$Values)
+
+    $mode = $Values["ENMA_EDGE_MODE"]
+    if ($mode -cnotin @("public", "tailnet")) {
+        throw "ENMA_EDGE_MODE must be public or tailnet."
+    }
+    if ($mode -ceq "public") {
+        return
+    }
+    $octet = '(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+    if ([string]$Values["ENMA_EDGE_BIND_ADDRESS"] -cnotmatch "^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.$octet\.$octet$") {
+        throw "ENMA_EDGE_BIND_ADDRESS must be the node's Tailscale IPv4 address (100.64.0.0/10)."
+    }
+    if (-not ([string]$Values["ENMA_EDGE_TLS_DIR"]).StartsWith("/")) {
+        throw "ENMA_EDGE_TLS_DIR must be an absolute directory."
+    }
+}
+
+# Tailnet edge (D-B, D-C as amended): Caddy publishes exactly 443/tcp on the
+# configured Tailscale IPv4 and nothing on IPv6 (docker-proxy would hide the
+# client address), serves Caddyfile.tailnet, and reads the certificate
+# directory read-only.
+function Assert-TailnetEdge {
+    param(
+        [Parameter(Mandatory = $true)]$Model,
+        [Parameter(Mandatory = $true)][hashtable]$Values
+    )
+
+    $ports = @($Model.services.caddy.ports)
+    foreach ($port in $ports) {
+        $hostIpProperty = $port.PSObject.Properties["host_ip"]
+        $hostIp = if ($null -eq $hostIpProperty) { "" } else { [string]$hostIpProperty.Value }
+        if ([string]::IsNullOrEmpty($hostIp) -or $hostIp -in @("0.0.0.0", "::", "[::]")) {
+            throw "Tailnet Caddy publishes a port on every interface."
+        }
+        if ([int]$port.target -ne 443 -or [string]$port.published -cne "443" -or $port.protocol -cne "tcp") {
+            throw "Tailnet Caddy publishes a port other than 443/tcp."
+        }
+    }
+    if ($ports.Count -ne 1 -or [string]$ports[0].host_ip -cne $Values.ENMA_EDGE_BIND_ADDRESS) {
+        throw "Tailnet Caddy must publish 443/tcp exactly once, on the Tailscale IPv4 bind address."
+    }
+    $volumes = @($Model.services.caddy.volumes)
+    $caddyfiles = @($volumes | Where-Object { $_.target -ceq "/etc/caddy/Caddyfile" })
+    if ($caddyfiles.Count -ne 1 -or $caddyfiles[0].read_only -ne $true -or
+        ($caddyfiles[0].source -replace '\\', '/') -notlike "*/deploy/caddy/Caddyfile.tailnet") {
+        throw "Tailnet Caddy must mount only Caddyfile.tailnet as its Caddyfile."
+    }
+    $certificates = @($volumes | Where-Object { $_.target -ceq "/etc/caddy/tls" })
+    if ($certificates.Count -ne 1 -or $certificates[0].type -cne "bind" -or
+        $certificates[0].read_only -ne $true -or
+        ($certificates[0].source -replace '\\', '/') -notlike "*$($Values.ENMA_EDGE_TLS_DIR)") {
+        throw "Tailnet Caddy must mount ENMA_EDGE_TLS_DIR read-only at /etc/caddy/tls."
+    }
+}
+
+# Everything but Caddy's ports, Caddyfile and certificate mounts is the same
+# in both modes: services, networks, proxy trust, images, restart, logging.
+function Get-ModelOutsideEdge {
+    param([Parameter(Mandatory = $true)]$Model)
+
+    $copy = $Model | ConvertTo-Json -Depth 32 | ConvertFrom-Json
+    $copy.services.caddy.PSObject.Properties.Remove("ports")
+    $copy.services.caddy.volumes = @($copy.services.caddy.volumes |
+        Where-Object { $_.target -cnotin @("/etc/caddy/Caddyfile", "/etc/caddy/tls") })
+    return $copy | ConvertTo-Json -Depth 32 -Compress
+}
+
 # A negative case must be rejected, and for the expected reason.
 function Assert-Rejected {
     param(
@@ -172,10 +243,11 @@ $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $deployRoot = Join-Path $repositoryRoot "deploy"
 $basePath = Join-Path $deployRoot "compose.yaml"
 $productionPath = Join-Path $deployRoot "compose.production.yaml"
+$tailnetPath = Join-Path $deployRoot "compose.tailnet.yaml"
 $examplePath = Join-Path $deployRoot "production.env.example"
 
 $referenced = @(
-    foreach ($path in @($basePath, $productionPath)) {
+    foreach ($path in @($basePath, $productionPath, $tailnetPath)) {
         [regex]::Matches(
             (Get-Content -LiteralPath $path -Raw),
             '(?<!\$)\$\{([A-Z0-9_]+)') | ForEach-Object { $_.Groups[1].Value }
@@ -189,6 +261,10 @@ if ($missing.Count -gt 0) {
 }
 if ($exampleText -match '(?m)^[A-Z0-9_]*(PASSWORD|SECRET|SECRET_KEY)=(?!<|$).+') {
     throw "production.env.example must contain placeholders only."
+}
+# A literal value, not a placeholder: the CI egress check renders the example.
+if ($exampleText -cnotmatch '(?m)^ENMA_EDGE_MODE=public\r?$') {
+    throw "production.env.example must set ENMA_EDGE_MODE=public."
 }
 
 $caddyfile = Get-Content -LiteralPath (Join-Path $deployRoot "caddy\Caddyfile.production") -Raw
@@ -213,6 +289,24 @@ if ($shared -match '(?m)^\s*header_up\s+Host\b') {
 if ($shared -match "unsafe-inline|unsafe-eval") {
     throw "The CSP must not allow unsafe-inline or unsafe-eval."
 }
+# D-A: the tailnet edge loads the host's certificate files; Caddy issues and
+# fetches nothing, and serves no HTTP redirect listener.
+$tailnetCaddyfile = Get-Content -LiteralPath (Join-Path $deployRoot "caddy\Caddyfile.tailnet") -Raw
+foreach ($required in @(
+    '(?m)^\s+auto_https disable_redirects$',
+    '(?m)^import /etc/caddy/enma\.caddy$',
+    '(?m)^\s+tls /etc/caddy/tls/tls\.crt /etc/caddy/tls/tls\.key$',
+    '(?m)^\s+import enma_security_headers$',
+    '(?m)^\s+header Strict-Transport-Security "max-age=31536000"$',
+    '(?m)^\s+import enma_api_proxy$')) {
+    if ($tailnetCaddyfile -cnotmatch $required) {
+        throw "Tailnet Caddyfile does not match '$required'."
+    }
+}
+$tailnetDirectives = @($tailnetCaddyfile -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+if ($tailnetDirectives -match 'tls internal|get_certificate|includeSubDomains|acme|(?m)^\s+email\b') {
+    throw "Tailnet Caddyfile must load the certificate files only, without ACME or includeSubDomains."
+}
 
 foreach ($key in $databaseIdentityKeys) {
     if ($referenced -notcontains $key) {
@@ -230,6 +324,8 @@ foreach ($name in $referenced) {
         "ENMA_EDGE_SUBNET" { "10.247.31.0/28" }
         "ENMA_EDGE_DYNAMIC_RANGE" { "10.247.31.8/29" }
         "ENMA_EDGE_PROXY_IP" { "10.247.31.2" }
+        "ENMA_EDGE_BIND_ADDRESS" { "100.100.100.1" }
+        "ENMA_EDGE_TLS_DIR" { "/etc/enma/tls" }
         "ENMA_POSTGRES_USER" { "synthetic_bootstrap" }
         "ENMA_POSTGRES_MIGRATOR_USER" { "synthetic_migrator" }
         "ENMA_POSTGRES_APP_USER" { "synthetic_app" }
@@ -289,6 +385,24 @@ Assert-Rejected -Case "a writable policy as the backup policy" -Expected "must g
     Assert-BackupPolicy -Path $writablePolicyPath -Bucket "enma-documents"
 }
 
+Assert-EdgeModeValues -Values (Copy-Values -Changes @{ ENMA_EDGE_MODE = "public" })
+$tailnetValues = Copy-Values -Changes @{ ENMA_EDGE_MODE = "tailnet" }
+Assert-EdgeModeValues -Values $tailnetValues
+$edgeNegatives = [ordered]@{
+    "edge mode missing" = @((Copy-Values), "ENMA_EDGE_MODE must be public or tailnet")
+    "edge mode not public or tailnet" = @((Copy-Values -Changes @{ ENMA_EDGE_MODE = "Tailnet" }), "ENMA_EDGE_MODE must be public or tailnet")
+    "IPv4 bind on every interface" = @((Copy-Values -Changes @{ ENMA_EDGE_MODE = "tailnet"; ENMA_EDGE_BIND_ADDRESS = "0.0.0.0" }), "Tailscale IPv4 address")
+    "IPv4 bind outside 100.64.0.0/10" = @((Copy-Values -Changes @{ ENMA_EDGE_MODE = "tailnet"; ENMA_EDGE_BIND_ADDRESS = "100.128.0.1" }), "Tailscale IPv4 address")
+    "IPv4 bind missing" = @((Copy-Values -Changes @{ ENMA_EDGE_MODE = "tailnet" } -Remove @("ENMA_EDGE_BIND_ADDRESS")), "Tailscale IPv4 address")
+    "IPv6 address as the bind" = @((Copy-Values -Changes @{ ENMA_EDGE_MODE = "tailnet"; ENMA_EDGE_BIND_ADDRESS = "fd7a:115c:a1e0::1" }), "Tailscale IPv4 address")
+    "certificate directory missing" = @((Copy-Values -Changes @{ ENMA_EDGE_MODE = "tailnet" } -Remove @("ENMA_EDGE_TLS_DIR")), "ENMA_EDGE_TLS_DIR must be an absolute directory")
+    "certificate directory relative" = @((Copy-Values -Changes @{ ENMA_EDGE_MODE = "tailnet"; ENMA_EDGE_TLS_DIR = "tls" }), "ENMA_EDGE_TLS_DIR must be an absolute directory")
+}
+foreach ($case in $edgeNegatives.Keys) {
+    $values, $expected = $edgeNegatives[$case]
+    Assert-Rejected -Case $case -Expected $expected -Check { Assert-EdgeModeValues -Values $values }
+}
+
 $docker = Get-Command -Name $DockerCommand -ErrorAction SilentlyContinue
 if ($null -eq $docker) {
     Write-Host "Docker not found; Compose rendering checks were skipped."
@@ -297,8 +411,10 @@ if ($null -eq $docker) {
 }
 
 function Invoke-ComposeRender {
-    param([Parameter(Mandatory = $true)][hashtable]$Values)
+    param([Parameter(Mandatory = $true)][hashtable]$Values, [switch]$Tailnet)
 
+    $files = @("--file", $basePath, "--file", $productionPath)
+    if ($Tailnet) { $files += @("--file", $tailnetPath) }
     $previous = @{}
     try {
         foreach ($name in $referenced) {
@@ -306,9 +422,7 @@ function Invoke-ComposeRender {
             $value = if ($Values.ContainsKey($name)) { $Values[$name] } else { $null }
             [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
         }
-        $rendered = & $docker.Source compose `
-            --file $basePath `
-            --file $productionPath `
+        $rendered = & $docker.Source compose @files `
             --profile migrate `
             config --format json 2>&1
         if ($LASTEXITCODE -ne 0) {
@@ -419,6 +533,45 @@ if (@($model.services.migrate.profiles) -notcontains "migrate") {
 }
 if ($model.networks.backend.internal -ne $true) {
     throw "The backend network must be internal."
+}
+
+# D-B/D-C: the tailnet override changes only Caddy's ports and mounts.
+$tailnetModel = Invoke-ComposeRender -Values $tailnetValues -Tailnet
+Assert-TailnetEdge -Model $tailnetModel -Values $tailnetValues
+if ((Get-ModelOutsideEdge -Model $tailnetModel) -cne (Get-ModelOutsideEdge -Model $model)) {
+    throw "The tailnet override changes more than Caddy's ports and mounts."
+}
+$publicVolumes = @($model.services.caddy.volumes | Where-Object { $_.target -ceq "/etc/caddy/Caddyfile" })
+if ($publicVolumes.Count -ne 1 -or ($publicVolumes[0].source -replace '\\', '/') -notlike "*/deploy/caddy/Caddyfile.production" -or
+    @($model.services.caddy.volumes | Where-Object { $_.target -ceq "/etc/caddy/tls" }).Count -ne 0) {
+    throw "Public mode must keep Caddyfile.production and no certificate directory."
+}
+$tailnetRenderNegatives = [ordered]@{
+    "tailnet IPv4 bind missing" = @((Copy-Values -Remove @("ENMA_EDGE_BIND_ADDRESS")), "Production Compose rendering failed")
+    "tailnet certificate directory missing" = @((Copy-Values -Remove @("ENMA_EDGE_TLS_DIR")), "Production Compose rendering failed")
+}
+foreach ($case in $tailnetRenderNegatives.Keys) {
+    $values, $expected = $tailnetRenderNegatives[$case]
+    Assert-Rejected -Case $case -Expected $expected -Check { Invoke-ComposeRender -Values $values -Tailnet }
+}
+$tailnetJson = $tailnetModel | ConvertTo-Json -Depth 32
+$port80 = $tailnetJson | ConvertFrom-Json
+$port80.services.caddy.ports += [pscustomobject]@{ mode = "ingress"; host_ip = $tailnetValues.ENMA_EDGE_BIND_ADDRESS; target = 80; published = "80"; protocol = "tcp" }
+$udp = $tailnetJson | ConvertFrom-Json
+$udp.services.caddy.ports[0].protocol = "udp"
+$ipv6 = $tailnetJson | ConvertFrom-Json
+$ipv6.services.caddy.ports += [pscustomobject]@{ mode = "ingress"; host_ip = "fd7a:115c:a1e0::1"; target = 443; published = "443"; protocol = "tcp" }
+$tailnetModelNegatives = [ordered]@{
+    "port 80 reintroduced" = @($port80, $tailnetValues, "port other than 443/tcp")
+    "HTTP/3 port" = @($udp, $tailnetValues, "port other than 443/tcp")
+    "IPv6 bind reintroduced" = @($ipv6, $tailnetValues, "exactly once, on the Tailscale IPv4")
+    "IPv4 bind on every interface" = @((Invoke-ComposeRender -Values (Copy-Values -Changes @{ ENMA_EDGE_BIND_ADDRESS = "0.0.0.0" }) -Tailnet), $tailnetValues, "on every interface")
+    "IPv4 bind not the configured address" = @($tailnetModel, (Copy-Values -Changes @{ ENMA_EDGE_BIND_ADDRESS = "100.100.100.2" }), "exactly once, on the Tailscale IPv4")
+    "production ports kept" = @($model, $tailnetValues, "on every interface")
+}
+foreach ($case in $tailnetModelNegatives.Keys) {
+    $candidate, $values, $expected = $tailnetModelNegatives[$case]
+    Assert-Rejected -Case $case -Expected $expected -Check { Assert-TailnetEdge -Model $candidate -Values $values }
 }
 
 Write-Host "DEPLOY CONFIGURATION TESTS PASS"

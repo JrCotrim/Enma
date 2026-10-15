@@ -1,0 +1,24 @@
+# Tailnet edge override (D39, D-A..D-C) on top of compose.production.yaml.
+# scripts/production/common.sh adds it when ENMA_EDGE_MODE=tailnet in the
+# environment file; by hand, after the two Production files:
+#   docker compose -f deploy/compose.yaml -f deploy/compose.production.yaml \
+#     -f deploy/compose.tailnet.yaml --env-file /etc/enma/production.env <command>
+# Caddy publishes 443/tcp only on the node's Tailscale IPv4 address (no HTTP
+# port, no HTTP/3) and serves the certificate `tailscale cert` writes on the
+# host into ENMA_EDGE_TLS_DIR as tls.crt and tls.key. Same services, networks
+# and proxy trust as public mode.
+#
+# No IPv6 bind (D-C as amended): `edge` is IPv4-only, so Docker would relay
+# an IPv6 port through docker-proxy and Caddy would see every IPv6 client as
+# the network gateway, one rate-limit partition for all of them. IPv6 peers
+# get a refused connection and fall back to IPv4.
+
+services:
+  caddy:
+    ports: !override
+      - "${ENMA_EDGE_BIND_ADDRESS:?ENMA_EDGE_BIND_ADDRESS is required}:443:443"
+    volumes:
+      # Same target as Caddyfile.production, which this mount replaces.
+      - ./caddy/Caddyfile.tailnet:/etc/caddy/Caddyfile:ro
+      # The directory, not the files: a renewed certificate replaces them.
+      - ${ENMA_EDGE_TLS_DIR:?ENMA_EDGE_TLS_DIR is required}:/etc/caddy/tls:ro

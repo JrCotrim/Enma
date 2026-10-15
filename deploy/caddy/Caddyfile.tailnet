@@ -1,0 +1,17 @@
+# Tailnet edge (D39, D-A): the certificate `tailscale cert` writes on the host
+# for the node's MagicDNS name, loaded from files; no ACME and no HTTP port
+# (compose.tailnet.yaml publishes 443/tcp only), so no redirect listener.
+# Headers, HSTS and proxy as in Production. Access logs stay off: URLs may
+# carry one-time tokens.
+{
+	auto_https disable_redirects
+}
+
+import /etc/caddy/enma.caddy
+
+{$ENMA_PUBLIC_HOST} {
+	tls /etc/caddy/tls/tls.crt /etc/caddy/tls/tls.key
+	import enma_security_headers
+	header Strict-Transport-Security "max-age=31536000"
+	import enma_api_proxy
+}

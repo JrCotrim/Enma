@@ -11,8 +11,8 @@ export LC_ALL=C
 
 ENMA_REPOSITORY_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
 ENMA_ENV_FILE=${ENMA_ENV_FILE:-/etc/enma/production.env}
-# Standard Compose variable; the default is the Production topology.
-export COMPOSE_FILE=${COMPOSE_FILE:-$ENMA_REPOSITORY_ROOT/deploy/compose.yaml:$ENMA_REPOSITORY_ROOT/deploy/compose.production.yaml}
+# COMPOSE_FILE is the standard Compose variable: when unset, resolve_edge_mode
+# sets the Production topology for ENMA_EDGE_MODE; a caller's value is kept.
 
 log() {
     printf '%s enma: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2
@@ -59,12 +59,53 @@ require_env_value() {
     printf '%s' "$value"
 }
 
+# 100.64.0.0/10, the Tailscale IPv4 range.
+is_tailnet_ipv4() {
+    local octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+    [[ $1 =~ ^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.$octet\.$octet$ ]]
+}
+
+# D39: ENMA_EDGE_MODE in the environment file selects the edge. public = the
+# Production files; tailnet = plus deploy/compose.tailnet.yaml (443/tcp on the
+# node's Tailscale IPv4 address only). Read on first use, so every script's own
+# checks of the environment file still come first; anything else fails closed.
+# Sets ENMA_RESOLVED_EDGE_MODE and ENMA_RESOLVED_EDGE_ADDRESS (where this host
+# reaches the edge), named apart from the variables Compose interpolates.
+resolve_edge_mode() {
+    [[ -z ${ENMA_RESOLVED_EDGE_MODE:-} ]] || return 0
+    local mode files address=127.0.0.1 tls_dir
+    mode=$(env_value "$ENMA_ENV_FILE" ENMA_EDGE_MODE)
+    files=$ENMA_REPOSITORY_ROOT/deploy/compose.yaml:$ENMA_REPOSITORY_ROOT/deploy/compose.production.yaml
+    case $mode in
+        public) ;;
+        tailnet)
+            address=$(env_value "$ENMA_ENV_FILE" ENMA_EDGE_BIND_ADDRESS)
+            tls_dir=$(env_value "$ENMA_ENV_FILE" ENMA_EDGE_TLS_DIR)
+            is_tailnet_ipv4 "$address" ||
+                die "ENMA_EDGE_BIND_ADDRESS must be the node's Tailscale IPv4 address (100.64.0.0/10)"
+            [[ $tls_dir == /* ]] || die "ENMA_EDGE_TLS_DIR must be an absolute directory"
+            files+=:$ENMA_REPOSITORY_ROOT/deploy/compose.tailnet.yaml
+            ;;
+        *) die "ENMA_EDGE_MODE must be public or tailnet in $ENMA_ENV_FILE" ;;
+    esac
+    if [[ -n ${COMPOSE_FILE:-} ]]; then
+        log "edge mode $mode; Compose files (COMPOSE_FILE from the caller): $COMPOSE_FILE"
+    else
+        export COMPOSE_FILE=$files
+        log "edge mode $mode; Compose files: $COMPOSE_FILE"
+    fi
+    export ENMA_RESOLVED_EDGE_MODE=$mode ENMA_RESOLVED_EDGE_ADDRESS=$address
+}
+
 compose() {
+    resolve_edge_mode
     docker compose --env-file "$ENMA_ENV_FILE" "$@"
 }
 
 compose_project() {
     local name
+    # Outside the redirect below, so a mode error stays visible.
+    resolve_edge_mode
     name=$(compose config --no-interpolate 2>/dev/null | sed -n 's/^name: //p' | head -n 1)
     [[ -n $name ]] || die "could not resolve the Compose project name"
     printf '%s' "$name"
@@ -192,18 +233,22 @@ run_storage_bootstrap() {
     [[ $status == 0 ]] || die "the storage bootstrap failed (exit $status)"
 }
 
-# Readiness through the edge on this host, with the public certificate
+# Readiness through the edge on this host, with the edge certificate
 # verified: /health/ready must answer 200 and / must serve the HTML build.
+# The host name resolves to where this host reaches the edge: loopback in
+# public mode, the Tailscale IPv4 bind address in tailnet mode.
 wait_for_edge() {
-    local host=$1 timeout=${2:-180} deadline content_type
+    local host=$1 timeout=${2:-180} deadline content_type address
+    resolve_edge_mode
+    address=$ENMA_RESOLVED_EDGE_ADDRESS
     deadline=$((SECONDS + timeout))
     until curl --silent --fail --output /dev/null --max-time 5 \
-        --resolve "$host:443:127.0.0.1" "https://$host/health/ready"; do
+        --resolve "$host:443:$address" "https://$host/health/ready"; do
         ((SECONDS < deadline)) || die "https://$host/health/ready did not answer 200 within ${timeout}s"
         sleep 3
     done
     content_type=$(curl --silent --show-error --fail --output /dev/null --max-time 10 \
-        --write-out '%{content_type}' --resolve "$host:443:127.0.0.1" "https://$host/")
+        --write-out '%{content_type}' --resolve "$host:443:$address" "https://$host/")
     [[ $content_type == text/html* ]] || die "https://$host/ did not return HTML"
     log "edge ready: /health/ready 200 and / serves HTML"
 }
