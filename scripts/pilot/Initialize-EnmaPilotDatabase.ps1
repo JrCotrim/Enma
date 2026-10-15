@@ -8,6 +8,9 @@ param(
 # Applies the pending migrations to the Pilot database with the migrator image
 # (D14), only after proving the target is the Pilot PostgreSQL and the Pilot
 # API is stopped. Start-EnmaPilot.ps1 calls it between build and start.
+# Order (D34): the roles phase of deploy/postgres/enma-roles.sql, the
+# migrator as the migrator role, then the grants phase; on a database created
+# before the roles, this is also its conversion.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -61,6 +64,8 @@ if (([string]$databaseName[0]).Trim() -cne $settings.PILOT_POSTGRES_DB) {
 }
 
 $before = Get-PilotAppliedMigration -Settings $settings -DockerCommand $docker
+Invoke-PilotDatabaseRoles `
+    -Settings $settings -Phase roles -RepositoryRoot $repositoryRoot -DockerCommand $docker
 $composeArguments = Get-PilotComposeArguments -RepositoryRoot $repositoryRoot
 Invoke-WithPilotComposeEnvironment `
     -Environment (Get-PilotComposeEnvironment -Settings $settings) `
@@ -68,6 +73,8 @@ Invoke-WithPilotComposeEnvironment `
         Invoke-PilotCommand -Command $docker -Arguments ($composeArguments + @(
             "--profile", "migrate", "run", "--rm", "--no-deps", "migrate"))
     }
+Invoke-PilotDatabaseRoles `
+    -Settings $settings -Phase grants -RepositoryRoot $repositoryRoot -DockerCommand $docker
 $after = Get-PilotAppliedMigration -Settings $settings -DockerCommand $docker
 
 Write-Host "Pilot migrations: $before -> $after"

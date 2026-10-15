@@ -6,16 +6,20 @@ using DotNet.Testcontainers.Containers;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Playwright;
+using Npgsql;
 using Testcontainers.PostgreSql;
 
 namespace Enma.E2ETests.Infrastructure;
 
 // One disposable stack per run, shared by every journey class: PostgreSQL
-// (migrated once), Mailpit and MinIO containers, the checked Enma.Web build and
-// a headless Chromium. Each journey class gets its own API host on top of it
-// (E2EHost). Nothing here touches the Development or Pilot stores.
+// (migrated once, then given the D33 roles), Mailpit and MinIO containers, the
+// checked Enma.Web build and a headless Chromium. Each journey class gets its
+// own API host on top of it (E2EHost), connected as the application role.
+// Nothing here touches the Development or Pilot stores.
 public sealed class E2EStack : IAsyncLifetime
 {
+    private const string MigratorRole = "enma_e2e_migrator";
+    private const string AppRole = "enma_e2e_app";
     private const string PostgreSqlImage = "postgres:18-alpine";
     private const string MailpitImage = "axllent/mailpit:v1.30.7";
     private const string MinioImage = "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46";
@@ -27,6 +31,8 @@ public sealed class E2EStack : IAsyncLifetime
 
     private readonly string storageAccessKey = $"e2e-{CreateSecret(8)}";
     private readonly string storageSecretKey = CreateSecret(24);
+    private readonly string migratorPassword = CreateSecret(24);
+    private readonly string appPassword = CreateSecret(24);
     private readonly PostgreSqlContainer postgreSql;
     private readonly IContainer mailpit;
     private readonly IContainer minio;
@@ -126,7 +132,12 @@ public sealed class E2EStack : IAsyncLifetime
 
         return new Dictionary<string, string?>
         {
-            ["ConnectionStrings:Database"] = postgreSql.GetConnectionString(),
+            ["ConnectionStrings:Database"] = new NpgsqlConnectionStringBuilder(
+                postgreSql.GetConnectionString())
+            {
+                Username = AppRole,
+                Password = appPassword
+            }.ConnectionString,
             [$"{delivery}:VerificationPageUrl"] =
                 new Uri(baseAddress, "verify-email").AbsoluteUri,
             [$"{delivery}:PasswordRecoveryPageUrl"] =
@@ -158,8 +169,17 @@ public sealed class E2EStack : IAsyncLifetime
                 .UseNpgsql(postgreSql.GetConnectionString())
                 .Options;
 
-        await using var dbContext = new EnmaDbContext(options);
-        await dbContext.Database.MigrateAsync();
+        await using (var dbContext = new EnmaDbContext(options))
+        {
+            await dbContext.Database.MigrateAsync();
+        }
+
+        await PostgreSqlRoles.ApplyAsync(
+            postgreSql.GetConnectionString(),
+            MigratorRole,
+            migratorPassword,
+            AppRole,
+            appPassword);
     }
 
     private async Task CreateDocumentBucketAsync(string storageServiceUrl)

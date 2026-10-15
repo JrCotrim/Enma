@@ -245,7 +245,7 @@ public sealed class WebDistributionHostingTests : IAsyncLifetime
             "Pilot" => ProductionIngressTests.ValidPilotRuntimeSettings(),
             _ => []
         };
-        settings["ConnectionStrings:Database"] = fixture.ConnectionString;
+        settings["ConnectionStrings:Database"] = fixture.AppConnectionString;
         settings["DataProtection:KeysPath"] = DataProtectionKeysPath;
         settings[TestHostIsolation.DevelopmentSmtpPortKey] =
             TestHostIsolation.UnusedSmtpPort.ToString();

@@ -30,7 +30,7 @@ public sealed class HealthEndpointTests(PostgreSqlFixture fixture)
     [Fact]
     public async Task Readiness_WhenDatabaseAndSchemaAreCurrent_ReturnsMinimalHealthyResponse()
     {
-        using ConfiguredApiFactory factory = new(fixture.ConnectionString);
+        using ConfiguredApiFactory factory = new(fixture.AppConnectionString);
         using HttpClient client = CreateClient(factory);
 
         using HttpResponseMessage response = await client.GetAsync(
@@ -92,7 +92,7 @@ public sealed class HealthEndpointTests(PostgreSqlFixture fixture)
 
     private string CreateConnectionString(string databaseName)
     {
-        return new NpgsqlConnectionStringBuilder(fixture.ConnectionString)
+        return new NpgsqlConnectionStringBuilder(fixture.AppConnectionString)
         {
             Database = databaseName,
             Timeout = 1,

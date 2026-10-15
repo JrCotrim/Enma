@@ -44,11 +44,19 @@ Assert-PilotContainerEnvironment -Name "enma-pilot-minio" -DockerCommand $docker
     MINIO_ROOT_PASSWORD = $settings.PILOT_MINIO_ROOT_PASSWORD
 }
 
+# The drill applies the Pilot's role names (the dump keeps their privileges)
+# and proves the Pilot API image ready as the application role.
+$apiImage = "enma-api:$($script:PilotImageTag)"
+Invoke-PilotCommand -Command $docker -Arguments @("image", "inspect", $apiImage) -CaptureOutput | Out-Null
+
 & (Join-Path $PSScriptRoot "..\operations\Test-EnmaRestore.ps1") `
     -BackupPath ([System.IO.Path]::GetFullPath($BackupPath)) `
     -ReportRoot $reportRootFullPath `
     -SourcePostgresContainer "enma-pilot-postgres" `
     -SourceMinioContainer "enma-pilot-minio" `
+    -MigratorRole $settings.PILOT_POSTGRES_MIGRATOR_USER `
+    -AppRole $settings.PILOT_POSTGRES_APP_USER `
+    -ApiImage $apiImage `
     -DockerCommand $docker
 
 Write-Host "PILOT RESTORE DRILL WRAPPER PASS"

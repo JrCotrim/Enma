@@ -9,10 +9,14 @@
 # media), then handed to age through a pipe.
 #
 # Steps: decrypt, check the archive members and every SHA-256, start the data
-# services, refuse non-empty targets, pg_restore, re-create the bucket and
-# mirror the documents back, restore the Data Protection keys owned by the
-# API user (uid 1654), start the stack, wait for /health/ready, and print a
-# counts-only summary.
+# services, refuse non-empty targets, the roles phase of
+# deploy/postgres/enma-roles.sql, pg_restore as the migrator (D35: --no-owner,
+# the dump's privileges kept), the grants phase (which also covers dumps taken
+# before the roles existed), re-create the bucket and mirror the documents
+# back, restore the Data Protection keys owned by the API user (uid 1654),
+# start the stack, wait for /health/ready, and print a counts-only summary.
+# A dump with privileges for other role names than this environment's is
+# refused by pg_restore.
 #
 # Usage:
 #   sudo scripts/production/restore.sh --file <backup.tar.age> [--identity <path>]
@@ -48,6 +52,7 @@ fi
 
 require_commands docker jq age curl sha256sum tar sort comm
 assert_secure_file "$ENMA_ENV_FILE"
+assert_database_identities
 project=$(compose_project)
 assert_api_stopped "$project"
 
@@ -138,8 +143,11 @@ existing_keys=$(docker run --rm --network none --volume "$keys_volume:/keys:ro" 
     die "the Data Protection key volume is not empty; refusing to restore"
 
 log "restoring the database"
-compose exec -T postgres sh -ec 'exec pg_restore --exit-on-error --single-transaction --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
-    <"$payload/database.dump"
+database_roles roles
+migrator=$(require_env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_MIGRATOR_USER)
+compose exec -T postgres sh -ec 'exec pg_restore --exit-on-error --single-transaction --no-owner -U "$1" -d "$POSTGRES_DB"' \
+    enma-restore "$migrator" <"$payload/database.dump"
+database_roles grants
 
 log "restoring documents"
 temporary_volume=$(docker volume create --label enma.restore.temporary=true "enma-restore-${work##*.}")

@@ -499,13 +499,13 @@ public sealed class DevelopmentOwnerOnboardingEmailVerificationEndToEndTests
             builder.UseEnvironment(Environments.Development);
             builder.UseSetting(
                 "ConnectionStrings:Database",
-                fixture.ConnectionString);
+                fixture.AppConnectionString);
             builder.ConfigureAppConfiguration((_, configuration) =>
             {
                 configuration.AddInMemoryCollection(
                     new Dictionary<string, string?>
                     {
-                        ["ConnectionStrings:Database"] = fixture.ConnectionString,
+                        ["ConnectionStrings:Database"] = fixture.AppConnectionString,
                         [TestHostIsolation.DevelopmentSmtpPortKey] =
                             smtpPort.ToString()
                     });

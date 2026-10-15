@@ -91,15 +91,24 @@ removes only resources bearing the drill's ownership label.
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File `
   ".\scripts\operations\Test-EnmaRestore.ps1" `
-  -BackupPath "C:\approved\path\to\enma-YYYYMMDDTHHMMSSZ-id"
+  -BackupPath "C:\approved\path\to\enma-YYYYMMDDTHHMMSSZ-id" `
+  -MigratorRole "enma_migrator" -AppRole "enma_app"
 ```
 
-The script validates the manifest and dump hash before creating infrastructure,
-proves that the PostgreSQL target has no application tables and the target
-bucket is absent, restores both stores, and writes `report.json` under
-`%TEMP%\Enma\restore-drills`. It then verifies:
+The role names are those of the source environment (the defaults match
+`.env.example`): the dump keeps its privileges, which name them. The script
+validates the manifest and dump hash before creating infrastructure, proves
+that the PostgreSQL target has no application tables and the target bucket is
+absent, applies the `roles` phase of `deploy/postgres/enma-roles.sql` with
+drill-only passwords, restores the dump as the migrator (`pg_restore
+--no-owner`, privileges kept, D35), applies the `grants` phase (which also
+covers a dump taken before the roles), restores the objects, and writes
+`report.json` under `%TEMP%\Enma\restore-drills`. It then verifies:
 
 - latest EF migration and relevant database counts;
+- the application role reads the migration history and every counted table;
+- with `-ApiImage <image>` (the Pilot wrapper passes `enma-api:pilot`), the API
+  image started as the application role answers `/health/ready` with 200;
 - all restored foreign keys are validated;
 - 100% object keys, sizes, and SHA-256 values match the backup;
 - every `legal_documents.stored_object_key` has an object;
@@ -136,8 +145,10 @@ real incident:
    and hashes validate.
 2. Provision a separate PostgreSQL instance and separate private object bucket.
    Never restore over the failed/source database or bucket.
-3. Restore `database.dump` with the provider's PostgreSQL-compatible
-   `pg_restore --exit-on-error --no-owner --no-privileges` workflow.
+3. Create the roles with the `roles` phase of
+   `deploy/postgres/enma-roles.sql`, restore `database.dump` as the migrator
+   with `pg_restore --exit-on-error --no-owner` (privileges kept; the target
+   must use the source's role names), then apply the `grants` phase (D35).
 4. Restore every object key and byte from `objects/` with provider-supported
    S3/MinIO tooling.
 5. Repeat the drill validations: migration, counts, constraints, full object

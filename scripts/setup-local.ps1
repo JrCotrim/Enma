@@ -4,6 +4,10 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Shared database role wrapper (D34). Loaded first, so the helpers below keep
+# their own definitions.
+. (Join-Path $PSScriptRoot "pilot\Pilot.Common.ps1")
+
 function Invoke-CheckedCommand {
     param(
         [Parameter(Mandatory = $true)]
@@ -63,6 +67,10 @@ function Read-LocalEnvironment {
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",
         "POSTGRES_PORT",
+        "POSTGRES_MIGRATOR_USER",
+        "POSTGRES_MIGRATOR_PASSWORD",
+        "POSTGRES_APP_USER",
+        "POSTGRES_APP_PASSWORD",
         "MINIO_ROOT_USER",
         "MINIO_ROOT_PASSWORD",
         "MINIO_APP_ACCESS_KEY",
@@ -312,6 +320,23 @@ try {
         throw "MinIO root and application secrets must be different."
     }
 
+    foreach ($key in @("POSTGRES_MIGRATOR_USER", "POSTGRES_APP_USER")) {
+        if (-not (Test-EnmaDatabaseRoleName -Name $settings[$key])) {
+            throw "$key must match ^[a-z_][a-z0-9_]{0,62}$ and not start with pg_."
+        }
+    }
+    foreach ($key in @("POSTGRES_MIGRATOR_PASSWORD", "POSTGRES_APP_PASSWORD")) {
+        if ($settings[$key] -cnotmatch '^[A-Za-z0-9._~-]{16,}$') {
+            throw "$key must be URL-safe with at least 16 characters."
+        }
+    }
+    $databaseRoles = @($settings["POSTGRES_USER"], $settings["POSTGRES_MIGRATOR_USER"], $settings["POSTGRES_APP_USER"])
+    $databasePasswords = @($settings["POSTGRES_PASSWORD"], $settings["POSTGRES_MIGRATOR_PASSWORD"], $settings["POSTGRES_APP_PASSWORD"])
+    if (@($databaseRoles | Select-Object -Unique).Count -ne 3 -or
+        @($databasePasswords | Select-Object -Unique).Count -ne 3) {
+        throw "The PostgreSQL superuser, migrator and application roles and passwords must all differ."
+    }
+
     Invoke-CheckedCommand -Title "Confirm Docker availability" -Command "docker" -Arguments @(
         "version"
     )
@@ -339,21 +364,21 @@ try {
         -ContainerName "enma-minio-bootstrap" `
         -DisplayName "MinIO bootstrap"
 
+    # D33: the migrations run as the migrator and the API connects as the
+    # application role; POSTGRES_USER is used only inside the container.
+    $migratorConnectionString = (
+        "Host=localhost;Port={0};Database={1};Username={2};Password={3}" -f
+            $postgresPort,
+            $settings["POSTGRES_DB"],
+            $settings["POSTGRES_MIGRATOR_USER"],
+            $settings["POSTGRES_MIGRATOR_PASSWORD"]
+    )
     $connectionString = (
         "Host=localhost;Port={0};Database={1};Username={2};Password={3}" -f
             $postgresPort,
             $settings["POSTGRES_DB"],
-            $settings["POSTGRES_USER"],
-            $settings["POSTGRES_PASSWORD"]
-    )
-
-    Invoke-CheckedCommand -Title "Configure the API database User Secret" -Command "dotnet" -Arguments @(
-        "user-secrets",
-        "set",
-        "ConnectionStrings:Database",
-        $connectionString,
-        "--project",
-        ".\src\Enma.Api\Enma.Api.csproj"
+            $settings["POSTGRES_APP_USER"],
+            $settings["POSTGRES_APP_PASSWORD"]
     )
 
     Invoke-CheckedCommand -Title "Configure the API document-storage access key User Secret" -Command "dotnet" -Arguments @(
@@ -388,13 +413,26 @@ try {
         "restore"
     )
 
+    # Roles phase first: on a database created before the roles it is also the
+    # idempotent conversion (D34).
+    Write-Host ""
+    Write-Host "==> Apply the PostgreSQL roles (deploy/postgres/enma-roles.sql)"
+    Invoke-EnmaDatabaseRoleScript `
+        -Phase roles `
+        -RepositoryRoot $repositoryRoot `
+        -Container "enma-postgres" `
+        -MigratorRole $settings["POSTGRES_MIGRATOR_USER"] `
+        -AppRole $settings["POSTGRES_APP_USER"] `
+        -MigratorPassword $settings["POSTGRES_MIGRATOR_PASSWORD"] `
+        -AppPassword $settings["POSTGRES_APP_PASSWORD"]
+
     $previousDesignTimeConnectionString = [Environment]::GetEnvironmentVariable(
         "ENMA_DESIGNTIME_CONNECTION_STRING",
         [EnvironmentVariableTarget]::Process
     )
 
     try {
-        $env:ENMA_DESIGNTIME_CONNECTION_STRING = $connectionString
+        $env:ENMA_DESIGNTIME_CONNECTION_STRING = $migratorConnectionString
 
         Invoke-CheckedCommand -Title "Apply existing EF Core migrations" -Command "dotnet" -Arguments @(
             "tool",
@@ -418,6 +456,27 @@ try {
             $env:ENMA_DESIGNTIME_CONNECTION_STRING = $previousDesignTimeConnectionString
         }
     }
+
+    Write-Host ""
+    Write-Host "==> Apply the PostgreSQL grants (deploy/postgres/enma-roles.sql)"
+    Invoke-EnmaDatabaseRoleScript `
+        -Phase grants `
+        -RepositoryRoot $repositoryRoot `
+        -Container "enma-postgres" `
+        -MigratorRole $settings["POSTGRES_MIGRATOR_USER"] `
+        -AppRole $settings["POSTGRES_APP_USER"] `
+        -MigratorPassword $settings["POSTGRES_MIGRATOR_PASSWORD"] `
+        -AppPassword $settings["POSTGRES_APP_PASSWORD"]
+
+    # Only after the grants: the API never points at a role without them.
+    Invoke-CheckedCommand -Title "Configure the API database User Secret (application role)" -Command "dotnet" -Arguments @(
+        "user-secrets",
+        "set",
+        "ConnectionStrings:Database",
+        $connectionString,
+        "--project",
+        ".\src\Enma.Api\Enma.Api.csproj"
+    )
 
     Write-Host ""
     Write-Host "Local environment setup completed."

@@ -56,6 +56,20 @@ print secrets or start Docker. Existing files are never overwritten. A
 (old ports, HTTPS PFX, key path) are ignored, and the old key directory and
 certificate under the configuration root are no longer used.
 
+PostgreSQL uses the three Production identities (D33, see section 8.1 of
+[production-runbook.md](production-runbook.md)): `PILOT_POSTGRES_USER` is the
+bootstrap superuser, used only inside `enma-pilot-postgres`;
+`PILOT_POSTGRES_MIGRATOR_*` runs the migrator; the API connects as
+`PILOT_POSTGRES_APP_*`. A `pilot.env` created before the roles lacks those
+four keys and every script refuses it; add them once (random names and
+passwords, nothing else changes, nothing is printed):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File `
+  ".\scripts\pilot\New-EnmaPilotConfiguration.ps1" `
+  -ConfigRoot "D:\EnmaPilot\Config" -AddMissingIdentities
+```
+
 ## Start, migrate, and stop
 
 ```powershell
@@ -67,11 +81,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File `
 The script validates the configuration and resource ownership, builds
 `enma-api:pilot` and `enma-migrator:pilot`, starts PostgreSQL, MinIO, Mailpit,
 and the bucket bootstrap, stops the API, runs
-`Initialize-EnmaPilotDatabase.ps1` (identity check, then the migrator; it
-prints `Pilot migrations: <before> -> <after>`), starts the API and Caddy, and
-waits for `/health/ready` through Caddy. Containers keep running in the
-background (`restart: unless-stopped`). `-SkipBuild` reuses the existing
-images; `-InfrastructureOnly` starts only the data services.
+`Initialize-EnmaPilotDatabase.ps1` (identity check, the `roles` phase of
+`deploy/postgres/enma-roles.sql`, the migrator as the migrator role, the
+`grants` phase; it prints `Pilot migrations: <before> -> <after>`), starts the
+API (as the application role) and Caddy, and waits for `/health/ready` through
+Caddy. Containers keep running in the background (`restart: unless-stopped`).
+`-SkipBuild` reuses the existing images; `-InfrastructureOnly` starts only the
+data services.
+
+### Converting a Pilot database created before the roles
+
+The `roles` phase also converts the existing objects to the migrator, so a
+normal start is the conversion. Step by step, with fictitious data only:
+
+1. stop only the application and take a backup (section Backup and restore);
+2. add the role keys (`New-EnmaPilotConfiguration.ps1 -AddMissingIdentities`);
+3. `Start-EnmaPilot.ps1 -SkipBuild` (or without `-SkipBuild` after a code
+   change): `roles` converts, the migrator finds nothing to apply, `grants`
+   sets the privileges, and the API starts as the application role;
+4. check `/health/ready`, a login and a document download.
+
+Rollback = the previous release's scripts and Compose files (the API and the
+migrator connect as `PILOT_POSTGRES_USER` again); the roles stay in place and
+are harmless.
 
 Stop everything, or only the API and Caddy (the quiesced state for backups):
 
@@ -142,9 +174,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File `
   -ReportRoot "E:\EnmaPilotRestoreReports"
 ```
 
-The drill restores into random `restore-drill` containers and volumes, checks
-database/document integrity plus the Data Protection key inventory, preserves
-the Pilot source, and removes only its labelled disposable targets.
+The drill restores into random `restore-drill` containers, volumes and an
+internal network, applies the `roles` phase, restores the dump as the Pilot's
+migrator role with its privileges, applies the `grants` phase, checks
+database/document integrity plus the Data Protection key inventory, reads the
+restored tables as the application role, starts `enma-api:pilot` as the
+application role until `/health/ready` answers 200, preserves the Pilot
+source, and removes only its labelled disposable targets.
 
 ## User QA
 

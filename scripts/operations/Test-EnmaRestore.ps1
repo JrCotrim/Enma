@@ -9,12 +9,22 @@ param(
     [string]$PostgresVolumeName,
     [string]$MinioVolumeName,
     [string]$DockerCommand = "docker",
+    # D33-D35: role names of the source environment (a dump keeps its
+    # privileges, so they must match); the drill sets its own passwords.
+    [string]$MigratorRole = "enma_migrator",
+    [string]$AppRole = "enma_app",
+    # When set, the drill also starts this API image as the application role
+    # against the restored database and requires /health/ready to answer 200.
+    [string]$ApiImage = "",
     [switch]$KeepDrillResources
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Pilot.Common.ps1 first: its database role wrapper (D34) is shared, and the
+# BackupRestore.Common.ps1 helpers loaded next keep their own definitions.
+. (Join-Path $PSScriptRoot "..\pilot\Pilot.Common.ps1")
 . (Join-Path $PSScriptRoot "BackupRestore.Common.ps1")
 
 function Assert-DrillResourceName {
@@ -171,6 +181,44 @@ function Remove-DrillContainer {
     ) -FailureMessage "Unable to remove drill container." | Out-Null
 }
 
+function Remove-DrillNetwork {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$DrillId
+    )
+
+    if ($Name -notmatch 'restore-drill') {
+        throw "Refusing to remove a network without the restore-drill marker."
+    }
+    $labelsJson = Invoke-NativeCapture -Command $DockerCommand -Arguments @(
+        "network", "inspect", "--format", "{{json .Labels}}", $Name
+    ) -FailureMessage "Unable to verify drill network ownership."
+    $labels = (($labelsJson -join "").Trim() | ConvertFrom-Json)
+    if ([string]$labels.'enma.restore-drill' -cne $DrillId) {
+        throw "Refusing to remove a network not owned by this drill."
+    }
+    Invoke-NativeCapture -Command $DockerCommand -Arguments @(
+        "network", "rm", $Name
+    ) -FailureMessage "Unable to remove drill network." | Out-Null
+}
+
+# Reads as one role over the drill container's local socket.
+function Get-DrillQueryAs {
+    param(
+        [Parameter(Mandatory = $true)][string]$Role,
+        [Parameter(Mandatory = $true)][string]$Query
+    )
+
+    $encodedQuery = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Query))
+    $output = Invoke-NativeCapture -Command $DockerCommand -Arguments @(
+        "exec", $PostgresContainerName,
+        "sh", "-c",
+        'printf %s "$1" | base64 -d | psql -X -v ON_ERROR_STOP=1 -U "$2" -d "$POSTGRES_DB" -At',
+        "enma-query", $encodedQuery, $Role
+    ) -FailureMessage "PostgreSQL read as role '$Role' failed."
+    return ($output -join "`n").Trim()
+}
+
 function Remove-DrillVolume {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -310,14 +358,29 @@ if ([string]::IsNullOrWhiteSpace($MinioContainerName)) { $MinioContainerName = "
 if ([string]::IsNullOrWhiteSpace($PostgresVolumeName)) { $PostgresVolumeName = "enma-$drillId-postgres-data" }
 if ([string]::IsNullOrWhiteSpace($MinioVolumeName)) { $MinioVolumeName = "enma-$drillId-minio-data" }
 
+$networkName = "enma-$drillId-network"
+$apiContainerName = "enma-$drillId-api"
+$apiHostName = "enma-restore-drill-api"
+
 Assert-DrillResourceName -Name $PostgresContainerName -ForbiddenNames @("enma-postgres")
 Assert-DrillResourceName -Name $MinioContainerName -ForbiddenNames @("enma-minio")
 Assert-DrillResourceName -Name $PostgresVolumeName -ForbiddenNames @("enma_postgres_data")
 Assert-DrillResourceName -Name $MinioVolumeName -ForbiddenNames @("enma_minio_data")
+Assert-DrillResourceName -Name $networkName -ForbiddenNames @("bridge")
 Assert-SafeDockerName -Name ([string]$manifest.objectStorage.bucket)
+if (-not (Test-EnmaDatabaseRoleName -Name $MigratorRole) -or
+    -not (Test-EnmaDatabaseRoleName -Name $AppRole) -or
+    $MigratorRole -ceq $AppRole) {
+    throw "Restore-drill role names are invalid."
+}
+if (-not [string]::IsNullOrEmpty($ApiImage) -and
+    $ApiImage -notmatch '^[A-Za-z0-9][A-Za-z0-9_./:@-]{0,254}$') {
+    throw "Restore-drill API image reference is invalid."
+}
 Assert-CommandAvailable -Command $DockerCommand
 Assert-DockerTargetAbsent -Kind container -Name $PostgresContainerName
 Assert-DockerTargetAbsent -Kind container -Name $MinioContainerName
+Assert-DockerTargetAbsent -Kind container -Name $apiContainerName
 Assert-DockerTargetAbsent -Kind volume -Name $PostgresVolumeName
 Assert-DockerTargetAbsent -Kind volume -Name $MinioVolumeName
 
@@ -338,18 +401,25 @@ New-Item -ItemType Directory -Path $secretDirectory -Force | Out-Null
 Protect-SensitiveDirectory -Path $secretDirectory
 $postgresEnvPath = Join-Path $secretDirectory "postgres.env"
 $minioEnvPath = Join-Path $secretDirectory "minio.env"
+$apiEnvPath = Join-Path $secretDirectory "api.env"
 $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+$minioRootPassword = New-RandomSecret
+# Drill-only role passwords: URL-safe, never printed, removed with the
+# secret directory.
+$migratorPassword = (New-RandomSecret).TrimEnd('=')
+$appPassword = (New-RandomSecret).TrimEnd('=')
 [System.IO.File]::WriteAllText(
     $postgresEnvPath,
     "POSTGRES_DB=enma_restore_drill`nPOSTGRES_USER=enma_restore_drill`nPOSTGRES_PASSWORD=$(New-RandomSecret)`n",
     $utf8WithoutBom)
 [System.IO.File]::WriteAllText(
     $minioEnvPath,
-    "MINIO_ROOT_USER=enma-restore-drill`nMINIO_ROOT_PASSWORD=$(New-RandomSecret)`n",
+    "MINIO_ROOT_USER=enma-restore-drill`nMINIO_ROOT_PASSWORD=$minioRootPassword`n",
     $utf8WithoutBom)
 
 $createdContainers = New-Object System.Collections.Generic.List[string]
 $createdVolumes = New-Object System.Collections.Generic.List[string]
+$createdNetworks = New-Object System.Collections.Generic.List[string]
 $startedAt = [DateTime]::UtcNow
 $failure = $null
 $report = [ordered]@{
@@ -366,7 +436,10 @@ $report = [ordered]@{
         minioContainerId = $null
     }
     cleanTarget = [ordered]@{ postgres = $false; minio = $false }
+    databaseRoles = "FAIL"
     postgresRestore = "FAIL"
+    appRoleReadVerified = $false
+    apiReadiness = $(if ([string]::IsNullOrEmpty($ApiImage)) { "SKIPPED" } else { "FAIL" })
     latestMigration = $null
     databaseCounts = $null
     foreignKeysValidated = $false
@@ -401,9 +474,17 @@ try {
     ) -FailureMessage "Creating MinIO drill volume failed." | Out-Null
     $createdVolumes.Add($MinioVolumeName)
 
+    # Internal network: the drill containers reach each other by alias and
+    # nothing else.
+    Invoke-NativeCapture -Command $DockerCommand -Arguments @(
+        "network", "create", "--internal", "--label", "enma.restore-drill=$drillId", $networkName
+    ) -FailureMessage "Creating the drill network failed." | Out-Null
+    $createdNetworks.Add($networkName)
+
     Invoke-NativeCapture -Command $DockerCommand -Arguments @(
         "run", "-d", "--name", $PostgresContainerName,
         "--label", "enma.restore-drill=$drillId",
+        "--network", $networkName, "--network-alias", "postgres",
         "--env-file", $postgresEnvPath,
         "--mount", "source=$PostgresVolumeName,target=/var/lib/postgresql",
         "postgres:18-alpine"
@@ -412,6 +493,7 @@ try {
     Invoke-NativeCapture -Command $DockerCommand -Arguments @(
         "run", "-d", "--name", $MinioContainerName,
         "--label", "enma.restore-drill=$drillId",
+        "--network", $networkName, "--network-alias", "minio",
         "--env-file", $minioEnvPath,
         "--mount", "source=$MinioVolumeName,target=/data",
         "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46",
@@ -445,12 +527,21 @@ try {
     Invoke-NativeCapture -Command $DockerCommand -Arguments @(
         "cp", $dumpPath, "${PostgresContainerName}:$targetDumpPath"
     ) -FailureMessage "Copying dump into drill PostgreSQL failed." | Out-Null
+    # D35: roles first, the dump restored by the migrator with its privileges
+    # kept, then the grants (which also cover dumps from before the roles).
+    Invoke-EnmaDatabaseRoleScript -Phase roles -RepositoryRoot $repositoryRoot `
+        -Container $PostgresContainerName -MigratorRole $MigratorRole -AppRole $AppRole `
+        -MigratorPassword $migratorPassword -AppPassword $appPassword -DockerCommand $DockerCommand
     Invoke-NativeCapture -Command $DockerCommand -Arguments @(
         "exec", $PostgresContainerName,
         "sh", "-c",
-        'pg_restore --exit-on-error --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$1"',
-        "enma-restore", $targetDumpPath
+        'pg_restore --exit-on-error --no-owner -U "$2" -d "$POSTGRES_DB" "$1"',
+        "enma-restore", $targetDumpPath, $MigratorRole
     ) -FailureMessage "PostgreSQL restore failed." | Out-Null
+    Invoke-EnmaDatabaseRoleScript -Phase grants -RepositoryRoot $repositoryRoot `
+        -Container $PostgresContainerName -MigratorRole $MigratorRole -AppRole $AppRole `
+        -MigratorPassword $migratorPassword -AppPassword $appPassword -DockerCommand $DockerCommand
+    $report.databaseRoles = "PASS"
 
     $restoredMigration = Get-PostgresQuery `
         -DockerCommand $DockerCommand `
@@ -472,6 +563,21 @@ try {
     $report.latestMigration = $restoredMigration
     $report.databaseCounts = $restoredCounts
     $report.foreignKeysValidated = $true
+
+    # D33: the application role reads the migration history and every
+    # counted table of the restored database.
+    $countedTables = @($manifest.database.counts.PSObject.Properties.Name)
+    if (@($countedTables | Where-Object { $_ -notmatch '^[a-z_]{1,63}$' }).Count -gt 0) {
+        throw "Backup manifest counts name an invalid table."
+    }
+    $appCountsQuery = "SELECT json_build_object(" + (($countedTables | ForEach-Object {
+        "'$_', (SELECT count(*) FROM $_)" }) -join ", ") + ");"
+    $appCounts = (Get-DrillQueryAs -Role $AppRole -Query $appCountsQuery) | ConvertFrom-Json
+    Assert-CountsMatch -Expected $manifest.database.counts -Actual $appCounts
+    if ((Get-DrillQueryAs -Role $AppRole -Query 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1;') -cne $restoredMigration) {
+        throw "The application role does not read the restored migration history."
+    }
+    $report.appRoleReadVerified = $true
 
     $targetObjectRoot = "/tmp/$drillId"
     Invoke-NativeCapture -Command $DockerCommand -Arguments @(
@@ -574,10 +680,61 @@ try {
         throw "Source evidence changed during the restore drill."
     }
 
+    # The API image as the application role, after every check above (its
+    # workers may change the drill copy): /health/ready must answer 200.
+    if (-not [string]::IsNullOrEmpty($ApiImage)) {
+        [System.IO.File]::WriteAllLines($apiEnvPath, @(
+            "ASPNETCORE_ENVIRONMENT=Pilot",
+            "ConnectionStrings__Database=Host=postgres;Port=5432;Database=enma_restore_drill;Username=$AppRole;Password=$appPassword;Gss Encryption Mode=Disable",
+            "AllowedHosts=$apiHostName",
+            "Authentication__Google__Enabled=false",
+            "DocumentStorage__ServiceUrl=http://minio:9000",
+            "DocumentStorage__AllowPlainHttpSingleLabelHost=true",
+            "DocumentStorage__RequireTls=false",
+            "DocumentStorage__ForcePathStyle=true",
+            "DocumentStorage__Region=us-east-1",
+            "DocumentStorage__BucketName=$([string]$manifest.objectStorage.bucket)",
+            "DocumentStorage__AccessKey=enma-restore-drill",
+            "DocumentStorage__SecretKey=$minioRootPassword",
+            "EmailVerification__DevelopmentDelivery__VerificationPageUrl=https://localhost/verify-email",
+            "EmailVerification__DevelopmentDelivery__PasswordRecoveryPageUrl=https://localhost/reset-password",
+            "EmailVerification__DevelopmentDelivery__SmtpHost=localhost",
+            "EmailVerification__DevelopmentDelivery__SmtpPort=1025"
+        ), $utf8WithoutBom)
+        Invoke-NativeCapture -Command $DockerCommand -Arguments @(
+            "run", "-d", "--name", $apiContainerName,
+            "--label", "enma.restore-drill=$drillId",
+            "--network", $networkName, "--network-alias", $apiHostName,
+            "--env-file", $apiEnvPath,
+            $ApiImage
+        ) -FailureMessage "Starting the drill API failed." | Out-Null
+        $createdContainers.Add($apiContainerName)
+        $ready = $false
+        for ($attempt = 1; $attempt -le 45 -and -not $ready; $attempt++) {
+            Start-Sleep -Seconds 2
+            $previousErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                $probe = & $DockerCommand run --rm --label "enma.restore-drill=$drillId" `
+                    --network $networkName postgres:18-alpine `
+                    wget -q -T 5 -O - "http://$($apiHostName):8080/health/ready" 2>$null
+                $ready = $LASTEXITCODE -eq 0 -and ([string]$probe).Trim() -ceq "Healthy"
+            }
+            finally {
+                $ErrorActionPreference = $previousErrorActionPreference
+            }
+        }
+        if (-not $ready) {
+            throw "The drill API did not become ready as the application role."
+        }
+        $report.apiReadiness = "PASS"
+    }
+
     $report.overall = "PASS"
     Write-Host "RESTORE DRILL PASS"
     Write-Host "Latest migration: $restoredMigration"
     Write-Host "Objects restored and verified: $($restoredInventory.Count)"
+    Write-Host "Database roles and grants: PASS; application role reads: PASS; API readiness as the application role: $($report.apiReadiness)"
 }
 catch {
     $failure = $_
@@ -594,6 +751,9 @@ finally {
         }
         foreach ($volume in @($createdVolumes.ToArray())) {
             Remove-DrillVolume -Name $volume -DrillId $drillId
+        }
+        foreach ($network in @($createdNetworks.ToArray())) {
+            Remove-DrillNetwork -Name $network -DrillId $drillId
         }
     }
 

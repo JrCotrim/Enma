@@ -65,6 +65,7 @@ Applicable detailed rules under `.claude/rules/` load automatically when matchin
 - Consider existing production data, concurrency, transactions, rollback, indexes, and deployment ordering.
 - Never rewrite an applied historical migration unless explicitly authorized and known safe.
 - Production startup must not automatically apply migrations unless that architectural choice is explicitly requested and reviewed.
+- A migration that creates a table classifies it in the privilege map of `PostgreSqlLeastPrivilegeTests` in the same slice (D37); grants come only from `deploy/postgres/enma-roles.sql`.
 
 ## Validation
 

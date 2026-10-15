@@ -7,6 +7,10 @@ $script:PilotRequiredKeys = @(
     "PILOT_POSTGRES_DB",
     "PILOT_POSTGRES_USER",
     "PILOT_POSTGRES_PASSWORD",
+    "PILOT_POSTGRES_MIGRATOR_USER",
+    "PILOT_POSTGRES_MIGRATOR_PASSWORD",
+    "PILOT_POSTGRES_APP_USER",
+    "PILOT_POSTGRES_APP_PASSWORD",
     "PILOT_MINIO_ROOT_USER",
     "PILOT_MINIO_ROOT_PASSWORD",
     "PILOT_MINIO_APP_ACCESS_KEY",
@@ -92,18 +96,123 @@ function Assert-PilotIdentitySettings {
 
     foreach ($key in @(
         "PILOT_POSTGRES_DB", "PILOT_POSTGRES_USER",
+        "PILOT_POSTGRES_MIGRATOR_USER", "PILOT_POSTGRES_APP_USER",
         "PILOT_MINIO_ROOT_USER", "PILOT_MINIO_APP_ACCESS_KEY")) {
         if ($Settings[$key] -notmatch 'pilot') {
             throw "Pilot identity setting '$key' must contain the marker 'pilot'."
         }
     }
+    # D33/D34: the same rules as Production (scripts/production/common.sh).
+    foreach ($key in @("PILOT_POSTGRES_MIGRATOR_USER", "PILOT_POSTGRES_APP_USER")) {
+        if (-not (Test-EnmaDatabaseRoleName -Name $Settings[$key])) {
+            throw "Pilot setting '$key' must match ^[a-z_][a-z0-9_]{0,62}$ and not start with pg_."
+        }
+    }
+    foreach ($key in @("PILOT_POSTGRES_MIGRATOR_PASSWORD", "PILOT_POSTGRES_APP_PASSWORD")) {
+        if ($Settings[$key] -cnotmatch '^[A-Za-z0-9._~-]{16,}$') {
+            throw "Pilot setting '$key' must be URL-safe with at least 16 characters."
+        }
+    }
+    $roles = @(
+        $Settings.PILOT_POSTGRES_USER,
+        $Settings.PILOT_POSTGRES_MIGRATOR_USER,
+        $Settings.PILOT_POSTGRES_APP_USER)
+    if (@($roles | Select-Object -Unique).Count -ne $roles.Count) {
+        throw "Pilot PostgreSQL superuser, migrator and application roles must differ."
+    }
     $secrets = @(
         $Settings.PILOT_POSTGRES_PASSWORD,
+        $Settings.PILOT_POSTGRES_MIGRATOR_PASSWORD,
+        $Settings.PILOT_POSTGRES_APP_PASSWORD,
         $Settings.PILOT_MINIO_ROOT_PASSWORD,
         $Settings.PILOT_MINIO_APP_SECRET_KEY)
     if (@($secrets | Select-Object -Unique).Count -ne $secrets.Count) {
         throw "Pilot credentials must be distinct from one another."
     }
+}
+
+function Test-EnmaDatabaseRoleName {
+    param([AllowEmptyString()][string]$Name)
+
+    return $Name -cmatch '^[a-z_][a-z0-9_]{0,62}$' -and -not $Name.StartsWith("pg_")
+}
+
+# D34: runs deploy/postgres/enma-roles.sql inside a PostgreSQL container as its
+# bootstrap superuser (the container's own POSTGRES_USER) over the local
+# socket, then one call: "roles" before migrations and restores, "grants"
+# after them. Shared by the Pilot, the restore drill and Development. The
+# passwords travel only on psql's stdin, never in arguments, environment
+# variables or files, and are redacted from any error output.
+function Invoke-EnmaDatabaseRoleScript {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("roles", "grants")][string]$Phase,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$Container,
+        [Parameter(Mandatory = $true)][string]$MigratorRole,
+        [Parameter(Mandatory = $true)][string]$AppRole,
+        [string]$MigratorPassword = "",
+        [string]$AppPassword = "",
+        [string]$DockerCommand = "docker"
+    )
+
+    if (-not (Test-EnmaDatabaseRoleName -Name $MigratorRole) -or
+        -not (Test-EnmaDatabaseRoleName -Name $AppRole)) {
+        throw "Database role names must match ^[a-z_][a-z0-9_]{0,62}$ and not start with pg_."
+    }
+    if ($Phase -eq "roles") {
+        foreach ($password in @($MigratorPassword, $AppPassword)) {
+            if ($password -cnotmatch '^[A-Za-z0-9._~-]{16,}$') {
+                throw "Database role passwords must be URL-safe with at least 16 characters."
+            }
+        }
+        $call = "SELECT pg_temp.enma_apply_roles('$MigratorRole', '$AppRole', " +
+            "'$MigratorPassword', '$AppPassword');"
+    }
+    else {
+        $call = "SELECT pg_temp.enma_apply_grants('$MigratorRole', '$AppRole');"
+    }
+
+    $script = [System.IO.File]::ReadAllText(
+        (Join-Path $RepositoryRoot "deploy\postgres\enma-roles.sql"))
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = ($script + "`n" + $call + "`n") | & $DockerCommand exec -i $Container `
+            sh -c 'exec psql -X -q -At -v ON_ERROR_STOP=1 -U $POSTGRES_USER -d $POSTGRES_DB' 2>&1
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($exitCode -ne 0) {
+        $message = (@($output) | ForEach-Object { $_.ToString() }) -join " "
+        foreach ($password in @($MigratorPassword, $AppPassword)) {
+            if (-not [string]::IsNullOrEmpty($password)) {
+                $message = $message.Replace($password, "[redacted]")
+            }
+        }
+        throw "Database $Phase phase failed: $message"
+    }
+}
+
+function Invoke-PilotDatabaseRoles {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Settings,
+        [Parameter(Mandatory = $true)][ValidateSet("roles", "grants")][string]$Phase,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [string]$DockerCommand = "docker"
+    )
+
+    Invoke-EnmaDatabaseRoleScript `
+        -Phase $Phase `
+        -RepositoryRoot $RepositoryRoot `
+        -Container "enma-pilot-postgres" `
+        -MigratorRole $Settings.PILOT_POSTGRES_MIGRATOR_USER `
+        -AppRole $Settings.PILOT_POSTGRES_APP_USER `
+        -MigratorPassword $Settings.PILOT_POSTGRES_MIGRATOR_PASSWORD `
+        -AppPassword $Settings.PILOT_POSTGRES_APP_PASSWORD `
+        -DockerCommand $DockerCommand
+    Write-Host "Pilot database $Phase applied."
 }
 
 function Assert-PathOutsideRepository {
@@ -348,6 +457,10 @@ function Get-PilotComposeEnvironment {
         ENMA_POSTGRES_DB = $Settings.PILOT_POSTGRES_DB
         ENMA_POSTGRES_USER = $Settings.PILOT_POSTGRES_USER
         ENMA_POSTGRES_PASSWORD = $Settings.PILOT_POSTGRES_PASSWORD
+        ENMA_POSTGRES_MIGRATOR_USER = $Settings.PILOT_POSTGRES_MIGRATOR_USER
+        ENMA_POSTGRES_MIGRATOR_PASSWORD = $Settings.PILOT_POSTGRES_MIGRATOR_PASSWORD
+        ENMA_POSTGRES_APP_USER = $Settings.PILOT_POSTGRES_APP_USER
+        ENMA_POSTGRES_APP_PASSWORD = $Settings.PILOT_POSTGRES_APP_PASSWORD
         ENMA_MINIO_ROOT_USER = $Settings.PILOT_MINIO_ROOT_USER
         ENMA_MINIO_ROOT_PASSWORD = $Settings.PILOT_MINIO_ROOT_PASSWORD
         ENMA_MINIO_APP_ACCESS_KEY = $Settings.PILOT_MINIO_APP_ACCESS_KEY

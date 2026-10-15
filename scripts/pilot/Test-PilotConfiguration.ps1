@@ -47,7 +47,6 @@ $policy = Get-Content -LiteralPath (
 if (@($policy.Statement.Resource) -notcontains "arn:aws:s3:::enma-pilot-documents/*") {
     throw "Pilot MinIO policy does not target the exclusive bucket."
 }
-
 $appsettings = Get-Content -LiteralPath (
     Join-Path $repositoryRoot "src\Enma.Api\appsettings.Pilot.json") `
     -Raw | ConvertFrom-Json
@@ -91,6 +90,10 @@ if ($null -ne $docker) {
         ENMA_POSTGRES_DB = "enma_pilot_test"
         ENMA_POSTGRES_USER = "enma_pilot_test"
         ENMA_POSTGRES_PASSWORD = "synthetic-postgres-test-only"
+        ENMA_POSTGRES_MIGRATOR_USER = "enma_pilot_migrator_test"
+        ENMA_POSTGRES_MIGRATOR_PASSWORD = "synthetic-migrator-test-only"
+        ENMA_POSTGRES_APP_USER = "enma_pilot_app_test"
+        ENMA_POSTGRES_APP_PASSWORD = "synthetic-app-test-only"
         ENMA_MINIO_ROOT_USER = "enma-pilot-root-test"
         ENMA_MINIO_ROOT_PASSWORD = "synthetic-minio-root-test-only"
         ENMA_MINIO_APP_ACCESS_KEY = "enma-pilot-app-test"
@@ -169,6 +172,13 @@ if ($null -ne $docker) {
     }
     if ($model.services.api.environment.EmailVerification__DevelopmentDelivery__SmtpHost -cne "mailpit") {
         throw "The Pilot API must reach Mailpit by its service name."
+    }
+    # D33: the API connects as the application role, the migrator as itself.
+    if ($model.services.api.environment.ConnectionStrings__Database -notmatch
+            ';Username=enma_pilot_app_test;Password=synthetic-app-test-only;' -or
+        $model.services.migrate.environment.ENMA_DESIGNTIME_CONNECTION_STRING -notmatch
+            ';Username=enma_pilot_migrator_test;Password=synthetic-migrator-test-only;') {
+        throw "The Pilot API and migrator must use the application and migrator roles."
     }
 
     foreach ($volume in @("postgres_data", "documents_data", "mailpit_data")) {

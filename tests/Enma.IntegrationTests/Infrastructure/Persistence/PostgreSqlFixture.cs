@@ -1,14 +1,23 @@
+using System.Security.Cryptography;
 using Enma.Domain.Clients;
 using Enma.Domain.Deadlines;
 using Enma.Domain.Processes;
 using Enma.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Testcontainers.PostgreSql;
 
 namespace Enma.IntegrationTests.Infrastructure.Persistence;
 
+// One database per collection with the D33 identities: the bootstrap
+// superuser (ConnectionString, CreateDbContext) migrates, resets, seeds and
+// holds test locks; every API host connects as the least-privileged
+// application role (AppConnectionString), as in every other environment.
 public sealed class PostgreSqlFixture : IAsyncLifetime
 {
+    public const string MigratorRole = "enma_tests_migrator";
+    public const string AppRole = "enma_tests_app";
+
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18-alpine")
         .WithDatabase("enma_integration_tests")
         .WithUsername("enma_tests")
@@ -16,12 +25,24 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         .WithCreateParameterModifier(LoopbackPortBindings.Apply)
         .Build();
 
+    private readonly string _migratorPassword = CreateSecret();
+    private readonly string _appPassword = CreateSecret();
     private DbContextOptions<EnmaDbContext>? _dbContextOptions;
 
+    // Administrative connection: the bootstrap superuser.
     public string ConnectionString => _dbContextOptions is null
         ? throw new InvalidOperationException(
             "The PostgreSQL fixture has not been initialized.")
         : _container.GetConnectionString();
+
+    // The application role: DML only, audit_logs append-only, migration
+    // history read-only, no DDL or temporary tables.
+    public string AppConnectionString => new NpgsqlConnectionStringBuilder(
+        ConnectionString)
+    {
+        Username = AppRole,
+        Password = _appPassword
+    }.ConnectionString;
 
     public async Task InitializeAsync()
     {
@@ -31,8 +52,18 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
             .UseNpgsql(_container.GetConnectionString())
             .Options;
 
-        await using EnmaDbContext dbContext = CreateDbContext();
-        await dbContext.Database.MigrateAsync();
+        await using (EnmaDbContext dbContext = CreateDbContext())
+        {
+            await dbContext.Database.MigrateAsync();
+        }
+
+        await PostgreSqlRoles.ApplyRolesAsync(
+            ConnectionString,
+            MigratorRole,
+            _migratorPassword,
+            AppRole,
+            _appPassword);
+        await ApplyGrantsAsync();
     }
 
     public EnmaDbContext CreateDbContext()
@@ -127,12 +158,18 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
     // so the following classes of the collection do not fail in cascade. If
     // the upgrade itself fails, the schema is rebuilt from scratch and the
     // original error is still reported for the test that left it behind.
+    // Tables the superuser re-creates are converted back to the migrator and
+    // granted to the application role, as after every migration (D34).
     public async Task RestoreLatestSchemaAsync()
     {
         try
         {
-            await using EnmaDbContext dbContext = CreateDbContext();
-            await dbContext.Database.MigrateAsync();
+            await using (EnmaDbContext dbContext = CreateDbContext())
+            {
+                await dbContext.Database.MigrateAsync();
+            }
+
+            await ApplyGrantsAsync();
         }
         catch
         {
@@ -141,15 +178,36 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         }
     }
 
+    // The schema comes back exactly as initdb creates it (owned by
+    // pg_database_owner, USAGE for PUBLIC), so the grants find what they
+    // expect.
     private async Task RecreateLatestSchemaAsync()
     {
-        await using EnmaDbContext dbContext = CreateDbContext();
-        await dbContext.Database.ExecuteSqlRawAsync(
-            """
-            DROP SCHEMA "public" CASCADE;
-            CREATE SCHEMA "public";
-            """);
-        await dbContext.Database.MigrateAsync();
+        await using (EnmaDbContext dbContext = CreateDbContext())
+        {
+            await dbContext.Database.ExecuteSqlRawAsync(
+                """
+                DROP SCHEMA "public" CASCADE;
+                CREATE SCHEMA "public" AUTHORIZATION pg_database_owner;
+                GRANT USAGE ON SCHEMA "public" TO PUBLIC;
+                """);
+            await dbContext.Database.MigrateAsync();
+        }
+
+        await ApplyGrantsAsync();
+    }
+
+    private Task ApplyGrantsAsync()
+    {
+        return PostgreSqlRoles.ApplyGrantsAsync(
+            ConnectionString,
+            MigratorRole,
+            AppRole);
+    }
+
+    private static string CreateSecret()
+    {
+        return Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
     }
 
     public async Task ResetDatabaseAsync(

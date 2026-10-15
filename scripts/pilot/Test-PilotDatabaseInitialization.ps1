@@ -10,6 +10,9 @@ $testRoot = Join-Path $env:TEMP (
 $configRoot = Join-Path $testRoot "config"
 $dockerCommand = Join-Path $testRoot "fake-docker.ps1"
 $migratorLog = Join-Path $testRoot "migrator-invoked.txt"
+# D34: the fake records each database step; the role script is accepted only
+# with the passwords on stdin and never in arguments or the environment.
+$sequenceLog = Join-Path $testRoot "database-sequence.txt"
 
 function Invoke-Scenario {
     param(
@@ -23,9 +26,13 @@ function Invoke-Scenario {
     if (Test-Path -LiteralPath $migratorLog) {
         [System.IO.File]::Delete($migratorLog)
     }
+    if (Test-Path -LiteralPath $sequenceLog) {
+        [System.IO.File]::Delete($sequenceLog)
+    }
     $variables = @{
         ENMA_PILOT_TEST_SQL_MODE = $Mode
         ENMA_PILOT_TEST_MIGRATOR_LOG = $migratorLog
+        ENMA_PILOT_TEST_SEQUENCE_LOG = $sequenceLog
         ENMA_PILOT_TEST_API_RUNNING = $ApiRunning.ToString().ToLowerInvariant()
     }
     $previous = @{}
@@ -67,6 +74,13 @@ function Invoke-Scenario {
         $output -match "PILOT DATABASE INITIALIZATION PASS") {
         throw "$Name did not fail closed before the migrator ran."
     }
+    $sequence = if (Test-Path -LiteralPath $sequenceLog) {
+        [System.IO.File]::ReadAllText($sequenceLog).Trim()
+    } else { "" }
+    $expectedSequence = if ($ShouldSucceed) { "roles`nmigrate`ngrants" } else { "" }
+    if ($sequence -cne $expectedSequence) {
+        throw "$Name did not run roles, migrator and grants in order (or ran them when it must not)."
+    }
     Write-Host "PASS: $Name"
 }
 
@@ -78,6 +92,10 @@ try {
             "PILOT_POSTGRES_DB=enma_pilot_test",
             "PILOT_POSTGRES_USER=enma_pilot_test",
             "PILOT_POSTGRES_PASSWORD=synthetic-postgres-test-only",
+            "PILOT_POSTGRES_MIGRATOR_USER=enma_pilot_migrator_test",
+            "PILOT_POSTGRES_MIGRATOR_PASSWORD=synthetic-migrator-test-only",
+            "PILOT_POSTGRES_APP_USER=enma_pilot_app_test",
+            "PILOT_POSTGRES_APP_PASSWORD=synthetic-app-test-only",
             "PILOT_MINIO_ROOT_USER=enma-pilot-root-test",
             "PILOT_MINIO_ROOT_PASSWORD=synthetic-minio-root-test-only",
             "PILOT_MINIO_APP_ACCESS_KEY=enma-pilot-app-test",
@@ -116,11 +134,37 @@ if ($joined -match "\.State\.Running") {
 }
 if ($CommandArguments.Count -ge 1 -and $CommandArguments[0] -ceq "compose") {
     if ($joined -match "--profile migrate run --rm --no-deps migrate$" -and
-        $env:ENMA_POSTGRES_PASSWORD -ceq "synthetic-postgres-test-only") {
+        $env:ENMA_POSTGRES_PASSWORD -ceq "synthetic-postgres-test-only" -and
+        $env:ENMA_POSTGRES_MIGRATOR_USER -ceq "enma_pilot_migrator_test") {
         [System.IO.File]::WriteAllText($env:ENMA_PILOT_TEST_MIGRATOR_LOG, "invoked")
+        [System.IO.File]::AppendAllText($env:ENMA_PILOT_TEST_SEQUENCE_LOG, "migrate`n")
         return
     }
     $global:LASTEXITCODE = 21
+    return
+}
+if ($CommandArguments.Count -ge 4 -and
+    $CommandArguments[0] -ceq "exec" -and
+    $CommandArguments[1] -ceq "-i" -and
+    $CommandArguments[2] -ceq "enma-pilot-postgres" -and
+    $CommandArguments[3] -ceq "sh") {
+    $stdin = @($input) -join "`n"
+    $phase = $null
+    if ($stdin -match "pg_temp\.enma_apply_roles\('enma_pilot_migrator_test', 'enma_pilot_app_test', 'synthetic-migrator-test-only', 'synthetic-app-test-only'\);") {
+        $phase = "roles"
+    }
+    elseif ($stdin -match "pg_temp\.enma_apply_grants\('enma_pilot_migrator_test', 'enma_pilot_app_test'\);") {
+        $phase = "grants"
+    }
+    if ($null -eq $phase -or
+        $stdin -notmatch "CREATE OR REPLACE FUNCTION pg_temp\.enma_apply_grants" -or
+        $joined -match "synthetic-(migrator|app)-test-only" -or
+        -not [string]::IsNullOrEmpty($env:ENMA_POSTGRES_MIGRATOR_PASSWORD) -or
+        -not [string]::IsNullOrEmpty($env:ENMA_POSTGRES_APP_PASSWORD)) {
+        $global:LASTEXITCODE = 24
+        return
+    }
+    [System.IO.File]::AppendAllText($env:ENMA_PILOT_TEST_SEQUENCE_LOG, "$phase`n")
     return
 }
 if ($CommandArguments.Count -ge 3 -and

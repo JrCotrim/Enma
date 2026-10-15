@@ -5,8 +5,10 @@
 # Compose command uses the same release.
 #
 # Order: configuration checks, data services, storage bootstrap, API stop,
-# migrations (migrate.sh refuses while the API runs), API and edge, then
-# readiness and the HTML build through the edge.
+# migrations (migrate.sh refuses while the API runs; it runs the roles phase,
+# the migrator as the migrator role, then the grants phase), API (as the
+# application role) and edge, then readiness and the HTML build through the
+# edge.
 #
 # Rollback = set ENMA_IMAGE_TAG back to the previous tag printed here and run
 # this script with it. Migrations are never reverted: the previous release
@@ -36,6 +38,7 @@ if grep -Eiq 'include[[:space:]]*error[[:space:]]*detail' -- "$ENMA_ENV_FILE"; t
     die "$ENMA_ENV_FILE must not enable Include Error Detail"
 fi
 compose --profile migrate config --quiet || die "the Compose configuration is invalid"
+assert_database_identities
 for image in "enma-api:$tag" "enma-migrator:$tag"; do
     docker image inspect "$image" >/dev/null 2>&1 || die "image $image is not present on this host"
 done

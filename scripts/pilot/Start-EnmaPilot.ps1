@@ -49,13 +49,15 @@ if (@(@($httpsPort, $mailpitUiPort) | Where-Object { $developmentPorts -contains
 $developmentSecrets = @{}
 if (Test-Path -LiteralPath $developmentEnvironmentPath -PathType Leaf) {
     foreach ($line in Get-Content -LiteralPath $developmentEnvironmentPath) {
-        if ($line -match '^(POSTGRES_PASSWORD|MINIO_ROOT_PASSWORD|MINIO_APP_SECRET_KEY)=(.+)$') {
+        if ($line -match '^(POSTGRES_PASSWORD|POSTGRES_MIGRATOR_PASSWORD|POSTGRES_APP_PASSWORD|MINIO_ROOT_PASSWORD|MINIO_APP_SECRET_KEY)=(.+)$') {
             $developmentSecrets[$Matches[1]] = $Matches[2].Trim()
         }
     }
 }
 $secretMap = @{
     PILOT_POSTGRES_PASSWORD = "POSTGRES_PASSWORD"
+    PILOT_POSTGRES_MIGRATOR_PASSWORD = "POSTGRES_MIGRATOR_PASSWORD"
+    PILOT_POSTGRES_APP_PASSWORD = "POSTGRES_APP_PASSWORD"
     PILOT_MINIO_ROOT_PASSWORD = "MINIO_ROOT_PASSWORD"
     PILOT_MINIO_APP_SECRET_KEY = "MINIO_APP_SECRET_KEY"
 }

@@ -18,6 +18,7 @@ Real customer or legal data enters only after an approved restore drill
 | `deploy/compose.production.yaml` | Production environment, public ports 80/443, HSTS Caddyfile |
 | `deploy/caddy/Caddyfile.production`, `deploy/caddy/enma.caddy` | TLS, security headers, CSP, reverse proxy |
 | `deploy/production.env.example` | every application variable, placeholders only |
+| `deploy/postgres/enma-roles.sql` | database roles and grants (D33-D37), the single source for every environment |
 | `deploy/backup.env.example` | every backup variable, placeholders only |
 | `deploy/systemd/enma-backup.service`, `.timer` | daily off-site backup |
 | `scripts/production/deploy.sh` | configuration checks, migrations, stack, readiness |
@@ -121,7 +122,9 @@ script refuses anything else. Generate secrets URL-safe, for example
 - `/etc/enma/production.env`: `ENMA_IMAGE_TAG`, `ENMA_REVISION`,
   `ENMA_PUBLIC_HOST`, `ENMA_ACME_EMAIL`, optional `ENMA_EDGE_SUBNET`,
   `ENMA_EDGE_DYNAMIC_RANGE`, `ENMA_EDGE_PROXY_IP`, `ENMA_POSTGRES_DB`,
-  `ENMA_POSTGRES_USER`, `ENMA_POSTGRES_PASSWORD`, `ENMA_MINIO_ROOT_USER`,
+  `ENMA_POSTGRES_USER`, `ENMA_POSTGRES_PASSWORD`,
+  `ENMA_POSTGRES_MIGRATOR_USER`, `ENMA_POSTGRES_MIGRATOR_PASSWORD`,
+  `ENMA_POSTGRES_APP_USER`, `ENMA_POSTGRES_APP_PASSWORD`, `ENMA_MINIO_ROOT_USER`,
   `ENMA_MINIO_ROOT_PASSWORD`, `ENMA_MINIO_APP_ACCESS_KEY`,
   `ENMA_MINIO_APP_SECRET_KEY`, `ENMA_SMTP_HOST`, `ENMA_SMTP_PORT`,
   `ENMA_SMTP_SECURITY`, `ENMA_SMTP_USERNAME`, `ENMA_SMTP_PASSWORD`,
@@ -132,6 +135,12 @@ script refuses anything else. Generate secrets URL-safe, for example
   `ENMA_BACKUP_S3_ACCESS_KEY`, `ENMA_BACKUP_S3_SECRET_KEY`,
   `ENMA_BACKUP_HEARTBEAT_SUCCESS_URL`, `ENMA_BACKUP_HEARTBEAT_FAILURE_URL`,
   optional `ENMA_BACKUP_WORK_DIR`.
+
+PostgreSQL has three identities (D33); see section 8.1. The role names match
+`^[a-z_][a-z0-9_]{0,62}$` and do not start with `pg_`; the three names and the
+three passwords must all differ, and the migrator and application passwords
+are URL-safe with at least 16 characters (`openssl rand -hex 32`). The scripts
+refuse anything else before touching the stack.
 
 Never add `Include Error Detail` to any connection string or setting:
 `deploy.sh` refuses an environment file that mentions it. The Compose files
@@ -198,13 +207,70 @@ sudo /opt/enma/scripts/production/deploy.sh <release-tag>
 
 The script refuses unless the environment file is root/600, contains no
 placeholder and no `Include Error Detail`, `ENMA_IMAGE_TAG` equals the tag,
-the Compose model renders and both release images exist. It then starts
-PostgreSQL and Silo, runs the bucket bootstrap, stops the API, runs
-`migrate.sh` (which refuses while any API container runs), starts the API and
-Caddy, and waits until `https://<public-host>/health/ready` answers 200 and `/`
-serves HTML through the local edge with the public certificate verified. It
-prints the previous release tag. A failure leaves the API stopped: keep it
-stopped, preserve restricted diagnostics, never edit a historical migration.
+the Compose model renders, the database identities are valid and both release
+images exist. It then starts PostgreSQL and Silo, runs the bucket bootstrap,
+stops the API, runs `migrate.sh` (which refuses while any API container runs:
+roles phase, migrator as the migrator role, grants phase), starts the API (as
+the application role) and Caddy, and waits until
+`https://<public-host>/health/ready` answers 200 and `/` serves HTML through the
+local edge with the public certificate verified. It prints the previous release
+tag. A failure leaves the API stopped: keep it stopped, preserve restricted
+diagnostics, never edit a historical migration.
+
+### 8.1 Database identities (D33-D37)
+
+| Identity | Variables | Holds | Used by |
+|---|---|---|---|
+| bootstrap superuser | `ENMA_POSTGRES_USER`, `ENMA_POSTGRES_PASSWORD` | creates the database | the postgres service only: `enma-roles.sql` and `pg_dump` over the local socket |
+| migrator | `ENMA_POSTGRES_MIGRATOR_*` | owns the database and every object in `public` | the `migrate` service, `pg_restore` |
+| application | `ENMA_POSTGRES_APP_*` | `CONNECT`, `USAGE` on `public`, DML on every table | the API |
+
+The application role has `SELECT`, `INSERT`, `UPDATE`, `DELETE` on every
+table, except `audit_logs` (`SELECT`, `INSERT`) and `__EFMigrationsHistory`
+(`SELECT`); no `TRUNCATE`, `REFERENCES`, `TRIGGER`, `MAINTAIN`, DDL or
+temporary tables. `CONNECT` and `TEMP` are revoked from `PUBLIC` on the
+database. The API container never receives the superuser or migrator
+password, and the migrator never receives the superuser's.
+
+`deploy/postgres/enma-roles.sql` is the single source (D34). It runs as the
+bootstrap superuser through `psql` on the container's local socket, in two
+phases:
+
+- `roles`, before every migration and restore: creates the roles if missing,
+  resets their attributes and passwords, gives the database to the migrator,
+  sets the database privileges and converts any object not yet owned by the
+  migrator;
+- `grants`, after every migration and restore: converts every object in
+  `public` to the migrator, object by object, resets the table privileges to
+  the map above and the migrator's default privileges for future tables, and
+  verifies the result.
+
+Both are idempotent and fail closed: an invalid, reserved, superuser or member
+role, a schema other than `public`, or an unexpected object kind (sequence,
+view, `SECURITY DEFINER` function, standalone type, policy, extension, ...)
+aborts with nothing changed. The passwords are read from the environment file
+and reach `psql` only on stdin; the session suppresses statement, duration,
+sampling and error logging before the call, and a failed password change is
+re-raised without its statement.
+
+The first deploy of this release converts an existing database created by the
+superuser (`roles`, the migrator finds nothing new, `grants`). Take the backup
+first, as for every deploy. To check the result read-only:
+
+```bash
+cd /opt/enma
+docker compose -f deploy/compose.yaml -f deploy/compose.production.yaml \
+  --env-file /etc/enma/production.env exec -T postgres sh -ec \
+  'psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()" -c "SELECT relname, pg_get_userbyid(relowner), relacl FROM pg_class WHERE relnamespace = '\''public'\''::regnamespace AND relkind = '\''r'\'' ORDER BY 1"'
+```
+
+Rollback of the identities = the API and migrator connection strings back to
+the superuser: deploy the previous release from its own checkout (its Compose
+file gives both the superuser), as in section 10. The roles and the migrator's
+ownership stay in place and are harmless to the superuser; the next deploy of
+this release reapplies the identities. A migration that creates a table
+updates the privilege map of `PostgreSqlLeastPrivilegeTests` in the same slice
+(D37), or the integration suite fails.
 
 ## 9. Verify
 
@@ -327,10 +393,17 @@ never written to disk. The API must be stopped, `ENMA_IMAGE_TAG` must equal
 the backup's release (deploy the newer release afterwards), and the target
 must be empty: the script refuses a database with any relation, a bucket with
 objects or a non-empty key volume, without a force option. It verifies every
-SHA-256, restores the database, the documents and the Data Protection keys
-(owned by uid 1654), starts the stack, waits for `/health/ready` and prints
-counts only: organizations, document rows, pending deletions, bucket objects,
-rows without object and objects without row.
+SHA-256, runs the `roles` phase, restores the database as the migrator
+(`pg_restore --no-owner`, keeping the dump's privileges, D35), runs the
+`grants` phase (which also covers a dump taken before the roles existed, owned
+by the superuser and without privileges), restores the documents and the Data
+Protection keys (owned by uid 1654), starts the stack, waits for
+`/health/ready` and prints counts only: organizations, document rows, pending
+deletions, bucket objects, rows without object and objects without row. A dump
+whose privileges name other roles than this environment's is refused by
+`pg_restore`: restore into an environment with the same role names. The
+PostgreSQL backup itself is unchanged: `pg_dump` as the superuser over the
+local socket, no new secret.
 
 A restore that fails after the database step leaves a partial target, which
 the next run refuses. Keep the failure output, then bring the stack down and
@@ -375,9 +448,15 @@ strings or customer legal data.
 The local Pilot runs the same images and topology with Caddy's local CA on
 `https://enma-pilot.localhost:5443`; see [local-pilot.md](local-pilot.md).
 
-Development is unchanged: run `scripts/setup-local.ps1`, start the API with
-its Development launch profile, then `npm run dev` in `src/Enma.Web`, and open
-`http://localhost:5173`. `https://localhost:7028/health/live` and `/health/ready`
+Development uses the same identities (D37): `scripts/setup-local.ps1` reads
+`POSTGRES_MIGRATOR_*` and `POSTGRES_APP_*` from `.env`, runs the `roles`
+phase, applies the migrations as the migrator, runs the `grants` phase and
+points the API User Secret at the application role. Re-running it is
+idempotent and converts a database created before the roles; to apply a new
+migration, run it again (a migration applied any other way leaves its new
+tables without grants until the next run).
+Then start the API with its Development launch profile, then `npm run dev` in
+`src/Enma.Web`, and open `http://localhost:5173`. `https://localhost:7028/health/live` and `/health/ready`
 must return 200 with only `Healthy`. Health responses and failed requests must
 expose no connection string, credential, token, stack trace, migration name,
 user, organization, or document detail.

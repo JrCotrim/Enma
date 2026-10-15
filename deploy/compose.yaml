@@ -18,10 +18,17 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "5"
 
+# Database identities (D33): the bootstrap superuser ENMA_POSTGRES_USER stays
+# inside the postgres service, for the scripts over its local socket
+# (deploy/postgres/enma-roles.sql, backups); the migrator receives only its own
+# connection string and the API only the application role's.
 # GSS encryption is disabled: the images ship no Kerberos library, and the
 # default probe only logs "Cannot load library libgssapi_krb5.so.2".
-x-postgres-connection: &postgres-connection >-
-  Host=postgres;Port=5432;Database=${ENMA_POSTGRES_DB:?ENMA_POSTGRES_DB is required};Username=${ENMA_POSTGRES_USER:?ENMA_POSTGRES_USER is required};Password=${ENMA_POSTGRES_PASSWORD:?ENMA_POSTGRES_PASSWORD is required};Gss Encryption Mode=Disable
+x-postgres-migrator-connection: &postgres-migrator-connection >-
+  Host=postgres;Port=5432;Database=${ENMA_POSTGRES_DB:?ENMA_POSTGRES_DB is required};Username=${ENMA_POSTGRES_MIGRATOR_USER:?ENMA_POSTGRES_MIGRATOR_USER is required};Password=${ENMA_POSTGRES_MIGRATOR_PASSWORD:?ENMA_POSTGRES_MIGRATOR_PASSWORD is required};Gss Encryption Mode=Disable
+
+x-postgres-app-connection: &postgres-app-connection >-
+  Host=postgres;Port=5432;Database=${ENMA_POSTGRES_DB:?ENMA_POSTGRES_DB is required};Username=${ENMA_POSTGRES_APP_USER:?ENMA_POSTGRES_APP_USER is required};Password=${ENMA_POSTGRES_APP_PASSWORD:?ENMA_POSTGRES_APP_PASSWORD is required};Gss Encryption Mode=Disable
 
 services:
   postgres:
@@ -94,7 +101,8 @@ services:
     logging: *default-logging
 
   # D14: one-shot migrations bundle. Runs only on demand
-  # (`run --rm migrate`) and only while the API is stopped.
+  # (`run --rm migrate`), only while the API is stopped, and as the migrator,
+  # between the roles and grants phases of enma-roles.sql (migrate.sh).
   migrate:
     image: enma-migrator:${ENMA_IMAGE_TAG:?ENMA_IMAGE_TAG is required}
     build:
@@ -110,7 +118,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      ENMA_DESIGNTIME_CONNECTION_STRING: *postgres-connection
+      ENMA_DESIGNTIME_CONNECTION_STRING: *postgres-migrator-connection
     networks:
       - backend
     cap_drop:
@@ -139,7 +147,7 @@ services:
       minio-bootstrap:
         condition: service_completed_successfully
     environment:
-      ConnectionStrings__Database: *postgres-connection
+      ConnectionStrings__Database: *postgres-app-connection
       AllowedHosts: ${ENMA_PUBLIC_HOST:?ENMA_PUBLIC_HOST is required}
       Deployment__TrustedProxy__Enabled: "true"
       Deployment__TrustedProxy__KnownProxies__0: ${ENMA_EDGE_PROXY_IP:-10.247.31.2}

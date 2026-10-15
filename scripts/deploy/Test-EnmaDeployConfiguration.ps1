@@ -3,11 +3,119 @@ param([string]$DockerCommand = "docker")
 
 # Static checks of the Production deployment artifact (D13-D15): renders the
 # Compose model with synthetic values and verifies the edge-only exposure,
-# restart/log policies, environment, and that production.env.example names
-# every variable the Compose files read.
+# restart/log policies, environment, the database identities (D33/D34), and
+# that production.env.example names every variable the Compose files read.
+# Every identity check also runs against broken synthetic values that it must
+# reject, so a check that stops failing closed fails here.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+$databaseIdentityKeys = @(
+    "ENMA_POSTGRES_USER", "ENMA_POSTGRES_PASSWORD",
+    "ENMA_POSTGRES_MIGRATOR_USER", "ENMA_POSTGRES_MIGRATOR_PASSWORD",
+    "ENMA_POSTGRES_APP_USER", "ENMA_POSTGRES_APP_PASSWORD")
+
+# Mirrors assert_database_identities in scripts/production/common.sh.
+function Assert-DatabaseIdentityValues {
+    param([Parameter(Mandatory = $true)][hashtable]$Values)
+
+    foreach ($key in $databaseIdentityKeys) {
+        if (-not $Values.ContainsKey($key) -or [string]::IsNullOrEmpty($Values[$key])) {
+            throw "Database identity setting '$key' is missing."
+        }
+    }
+    foreach ($key in @("ENMA_POSTGRES_MIGRATOR_USER", "ENMA_POSTGRES_APP_USER")) {
+        if ($Values[$key] -cnotmatch '^[a-z_][a-z0-9_]{0,62}$' -or $Values[$key].StartsWith("pg_")) {
+            throw "Database role name '$key' is invalid."
+        }
+    }
+    foreach ($key in @("ENMA_POSTGRES_MIGRATOR_PASSWORD", "ENMA_POSTGRES_APP_PASSWORD")) {
+        if ($Values[$key] -cnotmatch '^[A-Za-z0-9._~-]{16,}$') {
+            throw "Database password '$key' must be URL-safe with at least 16 characters."
+        }
+    }
+    $names = @($Values.ENMA_POSTGRES_USER, $Values.ENMA_POSTGRES_MIGRATOR_USER, $Values.ENMA_POSTGRES_APP_USER)
+    $passwords = @($Values.ENMA_POSTGRES_PASSWORD, $Values.ENMA_POSTGRES_MIGRATOR_PASSWORD, $Values.ENMA_POSTGRES_APP_PASSWORD)
+    if (@($names | Select-Object -Unique).Count -ne 3) {
+        throw "The PostgreSQL superuser, migrator and application roles must differ."
+    }
+    if (@($passwords | Select-Object -Unique).Count -ne 3) {
+        throw "The PostgreSQL superuser, migrator and application passwords must differ."
+    }
+}
+
+function ConvertFrom-ConnectionString {
+    param([Parameter(Mandatory = $true)][string]$Value)
+
+    $parts = @{}
+    foreach ($pair in $Value.Split(';')) {
+        $separator = $pair.IndexOf('=')
+        if ($separator -gt 0) {
+            $parts[$pair.Substring(0, $separator).Trim()] = $pair.Substring($separator + 1)
+        }
+    }
+    return $parts
+}
+
+# The API holds only the application role, the migrator only its own role,
+# and the bootstrap superuser stays in the postgres service.
+function Assert-DatabaseConnections {
+    param([Parameter(Mandatory = $true)]$Model)
+
+    $superuser = $Model.services.postgres.environment.POSTGRES_USER
+    $superuserPassword = $Model.services.postgres.environment.POSTGRES_PASSWORD
+    $api = ConvertFrom-ConnectionString -Value $Model.services.api.environment.ConnectionStrings__Database
+    $migrator = ConvertFrom-ConnectionString -Value $Model.services.migrate.environment.ENMA_DESIGNTIME_CONNECTION_STRING
+    foreach ($connection in @($api, $migrator)) {
+        if ($connection["Host"] -cne "postgres" -or
+            $connection["Gss Encryption Mode"] -cne "Disable" -or
+            [string]::IsNullOrEmpty($connection["Username"]) -or
+            [string]::IsNullOrEmpty($connection["Password"])) {
+            throw "A database connection string is incomplete or lost Gss Encryption Mode=Disable."
+        }
+    }
+    if ($api["Username"] -ceq $superuser -or $api["Password"] -ceq $superuserPassword) {
+        throw "The API must not connect as the PostgreSQL superuser."
+    }
+    if ($api["Username"] -ceq $migrator["Username"] -or $api["Password"] -ceq $migrator["Password"]) {
+        throw "The API must not connect as the migrator."
+    }
+    if ($migrator["Username"] -ceq $superuser -or $migrator["Password"] -ceq $superuserPassword) {
+        throw "The migrator must not connect as the PostgreSQL superuser."
+    }
+    $foreignPasswords = @{
+        api = @($superuserPassword, $migrator["Password"])
+        migrate = @($superuserPassword, $api["Password"])
+    }
+    foreach ($service in $foreignPasswords.Keys) {
+        $environmentJson = $Model.services.$service.environment | ConvertTo-Json -Compress
+        foreach ($password in $foreignPasswords[$service]) {
+            if ($environmentJson.Contains($password)) {
+                throw "Service '$service' receives another identity's database password."
+            }
+        }
+    }
+}
+
+# A negative case must be rejected, and for the expected reason.
+function Assert-Rejected {
+    param(
+        [Parameter(Mandatory = $true)][string]$Case,
+        [Parameter(Mandatory = $true)][scriptblock]$Check,
+        [Parameter(Mandatory = $true)][string]$Expected
+    )
+
+    $message = $null
+    try { & $Check | Out-Null }
+    catch { $message = $_.Exception.Message }
+    if ($null -eq $message) {
+        throw "Negative check was not rejected: $Case."
+    }
+    if ($message -notmatch $Expected) {
+        throw "Negative check '$Case' was rejected for an unexpected reason: $message"
+    }
+}
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $deployRoot = Join-Path $repositoryRoot "deploy"
@@ -55,6 +163,56 @@ if ($shared -match "unsafe-inline|unsafe-eval") {
     throw "The CSP must not allow unsafe-inline or unsafe-eval."
 }
 
+foreach ($key in $databaseIdentityKeys) {
+    if ($referenced -notcontains $key) {
+        throw "The Compose files must read the database identity setting '$key'."
+    }
+}
+
+$synthetic = @{}
+foreach ($name in $referenced) {
+    $synthetic[$name] = switch ($name) {
+        "ENMA_PUBLIC_HOST" { "enma.example.test" }
+        "ENMA_SMTP_PORT" { "587" }
+        "ENMA_SMTP_SECURITY" { "StartTls" }
+        "ENMA_GOOGLE_ENABLED" { "false" }
+        "ENMA_EDGE_SUBNET" { "10.247.31.0/28" }
+        "ENMA_EDGE_DYNAMIC_RANGE" { "10.247.31.8/29" }
+        "ENMA_EDGE_PROXY_IP" { "10.247.31.2" }
+        "ENMA_POSTGRES_USER" { "synthetic_bootstrap" }
+        "ENMA_POSTGRES_MIGRATOR_USER" { "synthetic_migrator" }
+        "ENMA_POSTGRES_APP_USER" { "synthetic_app" }
+        default { "synthetic-" + $name.ToLowerInvariant().Replace("_", "-") }
+    }
+}
+
+function Copy-Values {
+    param([hashtable]$Changes = @{}, [string[]]$Remove = @())
+
+    $copy = $synthetic.Clone()
+    foreach ($key in $Changes.Keys) { $copy[$key] = $Changes[$key] }
+    foreach ($key in $Remove) { $copy.Remove($key) }
+    return $copy
+}
+
+Assert-DatabaseIdentityValues -Values $synthetic
+$identityNegatives = [ordered]@{
+    "invalid migrator role name" = @((Copy-Values -Changes @{ ENMA_POSTGRES_MIGRATOR_USER = "Synthetic-Migrator" }), "role name 'ENMA_POSTGRES_MIGRATOR_USER' is invalid")
+    "invalid application role name" = @((Copy-Values -Changes @{ ENMA_POSTGRES_APP_USER = "synthetic app" }), "role name 'ENMA_POSTGRES_APP_USER' is invalid")
+    "reserved application role name" = @((Copy-Values -Changes @{ ENMA_POSTGRES_APP_USER = "pg_synthetic" }), "role name 'ENMA_POSTGRES_APP_USER' is invalid")
+    "application role is the superuser" = @((Copy-Values -Changes @{ ENMA_POSTGRES_APP_USER = $synthetic.ENMA_POSTGRES_USER }), "roles must differ")
+    "application role is the migrator" = @((Copy-Values -Changes @{ ENMA_POSTGRES_APP_USER = $synthetic.ENMA_POSTGRES_MIGRATOR_USER }), "roles must differ")
+    "application password equals the superuser's" = @((Copy-Values -Changes @{ ENMA_POSTGRES_APP_PASSWORD = $synthetic.ENMA_POSTGRES_PASSWORD }), "passwords must differ")
+    "application password equals the migrator's" = @((Copy-Values -Changes @{ ENMA_POSTGRES_APP_PASSWORD = $synthetic.ENMA_POSTGRES_MIGRATOR_PASSWORD }), "passwords must differ")
+    "migrator password equals the superuser's" = @((Copy-Values -Changes @{ ENMA_POSTGRES_MIGRATOR_PASSWORD = $synthetic.ENMA_POSTGRES_PASSWORD }), "passwords must differ")
+    "migrator password not URL-safe" = @((Copy-Values -Changes @{ ENMA_POSTGRES_MIGRATOR_PASSWORD = "synthetic;password;value" }), "must be URL-safe")
+    "application password missing" = @((Copy-Values -Remove @("ENMA_POSTGRES_APP_PASSWORD")), "'ENMA_POSTGRES_APP_PASSWORD' is missing")
+}
+foreach ($case in $identityNegatives.Keys) {
+    $values, $expected = $identityNegatives[$case]
+    Assert-Rejected -Case $case -Expected $expected -Check { Assert-DatabaseIdentityValues -Values $values }
+}
+
 $docker = Get-Command -Name $DockerCommand -ErrorAction SilentlyContinue
 if ($null -eq $docker) {
     Write-Host "Docker not found; Compose rendering checks were skipped."
@@ -62,38 +220,47 @@ if ($null -eq $docker) {
     return
 }
 
-$previous = @{}
-try {
-    foreach ($name in $referenced) {
-        $previous[$name] = [System.Environment]::GetEnvironmentVariable($name, "Process")
-        $value = switch ($name) {
-            "ENMA_PUBLIC_HOST" { "enma.example.test" }
-            "ENMA_SMTP_PORT" { "587" }
-            "ENMA_SMTP_SECURITY" { "StartTls" }
-            "ENMA_GOOGLE_ENABLED" { "false" }
-            "ENMA_EDGE_SUBNET" { "10.247.31.0/28" }
-            "ENMA_EDGE_DYNAMIC_RANGE" { "10.247.31.8/29" }
-            "ENMA_EDGE_PROXY_IP" { "10.247.31.2" }
-            default { "synthetic-" + $name.ToLowerInvariant().Replace("_", "-") }
+function Invoke-ComposeRender {
+    param([Parameter(Mandatory = $true)][hashtable]$Values)
+
+    $previous = @{}
+    try {
+        foreach ($name in $referenced) {
+            $previous[$name] = [System.Environment]::GetEnvironmentVariable($name, "Process")
+            $value = if ($Values.ContainsKey($name)) { $Values[$name] } else { $null }
+            [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
         }
-        [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+        $rendered = & $docker.Source compose `
+            --file $basePath `
+            --file $productionPath `
+            --profile migrate `
+            config --format json 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Production Compose rendering failed."
+        }
     }
-    $rendered = & $docker.Source compose `
-        --file $basePath `
-        --file $productionPath `
-        --profile migrate `
-        config --format json 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "Production Compose rendering failed."
+    finally {
+        foreach ($name in $previous.Keys) {
+            [System.Environment]::SetEnvironmentVariable($name, $previous[$name], "Process")
+        }
     }
-}
-finally {
-    foreach ($name in $previous.Keys) {
-        [System.Environment]::SetEnvironmentVariable($name, $previous[$name], "Process")
-    }
+    return ($rendered -join "`n") | ConvertFrom-Json
 }
 
-$model = ($rendered -join "`n") | ConvertFrom-Json
+$model = Invoke-ComposeRender -Values $synthetic
+Assert-DatabaseConnections -Model $model
+$renderNegatives = [ordered]@{
+    "API connects as the superuser" = @((Copy-Values -Changes @{ ENMA_POSTGRES_APP_USER = $synthetic.ENMA_POSTGRES_USER; ENMA_POSTGRES_APP_PASSWORD = $synthetic.ENMA_POSTGRES_PASSWORD }), "API must not connect as the PostgreSQL superuser")
+    "API connects as the migrator" = @((Copy-Values -Changes @{ ENMA_POSTGRES_APP_USER = $synthetic.ENMA_POSTGRES_MIGRATOR_USER; ENMA_POSTGRES_APP_PASSWORD = $synthetic.ENMA_POSTGRES_MIGRATOR_PASSWORD }), "API must not connect as the migrator")
+}
+foreach ($case in $renderNegatives.Keys) {
+    $values, $expected = $renderNegatives[$case]
+    Assert-Rejected -Case $case -Expected $expected -Check { Assert-DatabaseConnections -Model (Invoke-ComposeRender -Values $values) }
+}
+foreach ($key in $databaseIdentityKeys) {
+    $values = Copy-Values -Remove @($key)
+    Assert-Rejected -Case "Compose renders without $key" -Expected "Production Compose rendering failed|required variable $key is missing a value" -Check { Invoke-ComposeRender -Values $values }
+}
 if ($model.name -cne "enma-production") {
     throw "Production Compose must use the enma-production project."
 }

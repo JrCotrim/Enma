@@ -30,12 +30,12 @@ public sealed class EnmaApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.UseSetting(
             "ConnectionStrings:Database",
-            fixture.ConnectionString);
+            fixture.AppConnectionString);
         builder.ConfigureAppConfiguration((_, configuration) =>
         {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Database"] = fixture.ConnectionString,
+                ["ConnectionStrings:Database"] = fixture.AppConnectionString,
                 [TestHostIsolation.DevelopmentSmtpPortKey] =
                     TestHostIsolation.UnusedSmtpPort.ToString()
             });

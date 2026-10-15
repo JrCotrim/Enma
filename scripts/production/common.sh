@@ -119,6 +119,67 @@ postgres_query() {
         'exec psql -X -q -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 }
 
+# D33/D34: the three PostgreSQL identities of the environment file. Role names
+# match the SQL script's own check; the migrator and application passwords are
+# URL-safe so the connection strings Compose builds stay intact. Fails closed on
+# an invalid or reserved name, a reused name or a reused password.
+assert_database_identities() {
+    local superuser migrator app superuser_password migrator_password app_password value
+    superuser=$(require_env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_USER)
+    migrator=$(require_env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_MIGRATOR_USER)
+    app=$(require_env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_APP_USER)
+    superuser_password=$(require_env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_PASSWORD)
+    migrator_password=$(require_env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_MIGRATOR_PASSWORD)
+    app_password=$(require_env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_APP_PASSWORD)
+    for value in "$migrator" "$app"; do
+        [[ $value =~ ^[a-z_][a-z0-9_]{0,62}$ && $value != pg_* ]] ||
+            die "ENMA_POSTGRES_MIGRATOR_USER and ENMA_POSTGRES_APP_USER must match ^[a-z_][a-z0-9_]{0,62}\$ and not start with pg_"
+    done
+    for value in "$migrator_password" "$app_password"; do
+        [[ $value =~ ^[A-Za-z0-9._~-]{16,}$ ]] ||
+            die "ENMA_POSTGRES_MIGRATOR_PASSWORD and ENMA_POSTGRES_APP_PASSWORD must be URL-safe (letters, digits, . _ ~ -) with at least 16 characters"
+    done
+    [[ $superuser != "$migrator" && $superuser != "$app" && $migrator != "$app" ]] ||
+        die "the PostgreSQL superuser, migrator and application roles must be three different names"
+    [[ $superuser_password != "$migrator_password" && $superuser_password != "$app_password" &&
+        $migrator_password != "$app_password" ]] ||
+        die "the PostgreSQL superuser, migrator and application passwords must all differ"
+}
+
+# D34: deploy/postgres/enma-roles.sql, run inside the postgres container as
+# the bootstrap superuser over its local socket, then one call: `roles` before
+# migrations and restores, `grants` after them. The role passwords are read
+# from the environment file and reach psql only on stdin (printf is a shell
+# builtin); a failure prints psql's error with them redacted.
+database_roles() {
+    local phase=$1 migrator app migrator_password='' app_password='' call output
+    assert_database_identities
+    migrator=$(env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_MIGRATOR_USER)
+    app=$(env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_APP_USER)
+    case $phase in
+        roles)
+            migrator_password=$(env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_MIGRATOR_PASSWORD)
+            app_password=$(env_value "$ENMA_ENV_FILE" ENMA_POSTGRES_APP_PASSWORD)
+            printf -v call "SELECT pg_temp.enma_apply_roles('%s', '%s', '%s', '%s');" \
+                "$migrator" "$app" "$migrator_password" "$app_password"
+            ;;
+        grants)
+            printf -v call "SELECT pg_temp.enma_apply_grants('%s', '%s');" "$migrator" "$app"
+            ;;
+        *) die "unknown database roles phase: $phase" ;;
+    esac
+    if ! output=$({ cat -- "$ENMA_REPOSITORY_ROOT/deploy/postgres/enma-roles.sql" &&
+        printf '%s\n' "$call"; } |
+        compose exec -T postgres sh -ec \
+            'exec psql -X -q -At -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' 2>&1); then
+        [[ -z $migrator_password ]] || output=${output//"$migrator_password"/[redacted]}
+        [[ -z $app_password ]] || output=${output//"$app_password"/[redacted]}
+        printf '%s\n' "$output" >&2
+        die "database $phase failed"
+    fi
+    log "database $phase applied (migrator $migrator, application $app)"
+}
+
 # One-shot bootstrap: private bucket and restricted application identity.
 run_storage_bootstrap() {
     local project=$1 container status
