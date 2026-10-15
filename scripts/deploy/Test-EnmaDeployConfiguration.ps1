@@ -45,6 +45,57 @@ function Assert-DatabaseIdentityValues {
     }
 }
 
+$storageIdentityKeys = @(
+    "ENMA_MINIO_ROOT_USER", "ENMA_MINIO_ROOT_PASSWORD",
+    "ENMA_MINIO_APP_ACCESS_KEY", "ENMA_MINIO_APP_SECRET_KEY",
+    "ENMA_MINIO_BACKUP_ACCESS_KEY", "ENMA_MINIO_BACKUP_SECRET_KEY")
+
+# D36: the backup identity exists and shares no credential with the root or
+# application identities; backup.sh puts it in a URL, so it is URL-safe.
+function Assert-StorageIdentityValues {
+    param([Parameter(Mandatory = $true)][hashtable]$Values)
+
+    foreach ($key in $storageIdentityKeys) {
+        if (-not $Values.ContainsKey($key) -or [string]::IsNullOrEmpty($Values[$key])) {
+            throw "Storage identity setting '$key' is missing."
+        }
+    }
+    foreach ($key in @("ENMA_MINIO_BACKUP_ACCESS_KEY", "ENMA_MINIO_BACKUP_SECRET_KEY")) {
+        if ($Values[$key] -cnotmatch '^[A-Za-z0-9._~-]+$') {
+            throw "Storage setting '$key' must be URL-safe."
+        }
+    }
+    $accessKeys = @($Values.ENMA_MINIO_ROOT_USER, $Values.ENMA_MINIO_APP_ACCESS_KEY, $Values.ENMA_MINIO_BACKUP_ACCESS_KEY)
+    $secrets = @($Values.ENMA_MINIO_ROOT_PASSWORD, $Values.ENMA_MINIO_APP_SECRET_KEY, $Values.ENMA_MINIO_BACKUP_SECRET_KEY)
+    if (@($accessKeys | Select-Object -Unique).Count -ne 3 -or
+        @($secrets | Select-Object -Unique).Count -ne 3) {
+        throw "The MinIO root, application and backup credentials must all differ."
+    }
+}
+
+# The backup policy grants exactly ListBucket on the bucket and GetObject on
+# its objects.
+function Assert-BackupPolicy {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Bucket
+    )
+
+    $policy = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    $granted = @(foreach ($statement in @($policy.Statement)) {
+        if ($statement.Effect -cne "Allow" -or $null -ne $statement.PSObject.Properties["Condition"]) {
+            throw "Backup policy '$Path' has an unexpected statement."
+        }
+        foreach ($action in @($statement.Action)) {
+            foreach ($resource in @($statement.Resource)) { "$action $resource" }
+        }
+    }) | Sort-Object
+    $expected = @("s3:GetObject arn:aws:s3:::$Bucket/*", "s3:ListBucket arn:aws:s3:::$Bucket")
+    if (@(Compare-Object $expected $granted).Count -ne 0) {
+        throw "Backup policy '$Path' must grant only ListBucket on the bucket and GetObject on its objects."
+    }
+}
+
 function ConvertFrom-ConnectionString {
     param([Parameter(Mandatory = $true)][string]$Value)
 
@@ -213,6 +264,31 @@ foreach ($case in $identityNegatives.Keys) {
     Assert-Rejected -Case $case -Expected $expected -Check { Assert-DatabaseIdentityValues -Values $values }
 }
 
+foreach ($key in $storageIdentityKeys) {
+    if ($referenced -notcontains $key) {
+        throw "The Compose files must read the storage identity setting '$key'."
+    }
+}
+Assert-StorageIdentityValues -Values $synthetic
+$storageNegatives = [ordered]@{
+    "backup access key equals the root user" = @((Copy-Values -Changes @{ ENMA_MINIO_BACKUP_ACCESS_KEY = $synthetic.ENMA_MINIO_ROOT_USER }), "credentials must all differ")
+    "backup access key equals the application's" = @((Copy-Values -Changes @{ ENMA_MINIO_BACKUP_ACCESS_KEY = $synthetic.ENMA_MINIO_APP_ACCESS_KEY }), "credentials must all differ")
+    "backup secret equals the root password" = @((Copy-Values -Changes @{ ENMA_MINIO_BACKUP_SECRET_KEY = $synthetic.ENMA_MINIO_ROOT_PASSWORD }), "credentials must all differ")
+    "backup secret equals the application's" = @((Copy-Values -Changes @{ ENMA_MINIO_BACKUP_SECRET_KEY = $synthetic.ENMA_MINIO_APP_SECRET_KEY }), "credentials must all differ")
+    "backup secret not URL-safe" = @((Copy-Values -Changes @{ ENMA_MINIO_BACKUP_SECRET_KEY = "synthetic/backup@secret" }), "must be URL-safe")
+    "backup access key missing" = @((Copy-Values -Remove @("ENMA_MINIO_BACKUP_ACCESS_KEY")), "'ENMA_MINIO_BACKUP_ACCESS_KEY' is missing")
+}
+foreach ($case in $storageNegatives.Keys) {
+    $values, $expected = $storageNegatives[$case]
+    Assert-Rejected -Case $case -Expected $expected -Check { Assert-StorageIdentityValues -Values $values }
+}
+$backupPolicyPath = Join-Path $repositoryRoot "infrastructure\minio\enma-documents-backup-policy.json"
+Assert-BackupPolicy -Path $backupPolicyPath -Bucket "enma-documents"
+$writablePolicyPath = Join-Path $repositoryRoot "infrastructure\minio\enma-documents-app-policy.json"
+Assert-Rejected -Case "a writable policy as the backup policy" -Expected "must grant only ListBucket" -Check {
+    Assert-BackupPolicy -Path $writablePolicyPath -Bucket "enma-documents"
+}
+
 $docker = Get-Command -Name $DockerCommand -ErrorAction SilentlyContinue
 if ($null -eq $docker) {
     Write-Host "Docker not found; Compose rendering checks were skipped."
@@ -257,9 +333,20 @@ foreach ($case in $renderNegatives.Keys) {
     $values, $expected = $renderNegatives[$case]
     Assert-Rejected -Case $case -Expected $expected -Check { Assert-DatabaseConnections -Model (Invoke-ComposeRender -Values $values) }
 }
-foreach ($key in $databaseIdentityKeys) {
+foreach ($key in $databaseIdentityKeys + @("ENMA_MINIO_BACKUP_ACCESS_KEY", "ENMA_MINIO_BACKUP_SECRET_KEY")) {
     $values = Copy-Values -Remove @($key)
     Assert-Rejected -Case "Compose renders without $key" -Expected "Production Compose rendering failed|required variable $key is missing a value" -Check { Invoke-ComposeRender -Values $values }
+}
+$bootstrap = $model.services.'minio-bootstrap'
+if (@($bootstrap.volumes | Where-Object {
+        $_.target -ceq "/policies/backup-policy.json" -and $_.read_only -eq $true -and
+        ($_.source -replace '\\', '/') -like "*/infrastructure/minio/enma-documents-backup-policy.json" }).Count -ne 1 -or
+    $bootstrap.environment.MINIO_BACKUP_ACCESS_KEY -cne $synthetic.ENMA_MINIO_BACKUP_ACCESS_KEY -or
+    (@($bootstrap.command) -join "`n") -notmatch 'mc admin policy attach enma "\$+DOCUMENTS_BUCKET-backup" --user "\$+MINIO_BACKUP_ACCESS_KEY"') {
+    throw "The storage bootstrap must create the backup identity with its read-only policy."
+}
+if (($model.services.api.environment | ConvertTo-Json -Compress).Contains($synthetic.ENMA_MINIO_BACKUP_SECRET_KEY)) {
+    throw "The API must not receive the backup identity."
 }
 if ($model.name -cne "enma-production") {
     throw "Production Compose must use the enma-production project."

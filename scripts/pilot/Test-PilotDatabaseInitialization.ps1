@@ -100,6 +100,8 @@ try {
             "PILOT_MINIO_ROOT_PASSWORD=synthetic-minio-root-test-only",
             "PILOT_MINIO_APP_ACCESS_KEY=enma-pilot-app-test",
             "PILOT_MINIO_APP_SECRET_KEY=synthetic-minio-app-test-only",
+            "PILOT_MINIO_BACKUP_ACCESS_KEY=enma-pilot-backup-test",
+            "PILOT_MINIO_BACKUP_SECRET_KEY=synthetic-minio-backup-test-only",
             "PILOT_MAILPIT_UI_PORT=8125",
             "PILOT_WEB_HTTPS_PORT=7042"
         ))

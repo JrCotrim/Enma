@@ -13,6 +13,7 @@ services:
       DOCUMENTS_BUCKET: enma-documents
     volumes:
       - ../infrastructure/minio/enma-documents-app-policy.json:/policies/app-policy.json:ro
+      - ../infrastructure/minio/enma-documents-backup-policy.json:/policies/backup-policy.json:ro
 
   api:
     environment:

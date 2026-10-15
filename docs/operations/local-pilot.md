@@ -60,9 +60,10 @@ PostgreSQL uses the three Production identities (D33, see section 8.1 of
 [production-runbook.md](production-runbook.md)): `PILOT_POSTGRES_USER` is the
 bootstrap superuser, used only inside `enma-pilot-postgres`;
 `PILOT_POSTGRES_MIGRATOR_*` runs the migrator; the API connects as
-`PILOT_POSTGRES_APP_*`. A `pilot.env` created before the roles lacks those
-four keys and every script refuses it; add them once (random names and
-passwords, nothing else changes, nothing is printed):
+`PILOT_POSTGRES_APP_*`. The bucket bootstrap also creates the read-only MinIO
+backup identity `PILOT_MINIO_BACKUP_*` (D36). A `pilot.env` created before
+these identities lacks their keys and every script refuses it; add them once
+(random names and passwords, nothing else changes, nothing is printed):
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File `
@@ -95,7 +96,7 @@ The `roles` phase also converts the existing objects to the migrator, so a
 normal start is the conversion. Step by step, with fictitious data only:
 
 1. stop only the application and take a backup (section Backup and restore);
-2. add the role keys (`New-EnmaPilotConfiguration.ps1 -AddMissingIdentities`);
+2. add the missing identity keys (`New-EnmaPilotConfiguration.ps1 -AddMissingIdentities`);
 3. `Start-EnmaPilot.ps1 -SkipBuild` (or without `-SkipBuild` after a code
    change): `roles` converts, the migrator finds nothing to apply, `grants`
    sets the privileges, and the API starts as the application role;

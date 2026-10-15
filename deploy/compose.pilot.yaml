@@ -25,6 +25,7 @@ services:
       DOCUMENTS_BUCKET: enma-pilot-documents
     volumes:
       - ../infrastructure/minio/enma-pilot-documents-app-policy.json:/policies/app-policy.json:ro
+      - ../infrastructure/minio/enma-pilot-documents-backup-policy.json:/policies/backup-policy.json:ro
 
   mailpit:
     # Mailpit 1.30.7, index published 2026-08-08.

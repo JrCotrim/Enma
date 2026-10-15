@@ -15,6 +15,8 @@ $script:PilotRequiredKeys = @(
     "PILOT_MINIO_ROOT_PASSWORD",
     "PILOT_MINIO_APP_ACCESS_KEY",
     "PILOT_MINIO_APP_SECRET_KEY",
+    "PILOT_MINIO_BACKUP_ACCESS_KEY",
+    "PILOT_MINIO_BACKUP_SECRET_KEY",
     "PILOT_MAILPIT_UI_PORT",
     "PILOT_WEB_HTTPS_PORT"
 )
@@ -97,7 +99,8 @@ function Assert-PilotIdentitySettings {
     foreach ($key in @(
         "PILOT_POSTGRES_DB", "PILOT_POSTGRES_USER",
         "PILOT_POSTGRES_MIGRATOR_USER", "PILOT_POSTGRES_APP_USER",
-        "PILOT_MINIO_ROOT_USER", "PILOT_MINIO_APP_ACCESS_KEY")) {
+        "PILOT_MINIO_ROOT_USER", "PILOT_MINIO_APP_ACCESS_KEY",
+        "PILOT_MINIO_BACKUP_ACCESS_KEY")) {
         if ($Settings[$key] -notmatch 'pilot') {
             throw "Pilot identity setting '$key' must contain the marker 'pilot'."
         }
@@ -120,12 +123,20 @@ function Assert-PilotIdentitySettings {
     if (@($roles | Select-Object -Unique).Count -ne $roles.Count) {
         throw "Pilot PostgreSQL superuser, migrator and application roles must differ."
     }
+    $storageIdentities = @(
+        $Settings.PILOT_MINIO_ROOT_USER,
+        $Settings.PILOT_MINIO_APP_ACCESS_KEY,
+        $Settings.PILOT_MINIO_BACKUP_ACCESS_KEY)
+    if (@($storageIdentities | Select-Object -Unique).Count -ne $storageIdentities.Count) {
+        throw "Pilot MinIO root, application and backup identities must differ."
+    }
     $secrets = @(
         $Settings.PILOT_POSTGRES_PASSWORD,
         $Settings.PILOT_POSTGRES_MIGRATOR_PASSWORD,
         $Settings.PILOT_POSTGRES_APP_PASSWORD,
         $Settings.PILOT_MINIO_ROOT_PASSWORD,
-        $Settings.PILOT_MINIO_APP_SECRET_KEY)
+        $Settings.PILOT_MINIO_APP_SECRET_KEY,
+        $Settings.PILOT_MINIO_BACKUP_SECRET_KEY)
     if (@($secrets | Select-Object -Unique).Count -ne $secrets.Count) {
         throw "Pilot credentials must be distinct from one another."
     }
@@ -465,6 +476,8 @@ function Get-PilotComposeEnvironment {
         ENMA_MINIO_ROOT_PASSWORD = $Settings.PILOT_MINIO_ROOT_PASSWORD
         ENMA_MINIO_APP_ACCESS_KEY = $Settings.PILOT_MINIO_APP_ACCESS_KEY
         ENMA_MINIO_APP_SECRET_KEY = $Settings.PILOT_MINIO_APP_SECRET_KEY
+        ENMA_MINIO_BACKUP_ACCESS_KEY = $Settings.PILOT_MINIO_BACKUP_ACCESS_KEY
+        ENMA_MINIO_BACKUP_SECRET_KEY = $Settings.PILOT_MINIO_BACKUP_SECRET_KEY
     }
 }
 

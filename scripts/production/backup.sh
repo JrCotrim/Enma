@@ -2,7 +2,8 @@
 # Online, encrypted, off-site backup of the production host (D6, D29). The API
 # keeps running. In order:
 #   1. pg_dump -Fc of the database;
-#   2. the documents bucket, mirrored with the pinned MinIO client;
+#   2. the documents bucket, mirrored with the pinned MinIO client as the
+#      read-only backup identity (D36: list the bucket, read its objects);
 #   3. the Data Protection key ring;
 #   4. manifest.txt plus SHA256SUMS of every part.
 # The parts are packed and encrypted with age for the configured recipient
@@ -81,7 +82,16 @@ root_user=$(require_env_value "$ENMA_ENV_FILE" ENMA_MINIO_ROOT_USER)
 root_password=$(require_env_value "$ENMA_ENV_FILE" ENMA_MINIO_ROOT_PASSWORD)
 [[ $root_user$root_password =~ ^[A-Za-z0-9._~-]+$ ]] ||
     die "the MinIO root credentials must be URL-safe (letters, digits, . _ ~ -)"
-unset root_user root_password
+backup_access_key=$(require_env_value "$ENMA_ENV_FILE" ENMA_MINIO_BACKUP_ACCESS_KEY)
+backup_secret_key=$(require_env_value "$ENMA_ENV_FILE" ENMA_MINIO_BACKUP_SECRET_KEY)
+[[ $backup_access_key$backup_secret_key =~ ^[A-Za-z0-9._~-]+$ ]] ||
+    die "the MinIO backup credentials must be URL-safe (letters, digits, . _ ~ -)"
+[[ $backup_access_key != "$root_user" &&
+    $backup_access_key != "$(require_env_value "$ENMA_ENV_FILE" ENMA_MINIO_APP_ACCESS_KEY)" &&
+    $backup_secret_key != "$root_password" &&
+    $backup_secret_key != "$(require_env_value "$ENMA_ENV_FILE" ENMA_MINIO_APP_SECRET_KEY)" ]] ||
+    die "the MinIO backup identity must differ from the root and application identities"
+unset root_user root_password backup_access_key backup_secret_key
 toolbox=$(service_image postgres)
 client=$(service_image minio-bootstrap)
 started=$(date -u +%Y%m%dT%H%M%SZ)
@@ -98,7 +108,7 @@ log "2/4 documents"
 temporary_volume=$(docker volume create --label enma.backup.temporary=true "enma-backup-${work##*.}")
 compose run --rm --no-deps -T --volume "$temporary_volume:/backup" --entrypoint /bin/sh \
     minio-bootstrap -ec '
-        export MC_HOST_source="http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@minio:9000"
+        export MC_HOST_source="http://$MINIO_BACKUP_ACCESS_KEY:$MINIO_BACKUP_SECRET_KEY@minio:9000"
         mkdir -p /backup/objects
         mc mirror --quiet "source/$DOCUMENTS_BUCKET" /backup/objects >/dev/null'
 docker run --rm --network none --volume "$temporary_volume:/backup:ro" --entrypoint tar \

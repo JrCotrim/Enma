@@ -126,7 +126,8 @@ script refuses anything else. Generate secrets URL-safe, for example
   `ENMA_POSTGRES_MIGRATOR_USER`, `ENMA_POSTGRES_MIGRATOR_PASSWORD`,
   `ENMA_POSTGRES_APP_USER`, `ENMA_POSTGRES_APP_PASSWORD`, `ENMA_MINIO_ROOT_USER`,
   `ENMA_MINIO_ROOT_PASSWORD`, `ENMA_MINIO_APP_ACCESS_KEY`,
-  `ENMA_MINIO_APP_SECRET_KEY`, `ENMA_SMTP_HOST`, `ENMA_SMTP_PORT`,
+  `ENMA_MINIO_APP_SECRET_KEY`, `ENMA_MINIO_BACKUP_ACCESS_KEY`,
+  `ENMA_MINIO_BACKUP_SECRET_KEY`, `ENMA_SMTP_HOST`, `ENMA_SMTP_PORT`,
   `ENMA_SMTP_SECURITY`, `ENMA_SMTP_USERNAME`, `ENMA_SMTP_PASSWORD`,
   `ENMA_SMTP_SENDER_NAME`, `ENMA_SMTP_SENDER_ADDRESS`, `ENMA_GOOGLE_ENABLED`,
   `ENMA_GOOGLE_CLIENT_ID`, `ENMA_GOOGLE_CLIENT_SECRET`.
@@ -362,8 +363,12 @@ systemctl list-timers enma-backup.timer
 
 A run logs `BACKUP PASS` with the object name, size and SHA-256 of the
 ciphertext. It runs at 03:30 America/Sao_Paulo (RPO 24 h, D6) without
-stopping the API: `pg_dump -Fc`, then the documents bucket mirrored with the
-pinned client, then the Data Protection keys, a manifest with the SHA-256 of
+stopping the API: `pg_dump -Fc` (the superuser over the local socket), then
+the documents bucket mirrored with the pinned client as the read-only backup
+identity (D36: `s3:ListBucket` on the bucket and `s3:GetObject` on its objects,
+created idempotently by the bucket bootstrap; its access key and secret differ
+from the root's and the API's), then the Data Protection keys, a manifest with
+the SHA-256 of
 every part, `age` encryption to the recipient, and upload by a disposable
 client container on Docker's default bridge network, fed through stdin. It
 never joins `backend`, so no data service gains egress. Plaintext stays only

@@ -47,6 +47,22 @@ $policy = Get-Content -LiteralPath (
 if (@($policy.Statement.Resource) -notcontains "arn:aws:s3:::enma-pilot-documents/*") {
     throw "Pilot MinIO policy does not target the exclusive bucket."
 }
+# D36: the backup identity lists the exclusive bucket and reads its objects,
+# nothing else.
+$backupPolicy = Get-Content -LiteralPath (
+    Join-Path $repositoryRoot "infrastructure\minio\enma-pilot-documents-backup-policy.json") `
+    -Raw | ConvertFrom-Json
+$backupGrants = @(foreach ($statement in @($backupPolicy.Statement)) {
+    foreach ($action in @($statement.Action)) {
+        foreach ($resource in @($statement.Resource)) { "$($statement.Effect) $action $resource" }
+    }
+}) | Sort-Object
+if (@(Compare-Object @(
+        "Allow s3:GetObject arn:aws:s3:::enma-pilot-documents/*",
+        "Allow s3:ListBucket arn:aws:s3:::enma-pilot-documents") $backupGrants).Count -ne 0) {
+    throw "Pilot MinIO backup policy must grant only ListBucket and GetObject on the exclusive bucket."
+}
+
 $appsettings = Get-Content -LiteralPath (
     Join-Path $repositoryRoot "src\Enma.Api\appsettings.Pilot.json") `
     -Raw | ConvertFrom-Json
@@ -98,6 +114,8 @@ if ($null -ne $docker) {
         ENMA_MINIO_ROOT_PASSWORD = "synthetic-minio-root-test-only"
         ENMA_MINIO_APP_ACCESS_KEY = "enma-pilot-app-test"
         ENMA_MINIO_APP_SECRET_KEY = "synthetic-minio-app-test-only"
+        ENMA_MINIO_BACKUP_ACCESS_KEY = "enma-pilot-backup-test"
+        ENMA_MINIO_BACKUP_SECRET_KEY = "synthetic-minio-backup-test-only"
     }
     $previous = @{}
     try {

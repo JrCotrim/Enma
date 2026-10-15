@@ -4,8 +4,8 @@ param(
     [int]$MailpitUiPort = 8125,
     [int]$WebHttpsPort = 5443,
     # Adds the identity settings an existing pilot.env lacks (the D33 database
-    # roles), each group with fresh random values. No other setting is
-    # changed, and no secret is printed.
+    # roles, the D36 read-only MinIO backup identity), each group with fresh
+    # random values. No other setting is changed, and no secret is printed.
     [switch]$AddMissingIdentities
 )
 
@@ -35,6 +35,10 @@ function New-PilotIdentityGroups {
             "PILOT_POSTGRES_MIGRATOR_PASSWORD=$(New-PilotSecret)",
             "PILOT_POSTGRES_APP_USER=enma_pilot_app_$roleSuffix",
             "PILOT_POSTGRES_APP_PASSWORD=$(New-PilotSecret)"
+        )
+        "storage backup identity" = @(
+            "PILOT_MINIO_BACKUP_ACCESS_KEY=enma-pilot-backup-$((New-PilotSecret -ByteCount 9).ToLowerInvariant())",
+            "PILOT_MINIO_BACKUP_SECRET_KEY=$(New-PilotSecret)"
         )
     }
 }
