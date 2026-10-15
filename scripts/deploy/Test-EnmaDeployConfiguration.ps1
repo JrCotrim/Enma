@@ -293,7 +293,7 @@ $docker = Get-Command -Name $DockerCommand -ErrorAction SilentlyContinue
 if ($null -eq $docker) {
     Write-Host "Docker not found; Compose rendering checks were skipped."
     Write-Host "DEPLOY CONFIGURATION TESTS PASS"
-    return
+    exit 0
 }
 
 function Invoke-ComposeRender {
@@ -422,3 +422,6 @@ if ($model.networks.backend.internal -ne $true) {
 }
 
 Write-Host "DEPLOY CONFIGURATION TESTS PASS"
+# The rejected renders above leave $LASTEXITCODE non-zero, and a pwsh step
+# exits with $LASTEXITCODE; every failure throws before reaching this line.
+exit 0
