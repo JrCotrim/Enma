@@ -97,6 +97,73 @@ resolve_edge_mode() {
     export ENMA_RESOLVED_EDGE_MODE=$mode ENMA_RESOLVED_EDGE_ADDRESS=$address
 }
 
+# D40: checks an edge certificate and its key: both parse, the key belongs to
+# the certificate, the certificate names <host> in a DNS subjectAltName and
+# stays valid for <seconds> more. Logs the first problem and returns 1; never
+# prints key material. Used by renew-cert.sh before a swap and by
+# check_tailnet_edge.
+check_certificate_pair() {
+    local cert=$1 key=$2 host=$3 seconds=$4 cert_public key_public names
+    cert_public=$(openssl x509 -in "$cert" -noout -pubkey 2>/dev/null) ||
+        { log "the certificate is not a readable PEM certificate"; return 1; }
+    key_public=$(openssl pkey -in "$key" -passin pass: -pubout 2>/dev/null </dev/null) ||
+        { log "the key is not a readable, unencrypted PEM private key"; return 1; }
+    [[ $cert_public == "$key_public" ]] ||
+        { log "the certificate and the key do not belong together"; return 1; }
+    # "X509v3 Subject Alternative Name:" then "DNS:a, DNS:b" on the next line.
+    names=$(openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null) || names=''
+    if [[ $names == *$'\n'* ]]; then names=${names#*$'\n'}; else names=''; fi
+    names=${names//[[:space:]]/}
+    [[ ,${names,,}, == *",dns:${host,,},"* ]] ||
+        { log "the certificate subjectAltName does not name ENMA_PUBLIC_HOST"; return 1; }
+    if ! openssl x509 -in "$cert" -noout -checkend "$seconds" >/dev/null 2>&1; then
+        if ((seconds == 0)); then
+            log "the certificate has expired"
+        else
+            log "the certificate has expired or expires within $((seconds / 86400)) days"
+        fi
+        return 1
+    fi
+}
+
+# D40-D42 preflight of the tailnet edge, before anything starts; a no-op in
+# public mode. ENMA_EDGE_TLS_DIR is a root-owned directory (700 or 750), and
+# tls.crt (root, 644) and tls.key (root, 600) resolve to regular files inside
+# it (renew-cert.sh keeps them as links into its current generation); the
+# pair passes check_certificate_pair with at least <seconds> of validity left;
+# and ENMA_EDGE_BIND_ADDRESS is assigned to an interface of this host. Logs
+# the first problem and returns 1.
+check_tailnet_edge() {
+    local seconds=$1 host dir real_dir file path expected owner_mode addresses
+    resolve_edge_mode
+    [[ $ENMA_RESOLVED_EDGE_MODE == tailnet ]] || return 0
+    require_commands openssl ip realpath stat
+    host=$(require_env_value "$ENMA_ENV_FILE" ENMA_PUBLIC_HOST) || return 1
+    dir=$(env_value "$ENMA_ENV_FILE" ENMA_EDGE_TLS_DIR)
+    [[ -d $dir && ! -L $dir ]] || { log "tailnet preflight: $dir is not a directory"; return 1; }
+    real_dir=$(realpath -e -- "$dir") || return 1
+    owner_mode=$(stat -c '%u %g %a' -- "$dir") || return 1
+    [[ $owner_mode == "0 0 700" || $owner_mode == "0 0 750" ]] ||
+        { log "tailnet preflight: $dir must be root:root with mode 700 or 750 (found $owner_mode)"; return 1; }
+    for file in tls.crt:644 tls.key:600; do
+        expected=${file#*:}
+        file=${file%%:*}
+        if ! path=$(realpath -e -- "$dir/$file" 2>/dev/null) || [[ $path != "$real_dir"/* || ! -f $path ]]; then
+            log "tailnet preflight: $dir/$file is missing or not a file inside $dir"
+            return 1
+        fi
+        owner_mode=$(stat -c '%u %g %a' -- "$path") || return 1
+        [[ $owner_mode == "0 0 $expected" ]] ||
+            { log "tailnet preflight: $dir/$file must be root:root with mode $expected (found $owner_mode)"; return 1; }
+    done
+    check_certificate_pair "$dir/tls.crt" "$dir/tls.key" "$host" "$seconds" ||
+        { log "tailnet preflight: the certificate in $dir is not usable"; return 1; }
+    addresses=$(ip -4 -o address show) || return 1
+    [[ $addresses == *" inet $ENMA_RESOLVED_EDGE_ADDRESS/"* ]] ||
+        { log "tailnet preflight: ENMA_EDGE_BIND_ADDRESS is not assigned to any interface of this host"; return 1; }
+    log "tailnet preflight passed"
+}
+
 compose() {
     resolve_edge_mode
     docker compose --env-file "$ENMA_ENV_FILE" "$@"

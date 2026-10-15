@@ -267,6 +267,64 @@ if ($exampleText -cnotmatch '(?m)^ENMA_EDGE_MODE=public\r?$') {
     throw "production.env.example must set ENMA_EDGE_MODE=public."
 }
 
+# The `grep -E[i]q '<pattern>' -- "$ENMA_ENV_FILE"` guards of deploy.sh, read
+# from the script itself so a changed guard is tested as it is. An example
+# with its placeholders filled in must pass every guard, so a copied example
+# is deployable; the guards must still reject placeholders and a connection
+# string with Include Error Detail.
+$deployScript = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\production\deploy.sh") -Raw
+$envGuards = @([regex]::Matches($deployScript, "grep -E(i?)q '([^']+)' -- `"\`$ENMA_ENV_FILE`"") | ForEach-Object {
+    $options = if ($_.Groups[1].Value -ceq "i") { "(?mi)" } else { "(?m)" }
+    $options + $_.Groups[2].Value.Replace("[[:space:]]", "\s")
+})
+if ($envGuards.Count -ne 2) {
+    throw "deploy.sh must keep its two environment file guards (placeholders, Include Error Detail)."
+}
+function Test-EnvGuards {
+    param([Parameter(Mandatory = $true)][string]$Text)
+    return @($envGuards | Where-Object { $Text -match $_ }).Count -eq 0
+}
+$filledExample = $exampleText -replace '<[^>]*>', 'synthetic'
+if (-not (Test-EnvGuards -Text $filledExample)) {
+    throw "production.env.example with its placeholders filled in fails a deploy.sh guard."
+}
+foreach ($rejected in @(
+    $exampleText,
+    "$filledExample`nENMA_EXTRA=Host=postgres;Include Error Detail=true`n",
+    "$filledExample`nENMA_EXTRA=Host=postgres;includeerrordetail=true`n")) {
+    if (Test-EnvGuards -Text $rejected) {
+        throw "A deploy.sh environment file guard no longer rejects placeholders or Include Error Detail."
+    }
+}
+
+# D40/D41: the renewal unit runs renew-cert.sh like the backup unit runs
+# backup.sh, and its timer fires daily with a randomized delay.
+$systemdRoot = Join-Path $deployRoot "systemd"
+$renewService = Get-Content -LiteralPath (Join-Path $systemdRoot "enma-renew-cert.service") -Raw
+$renewTimer = Get-Content -LiteralPath (Join-Path $systemdRoot "enma-renew-cert.timer") -Raw
+foreach ($required in @(
+    '(?m)^Type=oneshot$',
+    '(?m)^Environment=ENMA_ENV_FILE=/etc/enma/production\.env$',
+    '(?m)^ExecStart=/opt/enma/scripts/production/renew-cert\.sh$',
+    '(?m)^PrivateTmp=yes$',
+    '(?m)^NoNewPrivileges=yes$')) {
+    if ($renewService -cnotmatch $required) {
+        throw "enma-renew-cert.service does not match '$required'."
+    }
+}
+foreach ($required in @(
+    '(?m)^OnCalendar=\*-\*-\* \d\d:\d\d:\d\d America/Sao_Paulo$',
+    '(?m)^RandomizedDelaySec=\S+$',
+    '(?m)^Persistent=true$',
+    '(?m)^WantedBy=timers\.target$')) {
+    if ($renewTimer -cnotmatch $required) {
+        throw "enma-renew-cert.timer does not match '$required'."
+    }
+}
+if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot "scripts\production\renew-cert.sh") -PathType Leaf)) {
+    throw "enma-renew-cert.service runs a script that does not exist."
+}
+
 $caddyfile = Get-Content -LiteralPath (Join-Path $deployRoot "caddy\Caddyfile.production") -Raw
 $shared = Get-Content -LiteralPath (Join-Path $deployRoot "caddy\enma.caddy") -Raw
 if ($caddyfile -notmatch 'Strict-Transport-Security' -or

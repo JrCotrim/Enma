@@ -1,0 +1,15 @@
+# Daily trigger for enma-renew-cert.service. `tailscale cert` returns a new
+# certificate only when renewal is due, so a daily run reloads Caddy rarely.
+# Persistent runs a missed renewal at the next boot; the deploy preflight
+# refuses a certificate with less than 7 days left.
+
+[Unit]
+Description=Daily ENMA tailnet edge certificate renewal
+
+[Timer]
+OnCalendar=*-*-* 04:15:00 America/Sao_Paulo
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

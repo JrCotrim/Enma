@@ -42,6 +42,9 @@ assert_database_identities
 for image in "enma-api:$tag" "enma-migrator:$tag"; do
     docker image inspect "$image" >/dev/null 2>&1 || die "image $image is not present on this host"
 done
+# D40-D42: certificate (at least 7 days left) and bind address of the tailnet
+# edge; a no-op in public mode.
+check_tailnet_edge $((7 * 86400)) || die "the tailnet edge is not ready; refusing to deploy"
 
 project=$(compose_project)
 public_host=$(require_env_value "$ENMA_ENV_FILE" ENMA_PUBLIC_HOST)

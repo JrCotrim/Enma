@@ -1,0 +1,19 @@
+# ENMA tailnet edge certificate renewal (D40, D41). Installed by the
+# production runbook into /etc/systemd/system; runs
+# scripts/production/renew-cert.sh from the release checkout in /opt/enma.
+# Public mode: the script exits 0 without changing anything.
+
+[Unit]
+Description=ENMA tailnet edge certificate renewal
+Requires=docker.service
+After=docker.service tailscaled.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=ENMA_ENV_FILE=/etc/enma/production.env
+ExecStart=/opt/enma/scripts/production/renew-cert.sh
+UMask=0077
+PrivateTmp=yes
+NoNewPrivileges=yes
+TimeoutStartSec=10min
