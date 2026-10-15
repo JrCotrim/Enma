@@ -362,6 +362,11 @@ describe('organization invitations administration flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enviar convite' }))
 
     expect(await screen.findByText(/tente novamente em 17 segundos/i)).toBeInTheDocument()
+    // The cooldown interval is registered in a passive effect that React may
+    // flush after findByText resolves; tick only once the component owns it.
+    await waitFor(() =>
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 1_000),
+    )
     expect(screen.getByRole('button', { name: 'Aguarde 17s' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Aguarde 17s' }))
     expect(fetchMock).toHaveBeenCalledTimes(3)
@@ -449,13 +454,15 @@ describe('organization invitations administration flow', () => {
       resolveResend = resolve
     })
     vi.spyOn(Date, 'now').mockImplementation(() => now)
-    vi.spyOn(window, 'setInterval').mockImplementation((handler, timeout, ...args) => {
-      if (timeout === 1_000 && typeof handler === 'function') {
-        tick = () => handler(...args)
-        return 42
-      }
-      return originalSetInterval(handler, timeout, ...args)
-    })
+    const setIntervalSpy = vi
+      .spyOn(window, 'setInterval')
+      .mockImplementation((handler, timeout, ...args) => {
+        if (timeout === 1_000 && typeof handler === 'function') {
+          tick = () => handler(...args)
+          return 42
+        }
+        return originalSetInterval(handler, timeout, ...args)
+      })
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(invitationPage([invitation()]))
@@ -470,6 +477,9 @@ describe('organization invitations administration flow', () => {
     resolveResend(response(429, undefined, { 'Retry-After': '23' }))
 
     expect(await screen.findByText(/tente novamente em 23 segundos/i)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 1_000),
+    )
     expect(screen.getByRole('button', { name: 'Reenviar em 23s' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Revogar' })).toBeEnabled()
 
