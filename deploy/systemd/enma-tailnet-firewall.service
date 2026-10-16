@@ -1,0 +1,30 @@
+# ENMA tailnet edge firewall (D51). Installed by the production runbook into
+# /etc/systemd/system; runs scripts/production/tailnet-firewall.sh from the
+# release checkout in /opt/enma. Public mode: the script exits 0 without
+# changing anything.
+#
+# Ordering: before docker.service, so the rule is in DOCKER-USER before
+# Docker publishes Caddy's port at boot; WantedBy= and PartOf=docker.service
+# run it again on every start and restart of Docker. No ordering against
+# tailscaled.service, on purpose: the rule names the interface tailscale0,
+# not its address, so it holds before tailscaled brings the interface up,
+# and ordering it after tailscaled would hold Docker back behind tailscaled.
+# Stopping the unit keeps the rule.
+
+[Unit]
+Description=ENMA tailnet edge firewall (DOCKER-USER rule)
+Before=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=ENMA_ENV_FILE=/etc/enma/production.env
+ExecStart=/opt/enma/scripts/production/tailnet-firewall.sh
+UMask=0077
+PrivateTmp=yes
+NoNewPrivileges=yes
+TimeoutStartSec=2min
+
+[Install]
+WantedBy=docker.service

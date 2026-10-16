@@ -32,6 +32,37 @@ The API must not be exposed directly to the public internet. Its immediate peer
 must be the configured trusted edge over a private or otherwise non-public
 network path.
 
+## Edge modes
+
+The edge runs in one of two modes (D39), selected by `ENMA_EDGE_MODE` in the
+host's environment file; the topology behind the edge and the API contract
+below are the same in both:
+
+- **public**: the origin is a public domain. The edge listens on 80 and 443 of
+  every interface, obtains its certificate through ACME, and an external
+  uptime monitor watches `/health/ready`.
+- **tailnet** (the controlled beta): the origin is the node's MagicDNS name,
+  reachable only through a private Tailscale network. The edge listens on
+  443/tcp of the node's Tailscale IPv4 address only, with the certificate
+  `tailscale cert` issues for that name. The host has no public inbound port:
+  the provider firewall drops every inbound packet, and a host rule (D51)
+  drops forwarded traffic to the edge address that does not arrive on the
+  Tailscale interface, because host firewalls such as ufw do not filter the
+  ports Docker publishes. An outbound heartbeat replaces the external uptime
+  monitor.
+
+```text
+TAILNET DEVICES (operator, beta user)
+    |
+    | HTTPS over Tailscale, to the node's Tailscale IPv4 only
+    v
+ONE TRUSTED EDGE / REVERSE PROXY  -> same routes as above
+```
+
+Where this document says public origin, host or domain, tailnet mode reads
+the tailnet origin `https://<magicdns-name>`. The host procedure for both
+modes is in `docs/operations/production-runbook.md`.
+
 ## Replica constraint
 
 The current security model supports exactly one `Enma.Api` replica. The resend

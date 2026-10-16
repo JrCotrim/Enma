@@ -42,6 +42,11 @@ Mark `APPLICATION READY: YES` only when every item above has dated evidence.
 - [ ] Public domain, valid HTTPS certificate, HSTS, CSP, referrer policy, MIME
       sniffing protection, forwarded-header overwrite, and host filtering are
       verified from outside the environment.
+      Tailnet mode (D39, D50): the public domain is the tailnet origin
+      `https://<magicdns-name>`, verified from a tailnet device other than the
+      host, with the certificate `tailscale cert` issued for that name; the
+      host also shows no public inbound port (provider firewall with no
+      inbound rule, the D51 host rule active). Public mode: as written above.
 - [ ] Production PostgreSQL and private document storage use least-privilege
       identities, encryption, and restricted network access.
 - [ ] Secrets are injected from the provider secret store; the persistent Data

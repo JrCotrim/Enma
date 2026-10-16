@@ -35,11 +35,13 @@ into this repository. Real customer or legal data enters only in Phase B
 | `deploy/production.env.example` | every application variable, placeholders only |
 | `deploy/backup.env.example` | every backup variable, placeholders only |
 | `deploy/postgres/enma-roles.sql` | database roles and grants (D33-D37), the single source for every environment |
+| `deploy/systemd/enma-tailnet-firewall.service` | tailnet edge firewall rule, before Docker at boot and on every Docker restart (D51) |
 | `deploy/systemd/enma-renew-cert.service`, `.timer` | daily tailnet certificate renewal (D40, D41) |
 | `deploy/systemd/enma-backup.service`, `.timer` | daily off-site backup (D29) |
 | `deploy/systemd/enma-heartbeat.service`, `.timer` | outbound health heartbeat every 5 minutes (D48) |
 | `scripts/production/deploy.sh` | configuration checks, tailnet preflight, migrations, stack, readiness |
 | `scripts/production/migrate.sh` | migrator only; refuses while the API runs |
+| `scripts/production/tailnet-firewall.sh` | drops traffic to the bind address that does not arrive on `tailscale0` (D51) |
 | `scripts/production/renew-cert.sh` | issues and renews the tailnet certificate, reloads Caddy |
 | `scripts/production/backup.sh` | online encrypted off-site backup and its heartbeat |
 | `scripts/production/heartbeat.sh` | edge health, served certificate and Tailscale state, pinged out |
@@ -146,7 +148,9 @@ In Weblish, as root:
 3. Host firewall (defense in depth behind the Cloud Firewall): deny every
    inbound packet except SSH on the Tailscale interface. Docker publishes
    Caddy's 443 through its own iptables rules, ahead of ufw, and only on the
-   Tailscale address (section 9), so 443 needs no ufw rule.
+   Tailscale address (section 9), so 443 needs no ufw rule. **ufw does not
+   protect the ports Docker publishes**: section 9.1 adds the host rule that
+   does.
 
    ```bash
    ufw default deny incoming
@@ -278,7 +282,8 @@ sysctl -n net.ipv4.ip_nonlocal_bind     # 1
 
 **Check** after the first deploy (section 12): `sudo reboot`, wait, then
 `docker ps --filter name=caddy` shows `Up` and `sudo ss -tlnp | grep ':443 '`
-shows only `<node-tailscale-ipv4>:443`.
+shows only `<node-tailscale-ipv4>:443`; `sudo iptables -S DOCKER-USER` shows
+the D51 rule exactly once (section 9.1).
 
 ## 6. Release checkout
 
@@ -405,6 +410,58 @@ sudo docker compose -f deploy/compose.yaml -f deploy/compose.production.yaml -f 
 443, protocol tcp; no 80, no UDP, no IPv6 address. `deploy.sh` selects these
 files from `ENMA_EDGE_MODE` by itself; this command only shows the result.
 
+### 9.1 Edge firewall (D51)
+
+ufw does not protect the ports Docker publishes. Docker's DNAT for
+`<node-tailscale-ipv4>:443` matches the destination address on any
+interface and runs before ufw's chains, so a packet for that address that
+arrives on the public interface would reach Caddy; without this step only the
+Cloud Firewall stops it. `scripts/production/tailnet-firewall.sh` puts one
+rule at the top of Docker's `DOCKER-USER` chain: every forwarded packet whose
+original destination (before the DNAT, read from conntrack) is
+`ENMA_EDGE_BIND_ADDRESS` is dropped unless it came in on `tailscale0`. The
+host's own requests to the edge (`deploy.sh`, the heartbeat) never cross that
+chain. `enma-tailnet-firewall.service` runs the script before Docker at every
+boot and again on every Docker start or restart; `deploy.sh` refuses the
+tailnet mode while the rule is missing. The design relies on Docker's default
+iptables firewall backend (Ubuntu 24.04: `iptables` is iptables-nft): never
+set `firewall-backend` in `/etc/docker/daemon.json`, and never add a rule
+above this one in `DOCKER-USER`.
+
+```bash
+sudo install -m 644 /opt/enma/deploy/systemd/enma-tailnet-firewall.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now enma-tailnet-firewall.service
+sudo journalctl -u enma-tailnet-firewall.service -n 20 --no-pager
+sudo docker info --format '{{.FirewallBackend.Driver}}'     # iptables
+sudo iptables -S FORWARD | grep -- '-j DOCKER-USER'         # Docker's jump
+sudo iptables -S DOCKER-USER                                # the rule, first
+```
+
+**Check**: the log ends with `TAILNET FIREWALL PASS`; the first rule of
+`DOCKER-USER` is `! -i tailscale0 -m conntrack --ctorigdst
+<node-tailscale-ipv4> --ctdir ORIGINAL -m comment --comment enma-tailnet-edge
+-j DROP`, exactly once. Run `sudo systemctl restart docker` and check again:
+still exactly once (after the first deploy, also after the reboot of section
+5.4). Running the script again is harmless: it keeps one rule for the current
+address and removes a rule left for an earlier one.
+
+Diagnosis:
+
+- `deploy.sh` refuses with `tailnet firewall: ...`: `backend is '<x>', not
+  iptables` = a `firewall-backend` setting in Docker (remove it and restart
+  Docker); `FORWARD does not jump to DOCKER-USER` = Docker is not running or
+  its rules were flushed (`sudo systemctl restart docker`); `the rule ... is
+  not in DOCKER-USER` = `sudo systemctl restart enma-tailnet-firewall.service`
+  and read its journal.
+- The script fails (`TAILNET FIREWALL FAIL` in the journal): Docker keeps
+  starting, and only the Cloud Firewall stands in front of the edge until it
+  is fixed; the next deploy refuses.
+- `sudo iptables -L DOCKER-USER -v -n -x` counts the packets the rule
+  dropped. With the Cloud Firewall in place it should stay at 0; a growing
+  count means traffic for the Tailscale address reached the host on another
+  interface than `tailscale0`.
+
 ## 10. E-mail: Amazon SES in the sandbox (D28, D46, D47)
 
 Phase A sends from one verified e-mail address to verified recipients only
@@ -516,8 +573,10 @@ placeholder and no `Include Error Detail`, `ENMA_IMAGE_TAG` equals the tag,
 the Compose model renders, the database identities are valid, both release
 images exist and, in tailnet mode, the edge preflight passes: the TLS
 directory and the pair have the expected owners and modes, the certificate
-names `ENMA_PUBLIC_HOST` and has at least 7 days left, and
-`ENMA_EDGE_BIND_ADDRESS` is assigned to an interface of the host. It then
+names `ENMA_PUBLIC_HOST` and has at least 7 days left,
+`ENMA_EDGE_BIND_ADDRESS` is assigned to an interface of the host, and the
+D51 rule is in `DOCKER-USER` with Docker on its iptables backend (section
+9.1). It then
 starts PostgreSQL and Silo, runs the bucket bootstrap, stops the API, runs
 `migrate.sh` (which refuses while any API container runs: roles phase,
 migrator as the migrator role, grants phase), starts the API (as the
@@ -871,6 +930,9 @@ the tailnet origin `https://<public-host>` verified from a tailnet device
       (section 5.3).
 - [ ] Reboot survives: Caddy up on the bind address with
       `ip_nonlocal_bind=1` (section 5.4).
+- [ ] D51 rule active exactly once, also after a reboot and after
+      `systemctl restart docker`; Docker on the iptables backend
+      (section 9.1).
 - [ ] Certificate issued by `renew-cert.sh`, renewal timer active (section 8).
 - [ ] `DEPLOY PASS`, the verify list and smokes, `EGRESS CHECK PASS`
       (sections 12, 13).
@@ -958,6 +1020,8 @@ and the tailnet-only steps are replaced as follows; everything else stays.
   (HTTP/3) from anywhere; SSH stays tailnet-only. Docker publishes Caddy's
   ports through its own iptables rules, ahead of ufw: `docker ps` must show no
   other published port, and `sudo ss -tlnp` nothing unexpected.
+  `enma-tailnet-firewall.service` may stay enabled: in public mode the script
+  logs `public mode: skip` and changes nothing.
 - **DNS**: `A` record of the public host to the VPS address (`AAAA` only if
   IPv6 is configured and filtered like IPv4); lower the TTL before the
   cutover; optional `CAA` allowing `letsencrypt.org`. Caddy obtains the

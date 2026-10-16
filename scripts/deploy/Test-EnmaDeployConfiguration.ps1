@@ -370,6 +370,30 @@ foreach ($key in $heartbeatKeys) {
     }
 }
 
+# D51: the tailnet firewall unit runs tailnet-firewall.sh before Docker and
+# again on every Docker start or restart, and keeps the rule after it runs.
+$firewallService = Get-Content -LiteralPath (Join-Path $systemdRoot "enma-tailnet-firewall.service") -Raw
+foreach ($required in @(
+    '(?m)^Type=oneshot$',
+    '(?m)^RemainAfterExit=yes$',
+    '(?m)^Environment=ENMA_ENV_FILE=/etc/enma/production\.env$',
+    '(?m)^ExecStart=/opt/enma/scripts/production/tailnet-firewall\.sh$',
+    '(?m)^Before=docker\.service$',
+    '(?m)^PartOf=docker\.service$',
+    '(?m)^WantedBy=docker\.service$',
+    '(?m)^PrivateTmp=yes$',
+    '(?m)^NoNewPrivileges=yes$')) {
+    if ($firewallService -cnotmatch $required) {
+        throw "enma-tailnet-firewall.service does not match '$required'."
+    }
+}
+if ($firewallService -cmatch '(?m)^ExecStop') {
+    throw "enma-tailnet-firewall.service must not remove the rule when it stops."
+}
+if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot "scripts\production\tailnet-firewall.sh") -PathType Leaf)) {
+    throw "enma-tailnet-firewall.service runs a script that does not exist."
+}
+
 $caddyfile = Get-Content -LiteralPath (Join-Path $deployRoot "caddy\Caddyfile.production") -Raw
 $shared = Get-Content -LiteralPath (Join-Path $deployRoot "caddy\enma.caddy") -Raw
 if ($caddyfile -notmatch 'Strict-Transport-Security' -or

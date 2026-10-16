@@ -164,6 +164,46 @@ check_tailnet_edge() {
     log "tailnet preflight passed"
 }
 
+# D51: in tailnet mode only tailscale0 may reach the edge. Docker publishes
+# 443 with a DNAT that matches the bind address on any interface, ahead of
+# ufw, so a packet for that address arriving on the public interface would
+# reach Caddy. One rule at the top of DOCKER-USER (Docker's chain for host
+# rules, evaluated before its own forwarding rules and kept across Docker
+# restarts) drops it: the original destination, before the DNAT, comes from
+# conntrack, and only original-direction packets match, so the replies of a
+# tailnet connection pass. The host's own requests to the edge
+# (wait_for_edge, heartbeat.sh) never traverse FORWARD. tailnet-firewall.sh
+# installs the rule; the comment tags it.
+ENMA_TAILNET_FIREWALL_COMMENT=enma-tailnet-edge
+
+# Sets ENMA_TAILNET_FIREWALL_RULE to the D51 rule, without the chain.
+tailnet_firewall_rule() {
+    resolve_edge_mode
+    ENMA_TAILNET_FIREWALL_RULE=(! -i tailscale0 -m conntrack --ctdir ORIGINAL
+        --ctorigdst "$ENMA_RESOLVED_EDGE_ADDRESS/32"
+        -m comment --comment "$ENMA_TAILNET_FIREWALL_COMMENT" -j DROP)
+}
+
+# D51 preflight, with Docker running; a no-op in public mode. Docker uses its
+# default iptables firewall backend (the nftables backend has no
+# DOCKER-USER), FORWARD jumps to DOCKER-USER, and the rule is there. Logs the
+# first problem and returns 1.
+check_tailnet_firewall() {
+    local backend
+    resolve_edge_mode
+    [[ $ENMA_RESOLVED_EDGE_MODE == tailnet ]] || return 0
+    require_commands docker iptables
+    backend=$(docker info --format '{{.FirewallBackend.Driver}}' 2>/dev/null) || backend=''
+    [[ $backend == iptables ]] ||
+        { log "tailnet firewall: Docker's firewall backend is '${backend:-unknown}', not iptables"; return 1; }
+    iptables -w -C FORWARD -j DOCKER-USER 2>/dev/null ||
+        { log "tailnet firewall: FORWARD does not jump to DOCKER-USER"; return 1; }
+    tailnet_firewall_rule
+    iptables -w -C DOCKER-USER "${ENMA_TAILNET_FIREWALL_RULE[@]}" 2>/dev/null ||
+        { log "tailnet firewall: the rule for ENMA_EDGE_BIND_ADDRESS is not in DOCKER-USER (run tailnet-firewall.sh)"; return 1; }
+    log "tailnet firewall active"
+}
+
 compose() {
     resolve_edge_mode
     docker compose --env-file "$ENMA_ENV_FILE" "$@"
