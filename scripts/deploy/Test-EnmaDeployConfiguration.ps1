@@ -1,5 +1,9 @@
 [CmdletBinding()]
-param([string]$DockerCommand = "docker")
+param(
+    [string]$DockerCommand = "docker",
+    # Validates another copy of the env template; the Compose files still
+    # come from deploy/.
+    [string]$ProductionEnvExamplePath = "")
 
 # Static checks of the Production deployment artifact (D13-D15): renders the
 # Compose model with synthetic values and verifies the edge-only exposure,
@@ -245,6 +249,12 @@ $basePath = Join-Path $deployRoot "compose.yaml"
 $productionPath = Join-Path $deployRoot "compose.production.yaml"
 $tailnetPath = Join-Path $deployRoot "compose.tailnet.yaml"
 $examplePath = Join-Path $deployRoot "production.env.example"
+if ($ProductionEnvExamplePath) {
+    if (-not (Test-Path -LiteralPath $ProductionEnvExamplePath -PathType Leaf)) {
+        throw "ProductionEnvExamplePath is not an existing file: $ProductionEnvExamplePath"
+    }
+    $examplePath = (Resolve-Path -LiteralPath $ProductionEnvExamplePath).ProviderPath
+}
 
 $referenced = @(
     foreach ($path in @($basePath, $productionPath, $tailnetPath)) {
@@ -265,6 +275,15 @@ if ($exampleText -match '(?m)^[A-Z0-9_]*(PASSWORD|SECRET|SECRET_KEY)=(?!<|$).+')
 # A literal value, not a placeholder: the CI egress check renders the example.
 if ($exampleText -cnotmatch '(?m)^ENMA_EDGE_MODE=public\r?$') {
     throw "production.env.example must set ENMA_EDGE_MODE=public."
+}
+# D46: SES is reached on port 2587 because the provider blocks 587, so the
+# example names 2587 and never presents 587 as the port to use; a list of the
+# blocked ports does not.
+if ($exampleText -notmatch '(?<!\d)2587(?!\d)') {
+    throw "production.env.example must document the SES SMTP port 2587 (D46)."
+}
+if ($exampleText -match '(?i)(?:\b(?:port|porta)|smtp[-_]port)\b\s*>?\s*[:=]?\s*["'']?587(?!\d)') {
+    throw "production.env.example presents 587 as the SMTP port; SES uses 2587 (D46)."
 }
 
 # The `grep -E[i]q '<pattern>' -- "$ENMA_ENV_FILE"` guards of deploy.sh, read
