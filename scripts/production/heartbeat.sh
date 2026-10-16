@@ -19,7 +19,11 @@
 #                     serves: it belongs to that key, names ENMA_PUBLIC_HOST
 #                     and stays valid for 14 more days;
 #   tailscale_state   tailnet only: `tailscale status --json` reports
-#                     BackendState Running.
+#                     BackendState Running;
+#   edge_firewall     tailnet only: the D51 rule is in place, by the deploy
+#                     preflight itself (check_tailnet_firewall, read-only):
+#                     Docker's iptables backend, the FORWARD jump to
+#                     DOCKER-USER and the rule for ENMA_EDGE_BIND_ADDRESS.
 # Public mode runs edge_health only.
 #
 # The heartbeat URLs are capabilities: read from the environment file, handed
@@ -96,6 +100,18 @@ tailscale_state() {
     return 1
 }
 
+# check_tailnet_firewall runs in a child bash under a 5 s limit, since
+# `docker info` and `iptables -w` would wait on a stuck daemon or xtables
+# lock; the child inherits the resolved edge mode and logs its own reason.
+edge_firewall() {
+    local status=0
+    ENMA_ENV_FILE=$ENMA_ENV_FILE timeout 5 bash -c 'source "$1" && check_tailnet_firewall' \
+        bash "$ENMA_REPOSITORY_ROOT/scripts/production/common.sh" || status=$?
+    ((status == 0)) && return 0
+    log "edge_firewall: the D51 rule check failed (exit $status)"
+    return 1
+}
+
 # One attempt of at most 10 s plus two retries, so a slow monitor cannot hold
 # the run past the minute.
 signal() {
@@ -107,10 +123,10 @@ signal() {
 
 checks=(edge_health)
 if [[ $ENMA_RESOLVED_EDGE_MODE == tailnet ]]; then
-    checks+=(edge_certificate tailscale_state)
+    checks+=(edge_certificate tailscale_state edge_firewall)
     work=$(mktemp -d)
 else
-    log "public mode: edge_certificate and tailscale_state skipped (tailnet only)"
+    log "public mode: edge_certificate, tailscale_state and edge_firewall skipped (tailnet only)"
 fi
 reasons=()
 for check in "${checks[@]}"; do

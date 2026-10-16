@@ -456,7 +456,8 @@ Diagnosis:
   and read its journal.
 - The script fails (`TAILNET FIREWALL FAIL` in the journal): Docker keeps
   starting, and only the Cloud Firewall stands in front of the edge until it
-  is fixed; the next deploy refuses.
+  is fixed; the next deploy refuses, and the health heartbeat fails with
+  `edge_firewall` (section 16).
 - `sudo iptables -L DOCKER-USER -v -n -x` counts the packets the rule
   dropped. With the Cloud Firewall in place it should stay at 0; a growing
   count means traffic for the Tailscale address reached the host on another
@@ -823,7 +824,7 @@ sudo journalctl -u enma-heartbeat.service -n 20 --no-pager
 systemctl list-timers enma-heartbeat.timer
 ```
 
-**Check**: the journal shows `HEARTBEAT PASS checks=edge_health edge_certificate tailscale_state`
+**Check**: the journal shows `HEARTBEAT PASS checks=edge_health edge_certificate tailscale_state edge_firewall`
 and the health check turns green in the service. Test the failure path once:
 `sudo docker stop enma-production-api-1`, `sudo systemctl start enma-heartbeat.service`,
 the service shows a failure with body `edge_health`; then
@@ -844,6 +845,7 @@ The backup check turns green after the first `BACKUP PASS` (section 15).
 | `edge_health` | `/health/ready` did not answer 200 through the edge on the bind address within 5 s | `journalctl -u enma-heartbeat` (curl exit, HTTP code); `docker compose ps`; HTTP 502 = API down, 503 or timeout = database or migrations (section 20) |
 | `edge_certificate` | the certificate files or the certificate the edge serves have under 14 days, do not match the key or the name, or the bind address is gone | `journalctl -u enma-heartbeat` (which side failed); `journalctl -u enma-renew-cert`; run `renew-cert.sh` (section 8); bind address missing = `tailscale status` |
 | `tailscale_state` | `tailscale status --json` does not report `BackendState` `Running` | `tailscale status`; `systemctl status tailscaled`; re-login if `NeedsLogin` |
+| `edge_firewall` | the D51 rule check of `deploy.sh` (section 9.1) failed or took over 5 s: Docker's firewall backend is not iptables, `FORWARD` does not jump to `DOCKER-USER`, or the rule for the bind address is missing; until fixed only the Cloud Firewall keeps the public interface away from the edge | `journalctl -u enma-heartbeat` (which part failed); `systemctl status enma-tailnet-firewall` and `journalctl -u enma-tailnet-firewall`; `sudo systemctl restart enma-tailnet-firewall.service`; then `sudo iptables -L DOCKER-USER -v -n` shows the rule first, exactly once (section 9.1) |
 
 A single `edge_certificate` failure while `renew-cert.sh` swaps the pair (a
 window of seconds, about every two months) is benign when the next beat is
