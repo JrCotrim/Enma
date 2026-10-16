@@ -1,0 +1,13 @@
+# Trigger for enma-heartbeat.service every 5 minutes (D48). The external
+# monitor alerts on a failure ping, or when no success arrives within its
+# period plus grace. Not Persistent: a missed beat is not replayed at boot.
+
+[Unit]
+Description=ENMA outbound health heartbeat every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

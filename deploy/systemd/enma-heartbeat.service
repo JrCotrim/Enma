@@ -1,0 +1,20 @@
+# ENMA outbound health heartbeat (D48). Installed by the production runbook
+# into /etc/systemd/system; runs scripts/production/heartbeat.sh from the
+# release checkout in /opt/enma. The heartbeat URLs live only in the
+# root-owned environment file below; nothing secret is written here. No
+# Requires= on Docker or tailscaled: with either one down, the run still
+# starts and reports the failed checks.
+
+[Unit]
+Description=ENMA outbound health heartbeat
+After=docker.service tailscaled.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=ENMA_ENV_FILE=/etc/enma/production.env
+ExecStart=/opt/enma/scripts/production/heartbeat.sh
+UMask=0077
+PrivateTmp=yes
+NoNewPrivileges=yes
+TimeoutStartSec=90s

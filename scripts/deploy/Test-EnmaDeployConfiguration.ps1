@@ -325,6 +325,51 @@ if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot "scripts\production\
     throw "enma-renew-cert.service runs a script that does not exist."
 }
 
+# D48: the heartbeat unit runs heartbeat.sh every 5 minutes with at most 30 s
+# of randomized delay, and production.env.example documents the heartbeat
+# URLs the script reads.
+$heartbeatService = Get-Content -LiteralPath (Join-Path $systemdRoot "enma-heartbeat.service") -Raw
+$heartbeatTimer = Get-Content -LiteralPath (Join-Path $systemdRoot "enma-heartbeat.timer") -Raw
+foreach ($required in @(
+    '(?m)^Type=oneshot$',
+    '(?m)^Environment=ENMA_ENV_FILE=/etc/enma/production\.env$',
+    '(?m)^ExecStart=/opt/enma/scripts/production/heartbeat\.sh$',
+    '(?m)^PrivateTmp=yes$',
+    '(?m)^NoNewPrivileges=yes$',
+    '(?m)^TimeoutStartSec=\S+$')) {
+    if ($heartbeatService -cnotmatch $required) {
+        throw "enma-heartbeat.service does not match '$required'."
+    }
+}
+foreach ($required in @(
+    '(?m)^OnCalendar=\*:0/5$',
+    '(?m)^WantedBy=timers\.target$')) {
+    if ($heartbeatTimer -cnotmatch $required) {
+        throw "enma-heartbeat.timer does not match '$required'."
+    }
+}
+$heartbeatDelay = [regex]::Match($heartbeatTimer, '(?m)^RandomizedDelaySec=(\d+)s?$')
+if ($heartbeatDelay.Success -and [int]$heartbeatDelay.Groups[1].Value -gt 30) {
+    throw "enma-heartbeat.timer must not delay a beat by more than 30 seconds."
+}
+if ($heartbeatTimer -cmatch '(?m)^RandomizedDelaySec=' -and -not $heartbeatDelay.Success) {
+    throw "enma-heartbeat.timer must give RandomizedDelaySec in seconds."
+}
+$heartbeatScriptPath = Join-Path $repositoryRoot "scripts\production\heartbeat.sh"
+if (-not (Test-Path -LiteralPath $heartbeatScriptPath -PathType Leaf)) {
+    throw "enma-heartbeat.service runs a script that does not exist."
+}
+$heartbeatKeys = @([regex]::Matches((Get-Content -LiteralPath $heartbeatScriptPath -Raw), 'ENMA_HEALTH_HEARTBEAT_[A-Z_]+_URL') |
+    ForEach-Object { $_.Value }) | Sort-Object -Unique
+if ($heartbeatKeys.Count -ne 2) {
+    throw "heartbeat.sh must read the success and failure heartbeat URLs."
+}
+foreach ($key in $heartbeatKeys) {
+    if ($exampleText -cnotmatch "(?m)^$key=<https://[^>]+>\r?$") {
+        throw "production.env.example must document $key with an https placeholder."
+    }
+}
+
 $caddyfile = Get-Content -LiteralPath (Join-Path $deployRoot "caddy\Caddyfile.production") -Raw
 $shared = Get-Content -LiteralPath (Join-Path $deployRoot "caddy\enma.caddy") -Raw
 if ($caddyfile -notmatch 'Strict-Transport-Security' -or

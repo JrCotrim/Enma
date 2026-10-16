@@ -333,10 +333,17 @@ url_encode() {
     printf '%s' "$encoded"
 }
 
-# Calls a URL kept out of the process list: curl reads it from stdin.
+# Calls a URL kept out of the process list: curl reads it from stdin. An
+# optional <body> (lower-case letters, digits, _ and spaces: heartbeat reason
+# codes) is sent as a POST. Each attempt lasts at most <seconds> (default 15)
+# and is retried up to <retries> times (default 3) on a timeout or a
+# transient HTTP error.
 call_secret_url() {
-    local url=$1
+    local url=$1 body=${2-} seconds=${3:-15} retries=${4:-3} body_pattern='^[a-z0-9_ ]*$'
     [[ $url != *'"'* ]] || die "invalid URL"
-    printf 'url = "%s"\n' "$url" |
-        curl --silent --show-error --fail --max-time 15 --retry 3 --output /dev/null --config -
+    [[ $body =~ $body_pattern ]] || die "invalid heartbeat body"
+    {
+        printf 'url = "%s"\n' "$url"
+        [[ -z $body ]] || printf 'data-binary = "%s"\n' "$body"
+    } | curl --silent --show-error --fail --max-time "$seconds" --retry "$retries" --output /dev/null --config -
 }
