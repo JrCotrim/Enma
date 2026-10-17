@@ -23,8 +23,11 @@
 #   edge_firewall     tailnet only: the D51 rule is in place, by the deploy
 #                     preflight itself (check_tailnet_firewall, read-only):
 #                     Docker's iptables backend, the FORWARD jump to
-#                     DOCKER-USER and the rule for ENMA_EDGE_BIND_ADDRESS.
-# Public mode runs edge_health only.
+#                     DOCKER-USER and the rule for ENMA_EDGE_BIND_ADDRESS;
+#   disk_space        D53: the filesystems of the Docker data root and of the
+#                     backup's working directory each keep at least 20% of
+#                     their size available.
+# Public mode runs edge_health and disk_space.
 #
 # The heartbeat URLs are capabilities: read from the environment file, handed
 # to curl on stdin and never logged. Every network call has a short timeout,
@@ -37,7 +40,7 @@
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 
 ((EUID == 0)) || die "heartbeat.sh must run as root"
-require_commands curl flock
+require_commands curl flock timeout df jq
 assert_secure_file "$ENMA_ENV_FILE"
 
 failure_url=$(env_value "$ENMA_ENV_FILE" ENMA_HEALTH_HEARTBEAT_FAILURE_URL)
@@ -51,7 +54,7 @@ resolve_edge_mode
 address=$ENMA_RESOLVED_EDGE_ADDRESS
 certificate_margin=$((14 * 86400))
 [[ $ENMA_RESOLVED_EDGE_MODE != tailnet ]] ||
-    require_commands tailscale jq openssl timeout mktemp ip realpath stat
+    require_commands tailscale openssl mktemp ip realpath stat
 
 work=''
 on_exit() {
@@ -112,6 +115,47 @@ edge_firewall() {
     return 1
 }
 
+# D53: a full disk stops PostgreSQL and the backup, which writes a plaintext
+# copy of everything before age encrypts it. The minimum share of a
+# filesystem's size that must stay available (available / size, from df -P).
+disk_space_minimum=20
+
+# The Docker data root is `data-root` in /etc/docker/daemon.json, else
+# Docker's default; the backup's working directory resolves as in backup.sh,
+# and the PrivateTmp of its unit stays on that filesystem. One df for both
+# under a short limit, since a stuck mount would block it; a filesystem that
+# holds both is checked once. Mount points and percentages stay in the
+# journal; anything that cannot be measured fails.
+disk_space() {
+    local docker_root=/var/lib/docker backup_root=${ENMA_BACKUP_WORK_DIR:-/var/tmp} configured output
+    local device size used available mount seen='' lines=0 status=0
+    if [[ -e /etc/docker/daemon.json ]]; then
+        configured=$(jq -er '."data-root" // ""' /etc/docker/daemon.json 2>/dev/null) ||
+            { log "disk_space: /etc/docker/daemon.json could not be read"; return 1; }
+        [[ -z $configured ]] || docker_root=$configured
+    fi
+    output=$(timeout 2 df -P -- "$docker_root" "$backup_root" 2>/dev/null) ||
+        { log "disk_space: df could not measure the Docker data root and the backup working directory"; return 1; }
+    {
+        read -r _
+        while read -r device size used available _ mount; do
+            lines=$((lines + 1))
+            if [[ ! $size =~ ^[1-9][0-9]*$ || ! $available =~ ^[0-9]+$ ]]; then
+                log "disk_space: df printed an unexpected line"
+                return 1
+            fi
+            [[ $seen != *"|$device $size $used $available|"* ]] || continue
+            seen+="|$device $size $used $available|"
+            if ((available * 100 < size * disk_space_minimum)); then
+                log "disk_space: $mount has $((available * 100 / size))% free, under the ${disk_space_minimum}% minimum"
+                status=1
+            fi
+        done
+    } <<<"$output"
+    ((lines == 2)) || { log "disk_space: df printed an unexpected result"; return 1; }
+    return "$status"
+}
+
 # One attempt of at most 10 s plus two retries, so a slow monitor cannot hold
 # the run past the minute.
 signal() {
@@ -128,6 +172,7 @@ if [[ $ENMA_RESOLVED_EDGE_MODE == tailnet ]]; then
 else
     log "public mode: edge_certificate, tailscale_state and edge_firewall skipped (tailnet only)"
 fi
+checks+=(disk_space)
 reasons=()
 for check in "${checks[@]}"; do
     "$check" || reasons+=("$check")

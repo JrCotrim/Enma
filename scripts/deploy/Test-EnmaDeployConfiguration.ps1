@@ -431,6 +431,15 @@ foreach ($key in $heartbeatKeys) {
         throw "production.env.example must document $key with an https placeholder."
     }
 }
+# D53: the disk_space check measures the filesystem of the backup's working
+# directory, so heartbeat.sh resolves it exactly as backup.sh does.
+$backupWorkRoot = '${ENMA_BACKUP_WORK_DIR:-/var/tmp}'
+foreach ($script in @("backup.sh", "heartbeat.sh")) {
+    $scriptText = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\production\$script") -Raw
+    if (-not $scriptText.Contains($backupWorkRoot)) {
+        throw "$script must resolve the backup working directory as $backupWorkRoot (D53)."
+    }
+}
 
 # D51: the tailnet firewall unit runs tailnet-firewall.sh before Docker and
 # again on every Docker start or restart, and keeps the rule after it runs.

@@ -824,7 +824,7 @@ sudo journalctl -u enma-heartbeat.service -n 20 --no-pager
 systemctl list-timers enma-heartbeat.timer
 ```
 
-**Check**: the journal shows `HEARTBEAT PASS checks=edge_health edge_certificate tailscale_state edge_firewall`
+**Check**: the journal shows `HEARTBEAT PASS checks=edge_health edge_certificate tailscale_state edge_firewall disk_space`
 and the health check turns green in the service. Test the failure path once:
 `sudo docker stop enma-production-api-1`, `sudo systemctl start enma-heartbeat.service`,
 the service shows a failure with body `edge_health`; then
@@ -846,10 +846,26 @@ The backup check turns green after the first `BACKUP PASS` (section 15).
 | `edge_certificate` | the certificate files or the certificate the edge serves have under 14 days, do not match the key or the name, or the bind address is gone | `journalctl -u enma-heartbeat` (which side failed); `journalctl -u enma-renew-cert`; run `renew-cert.sh` (section 8); bind address missing = `tailscale status` |
 | `tailscale_state` | `tailscale status --json` does not report `BackendState` `Running` | `tailscale status`; `systemctl status tailscaled`; re-login if `NeedsLogin` |
 | `edge_firewall` | the D51 rule check of `deploy.sh` (section 9.1) failed or took over 5 s: Docker's firewall backend is not iptables, `FORWARD` does not jump to `DOCKER-USER`, or the rule for the bind address is missing; until fixed only the Cloud Firewall keeps the public interface away from the edge | `journalctl -u enma-heartbeat` (which part failed); `systemctl status enma-tailnet-firewall` and `journalctl -u enma-tailnet-firewall`; `sudo systemctl restart enma-tailnet-firewall.service`; then `sudo iptables -L DOCKER-USER -v -n` shows the rule first, exactly once (section 9.1) |
+| `disk_space` | D53: the filesystem of the Docker data root (`data-root` in `/etc/docker/daemon.json`, else `/var/lib/docker`) or of the backup's working directory (`/var/tmp`) has under 20% of its size available, or `df` failed or took over 2 s; a full disk stops PostgreSQL and the backup, which stages a plaintext copy there before encrypting | `journalctl -u enma-heartbeat` (mount point and % free); `df -h`; `sudo docker system df`; `journalctl --disk-usage`; free space as below |
 
 A single `edge_certificate` failure while `renew-cert.sh` swaps the pair (a
 window of seconds, about every two months) is benign when the next beat is
 green.
+
+Freeing space after `disk_space`: the usual growth is old release images.
+Remove only `enma-api` and `enma-migrator` images whose tag is neither the
+current `ENMA_IMAGE_TAG` nor the previous one (the rollback, section 14):
+
+```bash
+sudo docker image ls --filter 'reference=enma-*:*' --format '{{.Repository}}:{{.Tag}} {{.CreatedSince}}'
+sudo docker image rm enma-api:<old-tag> enma-migrator:<old-tag>
+```
+
+Never remove volumes: they hold the database, the documents and the Data
+Protection keys. Never run `docker volume prune`, `docker volume rm` or
+`docker system prune --volumes`. If the images are not the cause, stop and
+treat it as an incident (section 20); the next beat is green once 20% is
+free.
 
 ## 17. Restore
 
@@ -1035,7 +1051,8 @@ and the tailnet-only steps are replaced as follows; everything else stays.
   (308 to https).
 - **Monitoring**: an external uptime monitor on `https://<public-host>/health/ready`,
   every 1 to 5 minutes, alerting after two failures (D7). The health
-  heartbeat keeps running and checks only `edge_health` in this mode.
+  heartbeat keeps running and checks only `edge_health` and `disk_space` in
+  this mode.
 - **Google login**, if enabled: register exactly
   `https://<public-host>/signin-google` as the redirect URI and test a
   complete login through the public domain.
