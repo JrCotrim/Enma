@@ -194,7 +194,7 @@ if ($null -ne $docker) {
     $allowedCapabilities = @{
         "postgres" = @("CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID")
         "minio" = @()
-        "minio-bootstrap" = @("DAC_OVERRIDE")
+        "minio-bootstrap" = @()
         "migrate" = @()
         "api" = @()
         "caddy" = @("NET_BIND_SERVICE")

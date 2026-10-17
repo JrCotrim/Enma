@@ -330,8 +330,7 @@ script refuses anything else. Generate secrets URL-safe, for example
 - `/etc/enma/backup.env` (section 15): `ENMA_BACKUP_AGE_RECIPIENT`,
   `ENMA_BACKUP_S3_ENDPOINT`, `ENMA_BACKUP_S3_BUCKET`, `ENMA_BACKUP_S3_PREFIX`,
   `ENMA_BACKUP_S3_ACCESS_KEY`, `ENMA_BACKUP_S3_SECRET_KEY`,
-  `ENMA_BACKUP_HEARTBEAT_SUCCESS_URL`, `ENMA_BACKUP_HEARTBEAT_FAILURE_URL`,
-  optional `ENMA_BACKUP_WORK_DIR`.
+  `ENMA_BACKUP_HEARTBEAT_SUCCESS_URL`, `ENMA_BACKUP_HEARTBEAT_FAILURE_URL`.
 
 The heartbeat URLs are capabilities: whoever holds one can send a false
 success. Treat them like passwords.
@@ -422,11 +421,11 @@ original destination (before the DNAT, read from conntrack) is
 `ENMA_EDGE_BIND_ADDRESS` is dropped unless it came in on `tailscale0`. The
 host's own requests to the edge (`deploy.sh`, the heartbeat) never cross that
 chain. `enma-tailnet-firewall.service` runs the script before Docker at every
-boot and again on every Docker start or restart; `deploy.sh` refuses the
-tailnet mode while the rule is missing. The design relies on Docker's default
-iptables firewall backend (Ubuntu 24.04: `iptables` is iptables-nft): never
-set `firewall-backend` in `/etc/docker/daemon.json`, and never add a rule
-above this one in `DOCKER-USER`.
+boot and again on every Docker start or restart; `deploy.sh` and `restore.sh`
+refuse the tailnet mode while the rule is missing. The design relies on
+Docker's default iptables firewall backend (Ubuntu 24.04: `iptables` is
+iptables-nft): never set `firewall-backend` in `/etc/docker/daemon.json`, and
+never add a rule above this one in `DOCKER-USER`.
 
 ```bash
 sudo install -m 644 /opt/enma/deploy/systemd/enma-tailnet-firewall.service /etc/systemd/system/
@@ -448,12 +447,12 @@ address and removes a rule left for an earlier one.
 
 Diagnosis:
 
-- `deploy.sh` refuses with `tailnet firewall: ...`: `backend is '<x>', not
-  iptables` = a `firewall-backend` setting in Docker (remove it and restart
-  Docker); `FORWARD does not jump to DOCKER-USER` = Docker is not running or
-  its rules were flushed (`sudo systemctl restart docker`); `the rule ... is
-  not in DOCKER-USER` = `sudo systemctl restart enma-tailnet-firewall.service`
-  and read its journal.
+- `deploy.sh` or `restore.sh` refuses with `tailnet firewall: ...`:
+  `backend is '<x>', not iptables` = a `firewall-backend` setting in Docker
+  (remove it and restart Docker); `FORWARD does not jump to DOCKER-USER` =
+  Docker is not running or its rules were flushed
+  (`sudo systemctl restart docker`); `the rule ... is not in DOCKER-USER` =
+  `sudo systemctl restart enma-tailnet-firewall.service` and read its journal.
 - The script fails (`TAILNET FIREWALL FAIL` in the journal): Docker keeps
   starting, and only the Cloud Firewall stands in front of the edge until it
   is fixed; the next deploy refuses, and the health heartbeat fails with
@@ -578,7 +577,10 @@ names `ENMA_PUBLIC_HOST` and has at least 7 days left,
 `ENMA_EDGE_BIND_ADDRESS` is assigned to an interface of the host, and the
 D51 rule is in `DOCKER-USER` with Docker on its iptables backend (section
 9.1). It then
-starts PostgreSQL and Silo, runs the bucket bootstrap, stops the API, runs
+starts PostgreSQL and Silo, runs the bucket bootstrap (it updates the storage
+identities in place, so the running API keeps its identity and policy; a
+changed `ENMA_MINIO_APP_SECRET_KEY` or `ENMA_MINIO_BACKUP_SECRET_KEY` takes
+effect here, and the previous one stops working), stops the API, runs
 `migrate.sh` (which refuses while any API container runs: roles phase,
 migrator as the migrator role, grants phase), starts the API (as the
 application role) and Caddy, and waits until
@@ -784,7 +786,11 @@ the SHA-256 of every part, `age` encryption to the recipient, and upload by a
 disposable client container on Docker's default bridge network, fed through
 stdin. It never joins `backend`, so no data service gains egress. Plaintext
 stays only in a mode-700 staging directory and a temporary volume, removed on
-any exit. The TLS directory is not backed up (section 8).
+any exit. The staging directory is under `/var/tmp`, which the unit's
+`PrivateTmp=yes` makes private to each run on the same filesystem: keep room
+there for one full backup; the health heartbeat measures that filesystem
+(`disk_space`, section 16). It is not configured in `backup.env`. The TLS
+directory is not backed up (section 8).
 
 Accepted risk, dump versus mirror: the database dump is one consistent
 snapshot, the bucket mirror follows seconds later. A document whose deletion
@@ -894,10 +900,13 @@ whose privileges name other roles than this environment's is refused by
 PostgreSQL backup itself is unchanged: `pg_dump` as the superuser over the
 local socket, no new secret.
 
-`restore.sh` runs no tailnet preflight, on purpose: a restore must work on a
-rebuilt host whatever the edge state. In tailnet mode issue the certificate
-(section 8) before the restore, so the edge starts and the readiness wait
-succeeds.
+In tailnet mode `restore.sh` first requires the D51 rule (section 9.1), as
+`deploy.sh` does, and refuses before asking for the key or starting anything
+while it is missing: run `enma-tailnet-firewall.service` first. It runs no
+certificate preflight, on purpose: the certificate's remaining validity must
+not block a recovery. Issue the certificate (section 8) before the restore,
+so the edge starts and the readiness wait, which verifies the TLS the edge
+serves, succeeds.
 
 A restore that fails after the database step leaves a partial target, which
 the next run refuses. Keep the failure output, then bring the stack down and

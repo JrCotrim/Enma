@@ -231,7 +231,7 @@ function Get-ModelOutsideEdge {
 $allowedCapabilities = @{
     "postgres" = @("CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID")
     "minio" = @()
-    "minio-bootstrap" = @("DAC_OVERRIDE")
+    "minio-bootstrap" = @()
     "migrate" = @()
     "api" = @()
     "caddy" = @("NET_BIND_SERVICE")
@@ -656,6 +656,16 @@ if (@($bootstrap.volumes | Where-Object {
     $bootstrap.environment.MINIO_BACKUP_ACCESS_KEY -cne $synthetic.ENMA_MINIO_BACKUP_ACCESS_KEY -or
     (@($bootstrap.command) -join "`n") -notmatch 'mc admin policy attach enma "\$+DOCUMENTS_BUCKET-backup" --user "\$+MINIO_BACKUP_ACCESS_KEY"') {
     throw "The storage bootstrap must create the backup identity with its read-only policy."
+}
+# The bootstrap runs on every deploy while the API serves: it never removes an
+# identity, sets the application secret last, and keeps mc's configuration
+# where it needs no capability.
+$bootstrapLines = @((@($bootstrap.command) -join "`n") -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$configDirectory = $bootstrap.environment.PSObject.Properties["MC_CONFIG_DIR"]
+if ($bootstrapLines -match 'mc admin user (rm|remove)\b' -or
+    $bootstrapLines[-1] -notmatch '^mc admin user add enma "\$+MINIO_APP_ACCESS_KEY" "\$+MINIO_APP_SECRET_KEY"$' -or
+    $null -eq $configDirectory -or $configDirectory.Value -cne "/tmp/.mc") {
+    throw "The storage bootstrap must update identities in place, set the application secret last and keep MC_CONFIG_DIR in /tmp."
 }
 if (($model.services.api.environment | ConvertTo-Json -Compress).Contains($synthetic.ENMA_MINIO_BACKUP_SECRET_KEY)) {
     throw "The API must not receive the backup identity."

@@ -8,7 +8,8 @@
 # typed or pasted at the prompt, or read once from --identity (e.g. removable
 # media), then handed to age through a pipe.
 #
-# Steps: decrypt, check the archive members and every SHA-256, start the data
+# Steps: in tailnet mode, check the D51 firewall rule before anything else;
+# decrypt, check the archive members and every SHA-256, start the data
 # services, refuse non-empty targets, the roles phase of
 # deploy/postgres/enma-roles.sql, pg_restore as the migrator (D35: --no-owner,
 # the dump's privileges kept), the grants phase (which also covers dumps taken
@@ -55,6 +56,10 @@ assert_secure_file "$ENMA_ENV_FILE"
 assert_database_identities
 project=$(compose_project)
 assert_api_stopped "$project"
+# D51: the edge starts at the end, so the rule must already be in place; a
+# no-op in public mode. No certificate preflight: its remaining validity must
+# not block a recovery, and wait_for_edge verifies the TLS the edge serves.
+check_tailnet_firewall || die "the tailnet firewall is not active; refusing to restore"
 
 if [[ -n $identity_path ]]; then
     identity=$(<"$identity_path")

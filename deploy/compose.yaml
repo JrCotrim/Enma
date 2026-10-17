@@ -91,6 +91,13 @@ services:
   # and the read-only backup identity (D36: list the bucket, read its
   # objects), idempotently. The overrides set DOCUMENTS_BUCKET and mount both
   # policies.
+  # It runs on every deploy while the API still serves, so it never removes
+  # an identity: `policy create` replaces a policy in place, `user add` on an
+  # existing user only replaces its secret (a changed one in the environment
+  # file takes effect here), and `policy attach` keeps an attached policy. The
+  # application identity is created only when missing and its secret is set
+  # last, after its policy: a failure before that leaves the running API's
+  # identity as it was.
   minio-bootstrap:
     image: docker.io/pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
     restart: "no"
@@ -106,6 +113,9 @@ services:
       MINIO_APP_SECRET_KEY: ${ENMA_MINIO_APP_SECRET_KEY:?ENMA_MINIO_APP_SECRET_KEY is required}
       MINIO_BACKUP_ACCESS_KEY: ${ENMA_MINIO_BACKUP_ACCESS_KEY:?ENMA_MINIO_BACKUP_ACCESS_KEY is required}
       MINIO_BACKUP_SECRET_KEY: ${ENMA_MINIO_BACKUP_SECRET_KEY:?ENMA_MINIO_BACKUP_SECRET_KEY is required}
+      # mc runs as root and would save its configuration under /root (mode
+      # 550); /tmp is writable without any capability.
+      MC_CONFIG_DIR: /tmp/.mc
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -115,19 +125,16 @@ services:
         mc mb --ignore-existing "enma/$$DOCUMENTS_BUCKET"
         mc anonymous set none "enma/$$DOCUMENTS_BUCKET"
         mc admin policy create enma "$$DOCUMENTS_BUCKET-app" /policies/app-policy.json
-        mc admin user rm enma "$$MINIO_APP_ACCESS_KEY" >/dev/null 2>&1 || true
-        mc admin user add enma "$$MINIO_APP_ACCESS_KEY" "$$MINIO_APP_SECRET_KEY"
-        mc admin policy attach enma "$$DOCUMENTS_BUCKET-app" --user "$$MINIO_APP_ACCESS_KEY"
         mc admin policy create enma "$$DOCUMENTS_BUCKET-backup" /policies/backup-policy.json
-        mc admin user rm enma "$$MINIO_BACKUP_ACCESS_KEY" >/dev/null 2>&1 || true
         mc admin user add enma "$$MINIO_BACKUP_ACCESS_KEY" "$$MINIO_BACKUP_SECRET_KEY"
         mc admin policy attach enma "$$DOCUMENTS_BUCKET-backup" --user "$$MINIO_BACKUP_ACCESS_KEY"
-    # mc runs as root and saves its configuration under /root (mode 550):
-    # DAC_OVERRIDE. Also the client of backup.sh and restore.sh.
+        mc admin user info enma "$$MINIO_APP_ACCESS_KEY" >/dev/null 2>&1 ||
+          mc admin user add enma "$$MINIO_APP_ACCESS_KEY" "$$MINIO_APP_SECRET_KEY"
+        mc admin policy attach enma "$$DOCUMENTS_BUCKET-app" --user "$$MINIO_APP_ACCESS_KEY"
+        mc admin user add enma "$$MINIO_APP_ACCESS_KEY" "$$MINIO_APP_SECRET_KEY"
+    # Also the client of backup.sh and restore.sh.
     cap_drop:
       - ALL
-    cap_add:
-      - DAC_OVERRIDE
     security_opt:
       - no-new-privileges:true
     logging: *default-logging
