@@ -20,8 +20,8 @@ public sealed class E2EStack : IAsyncLifetime
 {
     private const string MigratorRole = "enma_e2e_migrator";
     private const string AppRole = "enma_e2e_app";
-    private const string PostgreSqlImage = "postgres:18-alpine";
-    private const string MailpitImage = "axllent/mailpit:v1.30.7";
+    private const string PostgreSqlImage = "postgres:18.6-alpine3.24@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873";
+    private const string MailpitImage = "axllent/mailpit:v1.30.7@sha256:d5ecbb067db3705fa953d79e1b7f81ef84038df67aba6c52825d8c02a1ea748a";
     private const string MinioImage = "docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46";
     private const ushort MailpitSmtpPort = 1025;
     private const ushort MailpitApiPort = 8025;

@@ -475,7 +475,9 @@ if ($caddyfile -notmatch 'Strict-Transport-Security' -or
 foreach ($required in @(
     "default-src 'self'", "script-src 'self';", "object-src 'none'",
     "base-uri 'self'", "frame-ancestors 'none'", "connect-src 'self'",
-    "X-Content-Type-Options", "Referrer-Policy", "-Server", "header_up -X-Forwarded-Host")) {
+    "X-Content-Type-Options", "Referrer-Policy", "-Server", "header_up -X-Forwarded-Host",
+    "Permissions-Policy `"", "camera=()", "microphone=()", "geolocation=()", "payment=()", "usb=()",
+    "Cross-Origin-Opener-Policy `"same-origin`"", "Cross-Origin-Resource-Policy `"same-origin`"")) {
     if ($shared.IndexOf($required, [System.StringComparison]::Ordinal) -lt 0) {
         throw "Shared Caddy configuration is missing '$required'."
     }

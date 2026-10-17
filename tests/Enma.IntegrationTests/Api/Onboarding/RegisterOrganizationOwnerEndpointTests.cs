@@ -11,6 +11,8 @@ using Enma.Infrastructure.Persistence;
 using Enma.Infrastructure.Security;
 using Enma.IntegrationTests.Api;
 using Enma.IntegrationTests.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -26,6 +28,13 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
 {
     private const string SyntheticPassword = "HttpTest!Owner42";
     private const string InvalidSyntheticPassword = "Short!7";
+    // Mirrors the per-IP recipient-token policy shared with invited registration.
+    private const int RegistrationRateLimit = 20;
+    private const string TestClientIpHeader = "X-Test-Client-Ip";
+    private static readonly IPAddress FirstClientAddress =
+        IPAddress.Parse("198.51.100.10");
+    private static readonly IPAddress SecondClientAddress =
+        IPAddress.Parse("203.0.113.10");
     private const string SafeDuplicateEmailMessage =
         "A user with the provided email already exists.";
     private const string RequestPath = "/api/onboarding/register";
@@ -884,6 +893,83 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
         await AssertAllTablesEmptyAsync();
     }
 
+    [Fact]
+    public async Task Post_RequestBeyondLimitFromSameClient_IsRejectedBeforeAnyMutation()
+    {
+        for (int requestNumber = 1; requestNumber <= RegistrationRateLimit; requestNumber++)
+        {
+            using HttpResponseMessage admitted = await client.PostAsJsonAsync(
+                RequestPath,
+                CreateValidRequest(password: InvalidSyntheticPassword));
+
+            Assert.Equal(HttpStatusCode.BadRequest, admitted.StatusCode);
+        }
+
+        using HttpResponseMessage rejected = await client.PostAsJsonAsync(
+            RequestPath,
+            CreateValidRequest());
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
+        Assert.True(rejected.Headers.CacheControl?.NoStore);
+        Assert.Equal(string.Empty, await rejected.Content.ReadAsStringAsync());
+        Assert.Equal(0, compromisedPasswordChecker.CallCount);
+        Assert.Equal(0, emailVerificationDelivery.CallCount);
+        await AssertAllTablesEmptyAsync();
+    }
+
+    [Fact]
+    public async Task Post_RateLimit_IsPartitionedByClientIp()
+    {
+        await using WebApplicationFactory<Program> clientIpFactory =
+            testFactory.WithWebHostBuilder(builder =>
+                builder.ConfigureTestServices(services =>
+                    services.AddSingleton<IStartupFilter, TestClientIpStartupFilter>()));
+        using HttpClient clientIpClient = clientIpFactory.CreateClient(
+            new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("https://localhost")
+            });
+
+        for (int requestNumber = 1; requestNumber <= RegistrationRateLimit; requestNumber++)
+        {
+            using HttpResponseMessage admitted = await PostFromClientAsync(
+                clientIpClient,
+                FirstClientAddress,
+                CreateValidRequest(password: InvalidSyntheticPassword));
+
+            Assert.Equal(HttpStatusCode.BadRequest, admitted.StatusCode);
+        }
+
+        using HttpResponseMessage rejected = await PostFromClientAsync(
+            clientIpClient,
+            FirstClientAddress,
+            CreateValidRequest());
+        using HttpResponseMessage otherClient = await PostFromClientAsync(
+            clientIpClient,
+            SecondClientAddress,
+            CreateValidRequest());
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, rejected.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, otherClient.StatusCode);
+        await using EnmaDbContext dbContext = fixture.CreateDbContext();
+        Assert.Equal(1, await dbContext.Organizations.CountAsync());
+        Assert.Equal(1, await dbContext.Users.CountAsync());
+    }
+
+    private static async Task<HttpResponseMessage> PostFromClientAsync(
+        HttpClient httpClient,
+        IPAddress clientAddress,
+        RegisterOrganizationOwnerRequest request)
+    {
+        using HttpRequestMessage message = new(HttpMethod.Post, RequestPath)
+        {
+            Content = JsonContent.Create(request)
+        };
+        message.Headers.Add(TestClientIpHeader, clientAddress.ToString());
+
+        return await httpClient.SendAsync(message);
+    }
+
     private static RegisterOrganizationOwnerRequest CreateValidRequest(
         string organizationName = "  Enma Legal  ",
         string organizationSlug = "  ENMA-LEGAL  ",
@@ -1054,6 +1140,30 @@ public sealed class RegisterOrganizationOwnerEndpointTests : IAsyncLifetime
             RawToken = null;
             InvitationToken = null;
             Result = EmailVerificationDeliveryResult.Delivered;
+        }
+    }
+
+    // Test-only stand-in for distinct client peers; runs ahead of the rate limiter.
+    private sealed class TestClientIpStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(
+            Action<IApplicationBuilder> next)
+        {
+            return application =>
+            {
+                application.Use(async (context, nextMiddleware) =>
+                {
+                    if (IPAddress.TryParse(
+                            context.Request.Headers[TestClientIpHeader],
+                            out IPAddress? clientAddress))
+                    {
+                        context.Connection.RemoteIpAddress = clientAddress;
+                    }
+
+                    await nextMiddleware();
+                });
+                next(application);
+            };
         }
     }
 

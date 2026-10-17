@@ -40,7 +40,7 @@ public sealed class DevelopmentOwnerOnboardingEmailVerificationEndToEndTests
 {
     private const ushort SmtpContainerPort = 1025;
     private const ushort ApiContainerPort = 8025;
-    private const string MailpitImage = "axllent/mailpit:v1.30.7";
+    private const string MailpitImage = TestContainerImages.Mailpit;
     private const string OnboardingPath = "/api/onboarding/register";
     private const string InvitedOnboardingPath = "/api/onboarding/register-invited";
     private const string LoginPath = "/api/auth/login";

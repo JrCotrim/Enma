@@ -18,7 +18,7 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
     public const string MigratorRole = "enma_tests_migrator";
     public const string AppRole = "enma_tests_app";
 
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18-alpine")
+    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder(TestContainerImages.PostgreSql)
         .WithDatabase("enma_integration_tests")
         .WithUsername("enma_tests")
         .WithPassword("enma_tests_password")

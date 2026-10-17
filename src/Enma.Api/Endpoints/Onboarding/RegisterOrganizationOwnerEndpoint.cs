@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Enma.Api.Contracts.Onboarding;
+using Enma.Api.Endpoints.Organizations;
 using Enma.Application.Onboarding.RegisterOrganizationOwner;
 using Enma.Application.Organizations.Create;
 using Enma.Application.Security;
@@ -111,7 +112,10 @@ public static class RegisterOrganizationOwnerEndpoint
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
-            .ProducesProblem(StatusCodes.Status500InternalServerError);
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status500InternalServerError)
+            .RequireRateLimiting(
+                OrganizationInvitationEndpoints.RecipientTokenRateLimitPolicy);
 
         return endpoints;
     }

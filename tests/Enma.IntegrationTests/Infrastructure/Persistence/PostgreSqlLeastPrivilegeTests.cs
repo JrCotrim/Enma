@@ -32,7 +32,7 @@ public sealed class PostgreSqlLeastPrivilegeFixture : IAsyncLifetime
 
     public PostgreSqlLeastPrivilegeFixture()
     {
-        Container = new PostgreSqlBuilder("postgres:18-alpine")
+        Container = new PostgreSqlBuilder(TestContainerImages.PostgreSql)
             .WithDatabase("enma_privileges")
             .WithUsername(BootstrapUser)
             .WithPassword(CreateSecret())

@@ -15,6 +15,7 @@ export type RegistrationResult =
   | 'compromisedPassword'
   | 'conflict'
   | 'unavailable'
+  | 'rateLimited'
   | 'failure'
 
 export interface RegistrationInput {
@@ -64,6 +65,8 @@ export async function registerOrganizationOwner(
         return (await readProblemCode(response)) === 'organization_slug_conflict'
           ? 'slugConflict'
           : 'conflict'
+      case 429:
+        return 'rateLimited'
       case 503:
         return 'unavailable'
       default:

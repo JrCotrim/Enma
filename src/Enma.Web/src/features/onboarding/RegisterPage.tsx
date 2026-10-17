@@ -37,6 +37,7 @@ const registrationMessages: Record<
   slugConflict: 'Este nome curto já está em uso. Escolha outro.',
   conflict: 'Não foi possível criar a conta com os dados informados.',
   unavailable: 'A validação da senha está indisponível. Tente novamente mais tarde.',
+  rateLimited: 'Muitas tentativas. Aguarde um pouco e tente novamente.',
   failure: 'Não foi possível criar a conta agora. Tente novamente mais tarde.',
 }
 

@@ -31,7 +31,7 @@ public sealed class OwnerOnboardingEmailVerificationEndToEndTests
 {
     private const ushort SmtpContainerPort = 1025;
     private const ushort ApiContainerPort = 8025;
-    private const string MailpitImage = "axllent/mailpit:v1.30.7";
+    private const string MailpitImage = TestContainerImages.Mailpit;
     private const string OnboardingPath = "/api/onboarding/register";
     private const string ResendPath = "/api/auth/email-verification/resend";
     private const string VerifyPath = "/api/auth/email-verification/verify";

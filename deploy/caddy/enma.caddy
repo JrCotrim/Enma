@@ -8,12 +8,18 @@
 #   form-action https://accounts.google.com - POST /api/auth/google/start
 #                    redirects the form submission to Google's authorization
 #                    endpoint.
+# Permissions-Policy denies device and payment features the UI never uses.
+# COOP/CORP same-origin hold because Google sign-in is a full-page redirect
+# (no popup or opener) and every asset, preview and download is same-origin.
 (enma_security_headers) {
 	header {
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "same-origin"
+		Permissions-Policy "accelerometer=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
 		-Server
 		-Via
 	}

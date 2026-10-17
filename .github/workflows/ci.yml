@@ -108,6 +108,13 @@ jobs:
         working-directory: src/Enma.Web
         run: npm audit --omit=dev --audit-level=high
 
+      # Informational only (L11): development dependencies never reach the
+      # shipped build, so their findings are reported without failing the job.
+      - name: npm audit including dev dependencies (informational)
+        working-directory: src/Enma.Web
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
       - name: NuGet audit (fails on high or critical)
         run: |
           report="$RUNNER_TEMP/nuget-vulnerable.json"

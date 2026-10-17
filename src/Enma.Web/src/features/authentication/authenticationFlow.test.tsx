@@ -356,6 +356,29 @@ describe('authentication flow', () => {
     )
   })
 
+  it('Registration_RateLimited_ShowsRetryLaterByStatusAndKeepsFields', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(response(401))
+        .mockResolvedValueOnce(response(200, { google: false }))
+        .mockResolvedValueOnce(response(429)),
+    )
+    renderRoute('/register')
+
+    await screen.findByRole('heading', { name: 'Criar conta' })
+    fillAndSubmitRegistration()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Muitas tentativas. Aguarde um pouco e tente novamente.',
+    )
+    expect(screen.getByLabelText('Nome curto da organização')).toHaveValue(
+      'enma-legal',
+    )
+    expect(screen.getByRole('button', { name: 'Criar conta' })).toBeEnabled()
+  })
+
   it('Registration_GoogleProfileRequired_CollectsOnlyMissingName', async () => {
     const fetchMock = vi
       .fn()

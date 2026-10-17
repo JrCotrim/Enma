@@ -12,7 +12,7 @@ public sealed class MailpitPasswordRecoveryDeliveryTests : IAsyncLifetime
     private const ushort SmtpPort = 1025;
     private const ushort ApiPort = 8025;
     private const string Token = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno-_";
-    private readonly IContainer container = new ContainerBuilder("axllent/mailpit:v1.30.7")
+    private readonly IContainer container = new ContainerBuilder(TestContainerImages.Mailpit)
         .WithPortBinding(SmtpPort, true)
         .WithPortBinding(ApiPort, true)
         .WithCreateParameterModifier(LoopbackPortBindings.Apply)
