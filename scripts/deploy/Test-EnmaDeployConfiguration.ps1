@@ -224,6 +224,49 @@ function Get-ModelOutsideEdge {
     return $copy | ConvertTo-Json -Depth 32 -Compress
 }
 
+# M4: every service drops all capabilities, adds back exactly the ones listed
+# here (each proven necessary; see deploy/compose.yaml) and runs with
+# no-new-privileges and nothing else in security_opt. A service without an
+# entry fails, so a new service must be hardened before it renders.
+$allowedCapabilities = @{
+    "postgres" = @("CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID")
+    "minio" = @()
+    "minio-bootstrap" = @("DAC_OVERRIDE")
+    "migrate" = @()
+    "api" = @()
+    "caddy" = @("NET_BIND_SERVICE")
+}
+function Assert-ContainerHardening {
+    param([Parameter(Mandatory = $true)]$Model)
+
+    foreach ($service in $Model.services.PSObject.Properties) {
+        $name = $service.Name
+        $definition = $service.Value
+        if (-not $allowedCapabilities.ContainsKey($name)) {
+            throw "Service '$name' has no capability allowlist."
+        }
+        $property = $definition.PSObject.Properties["cap_drop"]
+        $drop = if ($null -eq $property) { "" } else { @($property.Value) -join "," }
+        if ($drop -cne "ALL") {
+            throw "Service '$name' must drop ALL capabilities."
+        }
+        $property = $definition.PSObject.Properties["cap_add"]
+        $add = if ($null -eq $property) { "" } else { @($property.Value | Sort-Object) -join "," }
+        if ($add -cne ($allowedCapabilities[$name] -join ",")) {
+            throw "Service '$name' must add back exactly its allowed capabilities ($($allowedCapabilities[$name] -join ', '))."
+        }
+        $property = $definition.PSObject.Properties["security_opt"]
+        $options = if ($null -eq $property) { "" } else { @($property.Value) -join "," }
+        if ($options -cne "no-new-privileges:true") {
+            throw "Service '$name' must run with no-new-privileges:true as its only security option."
+        }
+        $property = $definition.PSObject.Properties["privileged"]
+        if ($null -ne $property -and $property.Value -eq $true) {
+            throw "Service '$name' must not be privileged."
+        }
+    }
+}
+
 # A negative case must be rejected, and for the expected reason.
 function Assert-Rejected {
     param(
@@ -680,10 +723,37 @@ if (@($model.services.migrate.profiles) -notcontains "migrate") {
 if ($model.networks.backend.internal -ne $true) {
     throw "The backend network must be internal."
 }
+Assert-ContainerHardening -Model $model
+$modelJson = $model | ConvertTo-Json -Depth 32
+$noDrop = $modelJson | ConvertFrom-Json
+$noDrop.services.minio.PSObject.Properties.Remove("cap_drop")
+$extraCapability = $modelJson | ConvertFrom-Json
+$extraCapability.services.caddy.cap_add += "SYS_ADMIN"
+$noNewPrivileges = $modelJson | ConvertFrom-Json
+$noNewPrivileges.services.postgres.PSObject.Properties.Remove("security_opt")
+$unconfined = $modelJson | ConvertFrom-Json
+$unconfined.services.api.security_opt += "seccomp=unconfined"
+$privileged = $modelJson | ConvertFrom-Json
+$privileged.services.'minio-bootstrap' | Add-Member -NotePropertyName privileged -NotePropertyValue $true
+$newService = $modelJson | ConvertFrom-Json
+$newService.services | Add-Member -NotePropertyName extra -NotePropertyValue ($model.services.minio | ConvertTo-Json -Depth 32 | ConvertFrom-Json)
+$hardeningNegatives = [ordered]@{
+    "a service keeps the default capabilities" = @($noDrop, "must drop ALL capabilities")
+    "a capability outside the allowlist" = @($extraCapability, "exactly its allowed capabilities")
+    "no-new-privileges removed" = @($noNewPrivileges, "no-new-privileges:true as its only security option")
+    "seccomp unconfined" = @($unconfined, "no-new-privileges:true as its only security option")
+    "a privileged service" = @($privileged, "must not be privileged")
+    "a new service without an allowlist" = @($newService, "has no capability allowlist")
+}
+foreach ($case in $hardeningNegatives.Keys) {
+    $candidate, $expected = $hardeningNegatives[$case]
+    Assert-Rejected -Case $case -Expected $expected -Check { Assert-ContainerHardening -Model $candidate }
+}
 
 # D-B/D-C: the tailnet override changes only Caddy's ports and mounts.
 $tailnetModel = Invoke-ComposeRender -Values $tailnetValues -Tailnet
 Assert-TailnetEdge -Model $tailnetModel -Values $tailnetValues
+Assert-ContainerHardening -Model $tailnetModel
 if ((Get-ModelOutsideEdge -Model $tailnetModel) -cne (Get-ModelOutsideEdge -Model $model)) {
     throw "The tailnet override changes more than Caddy's ports and mounts."
 }

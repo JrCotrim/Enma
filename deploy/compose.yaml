@@ -49,6 +49,18 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+    # The entrypoint runs as root: CHOWN for the data directory of a new
+    # volume, DAC_OVERRIDE to walk an existing one (mode 700, owned by
+    # postgres), SETUID/SETGID for gosu.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
     logging: *default-logging
 
   minio:
@@ -69,6 +81,10 @@ services:
       timeout: 5s
       retries: 12
       start_period: 5s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     logging: *default-logging
 
   # One-shot: creates the private bucket, the restricted application identity
@@ -106,6 +122,14 @@ services:
         mc admin user rm enma "$$MINIO_BACKUP_ACCESS_KEY" >/dev/null 2>&1 || true
         mc admin user add enma "$$MINIO_BACKUP_ACCESS_KEY" "$$MINIO_BACKUP_SECRET_KEY"
         mc admin policy attach enma "$$DOCUMENTS_BUCKET-backup" --user "$$MINIO_BACKUP_ACCESS_KEY"
+    # mc runs as root and saves its configuration under /root (mode 550):
+    # DAC_OVERRIDE. Also the client of backup.sh and restore.sh.
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
     logging: *default-logging
 
   # D14: one-shot migrations bundle. Runs only on demand
@@ -190,6 +214,15 @@ services:
     networks:
       edge:
         ipv4_address: ${ENMA_EDGE_PROXY_IP:-10.247.31.2}
+    # The image's caddy binary carries the file capability
+    # cap_net_bind_service=ep, so the kernel refuses to exec it unless
+    # NET_BIND_SERVICE stays in the bounding set.
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
     logging: *default-logging
 
 networks:

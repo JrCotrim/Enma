@@ -188,6 +188,32 @@ if ($null -ne $docker) {
     if ($model.networks.backend.internal -ne $true) {
         throw "The Pilot backend network must be internal."
     }
+    # M4: the services of the shared compose.yaml keep its hardening: all
+    # capabilities dropped, exactly these added back, no-new-privileges.
+    # Mailpit, defined only by the Pilot, is the one exception.
+    $allowedCapabilities = @{
+        "postgres" = @("CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID")
+        "minio" = @()
+        "minio-bootstrap" = @("DAC_OVERRIDE")
+        "migrate" = @()
+        "api" = @()
+        "caddy" = @("NET_BIND_SERVICE")
+    }
+    foreach ($service in $model.services.PSObject.Properties) {
+        if ($service.Name -ceq "mailpit") { continue }
+        if (-not $allowedCapabilities.ContainsKey($service.Name)) {
+            throw "Pilot service '$($service.Name)' has no capability allowlist."
+        }
+        $properties = $service.Value.PSObject.Properties
+        $drop = if ($null -eq $properties["cap_drop"]) { "" } else { @($properties["cap_drop"].Value) -join "," }
+        $add = if ($null -eq $properties["cap_add"]) { "" } else { @($properties["cap_add"].Value | Sort-Object) -join "," }
+        $options = if ($null -eq $properties["security_opt"]) { "" } else { @($properties["security_opt"].Value) -join "," }
+        if ($drop -cne "ALL" -or $add -cne ($allowedCapabilities[$service.Name] -join ",") -or
+            $options -cne "no-new-privileges:true" -or
+            ($null -ne $properties["privileged"] -and $properties["privileged"].Value -eq $true)) {
+            throw "Pilot service '$($service.Name)' lost the capability hardening of compose.yaml."
+        }
+    }
     if ($model.services.api.environment.EmailVerification__DevelopmentDelivery__SmtpHost -cne "mailpit") {
         throw "The Pilot API must reach Mailpit by its service name."
     }
