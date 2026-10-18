@@ -80,6 +80,33 @@ public sealed class SeededSession : IDisposable
                 $"POST {path} returned no id."));
     }
 
+    // Protected multipart POST (a document upload) that answers 201 with the
+    // new resource's id.
+    public async Task<Guid> UploadAsync(string path, HttpContent content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = content
+        };
+        request.Headers.Add(CsrfHeaderName, await GetCsrfTokenAsync());
+
+        using HttpResponseMessage response = await httpClient.SendAsync(request);
+        string body = await response.Content.ReadAsStringAsync();
+
+        if (response.StatusCode != HttpStatusCode.Created)
+        {
+            throw new InvalidOperationException(
+                $"POST {path} returned {(int)response.StatusCode}, expected 201.");
+        }
+
+        return Guid.Parse(
+            JsonNode.Parse(body)?["id"]?.GetValue<string>()
+            ?? throw new InvalidOperationException(
+                $"POST {path} returned no id."));
+    }
+
     public async Task<T> GetFromJsonAsync<T>(string path)
     {
         return await httpClient.GetFromJsonAsync<T>(path)

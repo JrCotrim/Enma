@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Playwright;
 
 namespace Enma.E2ETests.Infrastructure;
@@ -31,6 +32,22 @@ public sealed class SeededMember : IDisposable
         return session.CreateAsync(
             $"api/organizations/{OrganizationId:D}/clients",
             new { name, email = (string?)null, phone = (string?)null, cpf = (string?)null });
+    }
+
+    // A protected write that must answer exactly the expected status, for
+    // checking the server boundary behind a control the UI hides.
+    public Task SendAsync(
+        HttpMethod method,
+        string path,
+        object? body,
+        HttpStatusCode expectedStatus)
+    {
+        return session.SendAsync(
+            method,
+            path,
+            body,
+            expectedStatus,
+            withCsrfToken: true);
     }
 
     public Task AuthenticateAsync(IBrowserContext context)

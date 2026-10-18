@@ -99,6 +99,21 @@ public sealed class SeededOwner : IDisposable
             withCsrfToken: true);
     }
 
+    // A general (unclassified) document, uploaded as the UI would.
+    public async Task<Guid> UploadDocumentAsync(
+        string fileName,
+        string contentType,
+        byte[] content)
+    {
+        using var file = new ByteArrayContent(content);
+        file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        using var form = new MultipartFormDataContent { { file, "file", fileName } };
+
+        return await session.UploadAsync(
+            $"api/organizations/{OrganizationId:D}/documents",
+            form);
+    }
+
     public Task<ObservedResponse> ObserveAsync(string path)
     {
         return session.ObserveAsync(path);

@@ -48,6 +48,21 @@ dotnet test tests/Enma.E2ETests
   each test builds its own state through the API with unique synthetic
   identities; nothing is reset between tests.
 
+## Journeys
+
+| Id  | Class                             | Covers |
+| --- | --------------------------------- | ------ |
+| J1  | `OwnerAccountJourneyTests`        | Register, verify by e-mail, sign in and out. |
+| J2  | `MemberInvitationJourneyTests`    | Invite a Member, join from the e-mail; processes stay read-only. |
+| J3  | `LegalWorkJourneyTests`           | Clients (CPF/CNPJ), a process and a deadline, completed. |
+| J4  | `TaskAndAgendaJourneyTests`       | A task for another member, completed and reopened; a calendar event on the browser's day (America/Sao_Paulo, checked against the stored UTC instant), edited and deleted; a plain Member sees both with no control to change them and gets 403 from the API. |
+| J5  | `DocumentJourneyTests`            | Upload of an in-memory PNG and PDF (name, type, size), preview, byte-identical download (SHA-256), a malformed PDF and an unsupported type refused with nothing new listed, deletion; another organization's document is indistinguishable from a missing one. |
+| J6  | `PaymentReversalJourneyTests`     | An installment marked paid, then the payment undone. |
+| J7  | `AuditLogJourneyTests`            | Audit log actor names and event labels. |
+| J8  | `OwnershipTransferJourneyTests`   | Ownership handed to an Administrator. |
+| J9  | `TenantIsolationJourneyTests`     | Another tenant's organization and client look missing. |
+| J10 | `MobileLayoutJourneyTests`        | Login and dashboard without horizontal overflow at 375×812. |
+
 The host start-up time is reported as a diagnostic message:
 
 ```bash
