@@ -1,130 +1,133 @@
 # ENMA
 
-Multi-tenant SaaS for managing Brazilian law firms: clients, legal processes,
-deadlines, tasks, agenda, documents and billing in one workspace per firm.
+English version: [README.en.md](README.en.md)
 
-**Status:** pre-release, being prepared for a private pilot. The user interface
-is in Brazilian Portuguese.
+SaaS multi-tenant de gestão para escritórios de advocacia brasileiros: clientes,
+processos, prazos, tarefas, agenda, documentos e financeiro em um espaço de
+trabalho por escritório.
+
+**Status:** pre-release, em preparação para um piloto privado. A interface é em
+português do Brasil.
 
 [![CI](https://github.com/JrCotrim/Enma/actions/workflows/ci.yml/badge.svg)](https://github.com/JrCotrim/Enma/actions/workflows/ci.yml)
 [![CI heavy](https://github.com/JrCotrim/Enma/actions/workflows/ci-heavy.yml/badge.svg)](https://github.com/JrCotrim/Enma/actions/workflows/ci-heavy.yml)
 
 ## Screenshots
 
-All data shown is fictitious, created only for these screenshots.
+Todos os dados exibidos são fictícios, criados apenas para estas imagens.
 
-| Dashboard | Processes |
+| Visão geral | Processos |
 | --- | --- |
-| ![Dashboard](docs/images/dashboard.png) | ![Processes](docs/images/processes.png) |
-| **Deadlines** | **Agenda** |
-| ![Deadlines](docs/images/deadlines.png) | ![Agenda](docs/images/agenda.png) |
+| ![Visão geral](docs/images/dashboard.png) | ![Processos](docs/images/processes.png) |
+| **Prazos** | **Agenda** |
+| ![Prazos](docs/images/deadlines.png) | ![Agenda](docs/images/agenda.png) |
 
-## Features
+## Funcionalidades
 
-- **Organizations (tenants):** owner sign-up with e-mail verification; every firm's data is isolated.
-- **Members and roles:** Owner, Administrator and Member, with deactivation and role changes.
-- **Invitations:** e-mail invitations to join an organization, with resend and revoke.
-- **Clients:** individuals (CPF) and companies (CNPJ), with deactivation and reactivation.
-- **Legal processes:** number, court, status and responsible member.
-- **Deadlines:** due dates per process, with a responsible member, completion and reopening.
-- **Tasks:** assigned to members, optionally linked to a process.
-- **Agenda:** monthly view of deadlines, tasks and calendar events.
-- **Documents:** private upload, in-browser preview and download, linked to a client or process.
-- **In-app notifications:** deadlines and tasks due soon, upcoming events and installments due today.
-- **Audit log:** who did what, with the acting member's name.
-- **Finance:** payment plans in installments, with payment marking and undo.
-- **Dashboard:** pending deadlines and tasks, upcoming events and the financial position.
-- **Ownership transfer:** the Owner hands the organization to an Administrator.
+- **Organizações (tenants):** cadastro do Owner com verificação de e-mail; os dados de cada escritório ficam isolados.
+- **Membros e papéis:** Owner, Administrator e Member, com desativação e troca de papel.
+- **Convites:** convites por e-mail para entrar na organização, com reenvio e revogação.
+- **Clientes:** pessoas físicas (CPF) e jurídicas (CNPJ), com desativação e reativação.
+- **Processos:** número, vara ou órgão, status e membro responsável.
+- **Prazos:** vencimentos por processo, com responsável, conclusão e reabertura.
+- **Tarefas:** atribuídas a membros, opcionalmente vinculadas a um processo.
+- **Agenda:** visão mensal de prazos, tarefas e eventos.
+- **Documentos:** upload privado, preview no navegador e download, vinculados a um cliente ou processo.
+- **Notificações in-app:** prazos e tarefas próximos do vencimento, eventos próximos e parcelas que vencem hoje.
+- **Auditoria:** quem fez o quê, com o nome do membro que agiu.
+- **Financeiro:** planos de pagamento parcelados, com baixa de pagamento e opção de desfazer.
+- **Dashboard:** prazos e tarefas pendentes, próximos eventos e a posição financeira.
+- **Transferência de propriedade:** o Owner transfere a organização para um Administrator.
 
-## Architecture
+## Arquitetura
 
-A layered ASP.NET Core application:
+Uma aplicação ASP.NET Core em camadas:
 
-- `src/Enma.Domain` — entities and business rules, with no framework dependencies.
-- `src/Enma.Application` — use cases, authorization decisions and abstractions.
-- `src/Enma.Infrastructure` — EF Core/PostgreSQL persistence, e-mail and object storage.
-- `src/Enma.Api` — thin Minimal API endpoints and composition.
-- `src/Enma.Web` — React + TypeScript single-page app built with Vite. In production the
-  API serves the build from the same origin, so the browser only calls relative `/api/...` URLs.
+- `src/Enma.Domain` — entidades e regras de negócio, sem dependência de frameworks.
+- `src/Enma.Application` — casos de uso, decisões de autorização e abstrações.
+- `src/Enma.Infrastructure` — persistência com EF Core/PostgreSQL, e-mail e object storage.
+- `src/Enma.Api` — endpoints Minimal API enxutos e composição.
+- `src/Enma.Web` — single-page app em React + TypeScript, com build pelo Vite. Em produção a
+  API serve o build na mesma origem, então o navegador só chama URLs relativas `/api/...`.
 
-Documents are stored in private S3-compatible object storage (Silo, a MinIO
-distribution); the database is PostgreSQL.
+Os documentos ficam em um object storage privado compatível com S3 (Silo, uma
+distribuição do MinIO); o banco de dados é PostgreSQL.
 
 ```mermaid
 flowchart LR
-    Browser["Browser"] -->|HTTPS| Caddy["Caddy edge<br/>TLS, security headers, CSP"]
-    Caddy -->|private network| Api["Enma.Api<br/>+ Enma.Web build"]
+    Browser["Navegador"] -->|HTTPS| Caddy["Edge Caddy<br/>TLS, headers de segurança, CSP"]
+    Caddy -->|rede privada| Api["Enma.Api<br/>+ build do Enma.Web"]
     Api --> Postgres[("PostgreSQL")]
-    Api --> Storage[("S3-compatible storage<br/>(Silo)")]
+    Api --> Storage[("Storage compatível com S3<br/>(Silo)")]
 ```
 
-## Security and multitenancy
+## Segurança e multi-tenancy
 
-- **Tenant isolation:** every tenant-owned query is scoped to the organization on the
-  server; another tenant's resource answers the same neutral 404 as a missing one, and
-  cross-tenant negative tests cover it.
-- **Current authorization state:** membership and role are read from the database on every
-  request, not trusted from the session cookie.
-- **Sessions:** `__Host-` prefixed cookies with antiforgery tokens on state-changing requests.
-- **Least-privilege database roles:** migrations run as a separate migrator role; the API role
-  has only DML, and the audit table is append-only (`SELECT`, `INSERT`).
-  Grants live in [`deploy/postgres/enma-roles.sql`](deploy/postgres/enma-roles.sql).
-- **Audit in the same transaction** as the change it records.
-- **Edge hardening:** security headers and a strict Content Security Policy at the Caddy edge.
-- **Containers:** all Linux capabilities dropped except the few a service needs, `no-new-privileges`, non-root API image,
-  base images pinned by digest.
-- **Rate limits** on sign-in, sign-up and invitation e-mail.
-- **Backups:** encrypted with `age` and uploaded off-site to a bucket with immutable (Object Lock)
-  retention.
+- **Isolamento entre tenants:** toda consulta a dados de um tenant é restrita à organização no
+  servidor; um recurso de outro tenant responde o mesmo 404 neutro de um recurso inexistente, e
+  testes negativos entre tenants cobrem isso.
+- **Autorização com estado atual:** membership e papel são lidos do banco a cada request, sem
+  confiar no cookie de sessão.
+- **Sessões:** cookies com prefixo `__Host-` e tokens antiforgery nas requests que alteram estado.
+- **Roles do banco com menor privilégio:** as migrations rodam com uma role de migração separada;
+  a role da API tem apenas DML, e a tabela de auditoria é append-only (`SELECT`, `INSERT`).
+  Os grants ficam em [`deploy/postgres/enma-roles.sql`](deploy/postgres/enma-roles.sql).
+- **Auditoria na mesma transação** da alteração que ela registra.
+- **Endurecimento do edge:** headers de segurança e uma Content Security Policy restritiva no Caddy.
+- **Containers:** todas as capabilities do Linux removidas, exceto as poucas que cada serviço
+  precisa, `no-new-privileges`, imagem da API sem root e imagens base fixadas por digest.
+- **Rate limits** no login, no cadastro e no envio de convites por e-mail.
+- **Backups:** criptografados com `age` e enviados para fora do servidor, para um bucket com
+  retenção imutável (Object Lock).
 
-## Tech stack
+## Stack
 
-| Area | Technology |
+| Área | Tecnologia |
 | --- | --- |
 | Backend | .NET 10 (SDK 10.0.401), ASP.NET Core Minimal APIs |
-| Persistence | EF Core 10, Npgsql, PostgreSQL 18.6 |
+| Persistência | EF Core 10, Npgsql, PostgreSQL 18.6 |
 | Frontend | React 19, TypeScript 6, Vite 8, React Router 7 |
-| Storage | S3-compatible object storage (Silo / MinIO client) |
-| Edge and deployment | Docker, Docker Compose, Caddy 2.11 |
-| Tests | xUnit, Testcontainers, Vitest, Testing Library, Playwright for .NET |
+| Storage | Object storage compatível com S3 (Silo / cliente MinIO) |
+| Edge e deploy | Docker, Docker Compose, Caddy 2.11 |
+| Testes | xUnit, Testcontainers, Vitest, Testing Library, Playwright para .NET |
 | CI | GitHub Actions |
 
-Toolchain versions are pinned in the [`Dockerfile`](Dockerfile) (Node.js 24.18.0, .NET SDK
-10.0.401), and CI reads them from there.
+As versões do toolchain são fixadas no [`Dockerfile`](Dockerfile) (Node.js 24.18.0, .NET SDK
+10.0.401), e o CI as lê de lá.
 
-## Getting started
+## Como rodar
 
-Development setup on Windows with PowerShell.
+Ambiente de desenvolvimento no Windows com PowerShell.
 
-Prerequisites:
+Pré-requisitos:
 
-- .NET SDK 10.0.401 or a later 10.0 SDK
-- Node.js 24 (24.18.0 in CI)
+- .NET SDK 10.0.401 ou um SDK 10.0 mais recente
+- Node.js 24 (24.18.0 no CI)
 - Docker Desktop
-- A trusted ASP.NET Core development certificate: `dotnet dev-certs https --trust`
+- Um certificado de desenvolvimento do ASP.NET Core confiável: `dotnet dev-certs https --trust`
 
-1. Prepare the local environment. The script creates `.env` from `.env.example` when it is
-   missing, starts PostgreSQL and the private object storage with Docker Compose, creates the
-   database roles, applies the EF Core migrations and stores the API settings in .NET User
-   Secrets. Run it on first setup and after pulling new migrations:
+1. Prepare o ambiente local. O script cria o `.env` a partir do `.env.example` quando ele não
+   existe, sobe o PostgreSQL e o object storage privado com Docker Compose, cria as roles do
+   banco, aplica as migrations do EF Core e grava as configurações da API nos User Secrets do
+   .NET. Rode na primeira configuração e depois de baixar migrations novas:
 
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\setup-local.ps1"
    ```
 
-2. Start the local services, including Mailpit for the e-mails sent by the app:
+2. Suba os serviços locais, incluindo o Mailpit para os e-mails enviados pela aplicação:
 
    ```powershell
    docker compose --env-file .env up -d
    ```
 
-3. Start the API (HTTPS on `https://localhost:7028`):
+3. Inicie a API (HTTPS em `https://localhost:7028`):
 
    ```powershell
    dotnet run --project ".\src\Enma.Api\Enma.Api.csproj" --launch-profile https
    ```
 
-4. In another terminal, start the web app:
+4. Em outro terminal, inicie o app web:
 
    ```powershell
    cd src\Enma.Web
@@ -132,24 +135,24 @@ Prerequisites:
    npm run dev
    ```
 
-Open the app at <http://localhost:5173> (Vite proxies `/api` to the API) and read the
-verification and invitation e-mails in Mailpit at <http://localhost:8025>.
-The API does not apply migrations on startup.
+Abra o app em <http://localhost:5173> (o Vite faz proxy de `/api` para a API) e leia os
+e-mails de verificação e de convite no Mailpit em <http://localhost:8025>.
+A API não aplica migrations na inicialização.
 
-## Testing
+## Testes
 
 ```powershell
-# Build and unit tests
+# Build e testes unitários
 powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\verify.ps1"
 
-# Also the integration tests (requires Docker)
+# Também os testes de integração (requer Docker)
 powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\verify.ps1" -IntegrationTests
 ```
 
-Integration tests run against real PostgreSQL, Mailpit and MinIO containers started by
-Testcontainers; they do not use `.env` or the Development services.
+Os testes de integração rodam contra containers reais de PostgreSQL, Mailpit e MinIO
+iniciados pelo Testcontainers; eles não usam o `.env` nem os serviços de desenvolvimento.
 
-Frontend lint, type check and tests:
+Lint, type check e testes do frontend:
 
 ```powershell
 cd src\Enma.Web
@@ -158,37 +161,37 @@ npm run typecheck
 npm run test:run
 ```
 
-End-to-end browser journeys (Playwright, Chromium) are opt-in and run over the real stack
-in disposable containers:
+As jornadas end-to-end no navegador (Playwright, Chromium) são opt-in e rodam sobre a stack
+real em containers descartáveis:
 
 ```powershell
 dotnet test tests/Enma.E2ETests
 ```
 
-They need a current `npm run build` of the web app and a one-time Chromium install; see
-[`tests/Enma.E2ETests/README.md`](tests/Enma.E2ETests/README.md).
+Elas precisam de um `npm run build` atualizado do app web e de uma instalação única do
+Chromium; veja [`tests/Enma.E2ETests/README.md`](tests/Enma.E2ETests/README.md).
 
-CI runs the build, unit tests, web checks and dependency audits on every push
-([`ci.yml`](.github/workflows/ci.yml)), and the integration and E2E suites on `main`
+O CI roda build, testes unitários, checks do frontend e auditoria de dependências a cada push
+([`ci.yml`](.github/workflows/ci.yml)), e as suítes de integração e E2E na `main`
 ([`ci-heavy.yml`](.github/workflows/ci-heavy.yml)).
 
-## Deployment
+## Deploy
 
-The target is a single VPS running Docker Compose: a Caddy edge in front of one API
-replica, PostgreSQL and the object storage, with database migrations run as a separate
-one-shot container. During the pilot the application is reachable only privately over
-Tailscale, and a daily encrypted backup is sent off-site. See the
-[production runbook](docs/operations/production-runbook.md), the
-[production topology](docs/deployment/production-topology.md), the
-[backup and restore guide](docs/operations/backup-restore.md) and the
-[beta release checklist](docs/deployment/beta-release-checklist.md).
+O alvo é uma única VPS com Docker Compose: um edge Caddy na frente de uma réplica da API,
+PostgreSQL e o object storage, com as migrations do banco executadas em um container
+separado de execução única. Durante o piloto, a aplicação fica acessível apenas de forma
+privada pelo Tailscale, e um backup diário criptografado é enviado para fora do servidor. Veja
+o [runbook de produção](docs/operations/production-runbook.md), a
+[topologia de produção](docs/deployment/production-topology.md), o
+[guia de backup e restore](docs/operations/backup-restore.md) e o
+[checklist de release beta](docs/deployment/beta-release-checklist.md).
 
-## Project status and roadmap
+## Status do projeto e roadmap
 
-- Core modules in place; preparing a first private pilot.
-- Next: document search and classification.
-- Next: external notifications (e-mail) for deadlines and assignments.
+- Módulos principais prontos; em preparação para um primeiro piloto privado.
+- Próximo: busca e classificação de documentos.
+- Próximo: notificações externas (e-mail) para prazos e atribuições.
 
-## License
+## Licença
 
-All rights reserved.
+Todos os direitos reservados.
